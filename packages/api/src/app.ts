@@ -17,14 +17,19 @@ import { createClassificationLabelsRouter } from "./routes/classificationLabels.
 import { createProjectPromptsRouter, createPromptsRouter } from "./routes/prompts.js";
 import { createApiKeysRouter } from "./routes/apiKeys.js";
 import { createJobSchedulesRouter, createSchedulesRouter } from "./routes/schedules.js";
+import { createJobRunsRouter, createRunsRouter } from "./routes/runs.js";
+import { createDashboardRouter } from "./routes/dashboard.js";
 import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js";
 import { createSettingsRouter } from "./routes/settings.js";
 import { createCostRatesRouter } from "./routes/costRates.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { createRunsQueue } from "./queue.js";
+import { parseRedisConnectionOptions } from "./redisConnection.js";
 
 export function createApp(config: AppConfig, logger: Logger): Express {
   const app = express();
   const redisClient = new Redis(config.REDIS_URL);
+  const runsQueue = createRunsQueue(parseRedisConnectionOptions(config.REDIS_URL));
 
   // Security headers baseline — REQUIREMENTS.md §10 (OWASP hardening).
   app.use(helmet());
@@ -58,8 +63,11 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/projects/:projectId/jobs", createProjectJobsRouter());
   app.use("/api/prompts", createPromptsRouter());
   app.use("/api/jobs/:jobId/schedules", createJobSchedulesRouter());
+  app.use("/api/jobs/:jobId/runs", createJobRunsRouter(runsQueue));
   app.use("/api/jobs", createJobsRouter());
   app.use("/api/schedules", createSchedulesRouter());
+  app.use("/api/runs", createRunsRouter());
+  app.use("/api/dashboard", createDashboardRouter());
   app.use("/api/users", createUsersRouter(config, logger));
   app.use("/api/classification-labels", createClassificationLabelsRouter());
   app.use("/api/api-keys", createApiKeysRouter(config));

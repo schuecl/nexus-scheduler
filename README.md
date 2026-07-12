@@ -279,6 +279,38 @@ though the payload's `status` field lets a receiver filter client-side.
     password), a `/reset-password?token=...` page, and the Admin Users
     panel gained "New Local User" and "Send password reset" actions.
 
+- **Run history and manual "Run Now" trigger** (§2.1/§8): the `Run`
+  model had been written to by the scheduler and read by the Worker's
+  processor since the original scaffold, but there was no API route to
+  list or view a `Run`, and no way to trigger a Job outside its schedule
+  — the Dashboard was a static placeholder. Now:
+  - `GET /api/jobs/:id/runs` (history, newest first) and
+    `POST /api/jobs/:id/runs` ("Run Now" — creates a `Run` with
+    `triggerType: MANUAL` and enqueues it with the same
+    attempts/exponential-backoff policy the scheduler itself uses) both
+    live behind `requireJobAccess`, same READ/EDIT split as everywhere
+    else. `GET /api/runs/:id` is the single-run detail route, behind a
+    new `requireRunAccess` middleware that resolves Run → Job → Project
+    the same way `requireScheduleAccess` resolves Schedule → Job →
+    Project.
+  - The API now enqueues into the *same* BullMQ queue the Worker
+    consumes. `RUNS_QUEUE_NAME`/`RunJobData` moved from
+    worker-only into `packages/shared/src/queue.ts` so the two packages
+    can't drift apart; the API gets its own `parseRedisConnectionOptions`
+    (mirroring the Worker's, for the same BullMQ-bundles-its-own-ioredis
+    reason) since it didn't previously depend on `bullmq` at all.
+  - `GET /api/dashboard` (§8: "Run counts, success/failure rates, and
+    upcoming schedules"): run counts by status, the 10 most recent runs,
+    and the 10 next schedules due to fire — all scoped to the Projects
+    the requesting user can actually see, via the same
+    `getAccessibleProjectIds()` used by the Prompt Library search.
+  - Frontend: a real `DashboardPage` (status counts, success rate,
+    recent runs, upcoming schedules) replacing the placeholder, and a
+    `RunHistoryDialog` (new "Runs" button next to "Schedules"/
+    "Webhooks" on each Job) showing run history with expandable
+    output/error detail and a "Run Now" button, polling every 5s so an
+    in-flight run's status updates without a manual refresh.
+
 Stubbed / not yet built: PDF report generation, per-user concurrency
 limiting (only the global limit is enforced today), Prometheus metrics,
 and syslog output. See REQUIREMENTS.md for the full feature set these

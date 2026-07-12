@@ -26,6 +26,7 @@ import { apiFetch } from "../api/client";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
 import { ScheduleManagerDialog } from "../components/ScheduleManagerDialog";
 import { JobWebhooksDialog } from "../components/JobWebhooksDialog";
+import { RunHistoryDialog } from "../components/RunHistoryDialog";
 import { VariableEditor, type PromptVariableDraft } from "../components/VariableEditor";
 
 interface ClassificationLabel {
@@ -380,6 +381,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
   const [createOpen, setCreateOpen] = useState(false);
   const [scheduleJob, setScheduleJob] = useState<Job | null>(null);
   const [webhooksJobId, setWebhooksJobId] = useState<string | null>(null);
+  const [runsJobId, setRunsJobId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [promptId, setPromptId] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -442,6 +444,9 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
             key={job.id}
             secondaryAction={
               <Stack direction="row" spacing={1}>
+                <Button size="small" onClick={() => setRunsJobId(job.id)}>
+                  Runs
+                </Button>
                 <Button size="small" onClick={() => setWebhooksJobId(job.id)}>
                   Webhooks
                 </Button>
@@ -539,6 +544,9 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
       )}
       {webhooksJobId && (
         <JobWebhooksDialog jobId={webhooksJobId} onClose={() => setWebhooksJobId(null)} />
+      )}
+      {runsJobId && (
+        <RunHistoryDialog jobId={runsJobId} canRun={canEdit} onClose={() => setRunsJobId(null)} />
       )}
     </Stack>
   );
