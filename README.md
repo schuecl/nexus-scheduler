@@ -369,15 +369,61 @@ own internal-only service, with its own Deployment/Service/NetworkPolicy
 in the Helm chart, is a reasonable following piece if the security
 review calls for it.
 
-Also not yet built: **email delivery of the run-report PDF** and
-**admin usage-report PDF export/recurring email** (§2.5's other two
-delivery paths) — both depend on a job-completion email feature that
-doesn't exist yet (only outbound *webhooks* were built for run
-notifications so far; email notification-on-completion is a separate,
-still-stubbed piece of §2.2).
+- **Job completion/failure email notifications, with PDF attachment**
+  (§2.2/§2.5): the Worker's `processor.ts` had an explicit `TODO` at the
+  exact point this was supposed to fire from, left by the PDF-rendering
+  round. Now closed:
+  - `Job` gained three columns — `notifyOnSuccess`, `notifyOnFailure`,
+    `attachPdfToEmail` — set via `PUT /api/jobs/:id/notifications`
+    (`requireJobAccess("EDIT")`, same convention as the webhooks
+    endpoint) and a new "Notify" button/dialog per Job, parallel to
+    "Webhooks."
+  - `packages/worker/src/notifications.ts`'s `sendRunNotificationEmail()`
+    fires from both the success and terminal-failure paths in
+    `processor.ts` (mirroring exactly where `deliverWebhooksForRun()`
+    already fires), sends to the **Job owner** (`createdBy.email`) per
+    §2.2's wording, and — if `attachPdfToEmail` is set — attaches the
+    same `renderRunReportPdf()` the on-demand download route uses,
+    replacing the inline output text rather than duplicating it in both
+    places. Best-effort and audited (`run.notify_email`), same posture
+    as webhook delivery: a failed send is logged/audited but never fails
+    the run or triggers a BullMQ retry, and a missing SMTP config is a
+    silent no-op rather than a hard error (most jobs won't opt in).
+  - `packages/worker/src/email.ts` is a second, Worker-side copy of the
+    API's `sendEmail()` (plus attachment support) — necessary duplication
+    since the API and Worker are separate deployable processes, each
+    with its own Prisma client, and there's no shared "server" package
+    either could depend on without pulling in the other's runtime.
+  - The Worker now also depends on `@nexus-scheduler/pdf`, so its
+    Dockerfile picked up the same `playwright install --with-deps
+    chromium` runtime-stage step as the API's, and its default Helm
+    memory request was bumped for the same reason.
 
-Stubbed / not yet built: job-completion email notifications, PDF email
-delivery / admin usage-report PDF export, an isolated PDF-renderer
-component, per-user concurrency limiting (only the global limit is
-enforced today), Prometheus metrics, and syslog output. See
-REQUIREMENTS.md for the full feature set these should implement.
+Known simplification: REQUIREMENTS §2.5 recommends the PDF renderer run
+as a fully isolated component — its own pod, no network egress by
+`NetworkPolicy`, independent crash-restart — separate from both the API
+and Worker. This round implements it as an in-process library inside
+both the API *and* Worker instead (ARCHITECTURE.md's container table
+already listed "in-process library or internal call" as an explicit
+alternative to a separate service). That's a real gap from the hardened
+target: a renderer bug takes down an API or Worker replica rather than
+an isolated component, and there's no `NetworkPolicy` yet actually
+enforcing "no egress" for it (nothing in this repo defines K8s
+`NetworkPolicy` resources at all yet, for any component). Splitting
+rendering into its own internal-only service, with its own Deployment/
+Service/NetworkPolicy in the Helm chart, is a reasonable following piece
+if the security review calls for it.
+
+Also not yet built: **admin usage-report PDF export / recurring usage
+report email** (§2.5's third delivery path — the §8 dashboard exported
+as PDF and emailed to admin-configured recipients on a schedule). Unlike
+the run-report PDF and job-completion email, this one has no existing
+consumer/producer gap to close — it needs its own admin UI, its own
+render template, and (for the recurring part) its own schedule concept
+independent of Job/Schedule.
+
+Stubbed / not yet built: admin usage-report PDF export and recurring
+report email, an isolated PDF-renderer component, per-user concurrency
+limiting (only the global limit is enforced today), Prometheus metrics,
+and syslog output. See REQUIREMENTS.md for the full feature set these
+should implement.

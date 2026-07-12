@@ -27,6 +27,7 @@ import { PromptDetailDialog } from "../components/PromptDetailDialog";
 import { ScheduleManagerDialog } from "../components/ScheduleManagerDialog";
 import { JobWebhooksDialog } from "../components/JobWebhooksDialog";
 import { RunHistoryDialog } from "../components/RunHistoryDialog";
+import { JobNotificationsDialog } from "../components/JobNotificationsDialog";
 import { VariableEditor, type PromptVariableDraft } from "../components/VariableEditor";
 
 interface ClassificationLabel {
@@ -365,6 +366,9 @@ interface Job {
   name: string;
   agentId: string;
   promptId: string;
+  notifyOnSuccess: boolean;
+  notifyOnFailure: boolean;
+  attachPdfToEmail: boolean;
 }
 
 interface ApiKeyOption {
@@ -382,6 +386,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
   const [scheduleJob, setScheduleJob] = useState<Job | null>(null);
   const [webhooksJobId, setWebhooksJobId] = useState<string | null>(null);
   const [runsJobId, setRunsJobId] = useState<string | null>(null);
+  const [notificationsJob, setNotificationsJob] = useState<Job | null>(null);
   const [name, setName] = useState("");
   const [promptId, setPromptId] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -449,6 +454,9 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                 </Button>
                 <Button size="small" onClick={() => setWebhooksJobId(job.id)}>
                   Webhooks
+                </Button>
+                <Button size="small" onClick={() => setNotificationsJob(job)}>
+                  Notify
                 </Button>
                 <Button size="small" onClick={() => setScheduleJob(job)}>
                   Schedules
@@ -547,6 +555,17 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
       )}
       {runsJobId && (
         <RunHistoryDialog jobId={runsJobId} canRun={canEdit} onClose={() => setRunsJobId(null)} />
+      )}
+      {notificationsJob && (
+        <JobNotificationsDialog
+          jobId={notificationsJob.id}
+          initial={{
+            notifyOnSuccess: notificationsJob.notifyOnSuccess,
+            notifyOnFailure: notificationsJob.notifyOnFailure,
+            attachPdfToEmail: notificationsJob.attachPdfToEmail,
+          }}
+          onClose={() => setNotificationsJob(null)}
+        />
       )}
     </Stack>
   );

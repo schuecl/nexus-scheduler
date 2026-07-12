@@ -23,6 +23,18 @@ export const updateJobSchema = z.object({
 });
 export type UpdateJobInput = z.infer<typeof updateJobSchema>;
 
+// Email notification to the Job owner on completion/failure (§2.2),
+// replaces the full set in one call — same convention as
+// setJobWebhooksSchema. attachPdfToEmail is meaningful only alongside
+// at least one notify flag; enforced in the UI, not here, since sending
+// it false-with-both-notify-flags-false is harmless, just a no-op.
+export const setJobNotificationsSchema = z.object({
+  notifyOnSuccess: z.boolean(),
+  notifyOnFailure: z.boolean(),
+  attachPdfToEmail: z.boolean(),
+});
+export type SetJobNotificationsInput = z.infer<typeof setJobNotificationsSchema>;
+
 // {{variable}} placeholders declared on a prompt version — REQUIREMENTS §2.3.
 export const promptVariableSchema = z.object({
   name: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/),

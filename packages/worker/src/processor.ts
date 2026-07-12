@@ -6,6 +6,7 @@ import { callAgent, LibreChatError } from "./librechatClient.js";
 import { renderPromptTemplate } from "./promptTemplate.js";
 import { computeCost } from "./costCalculator.js";
 import { deliverWebhooksForRun } from "./webhookDelivery.js";
+import { sendRunNotificationEmail } from "./notifications.js";
 import { recordAuditEvent } from "./audit.js";
 import type { Logger } from "./logger.js";
 import type { WorkerConfig } from "./config.js";
@@ -98,9 +99,7 @@ async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, lo
     });
 
     await deliverWebhooksForRun(runId, run.jobId, config, logger);
-
-    // TODO: §2.2 email/PDF-report delivery hooks fire from here once
-    // notification preferences and the PDF renderer (§2.5) exist.
+    await sendRunNotificationEmail(runId, run.jobId, config, logger);
   } catch (err) {
     const transient = err instanceof LibreChatError ? err.transient : true;
     const errorMessage = err instanceof Error ? err.message : "unknown error";
@@ -123,6 +122,7 @@ async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, lo
       });
 
       await deliverWebhooksForRun(runId, run.jobId, config, logger);
+      await sendRunNotificationEmail(runId, run.jobId, config, logger);
 
       if (!transient) {
         logger.warn({ runId, errorMessage }, "non-transient failure, not retrying");

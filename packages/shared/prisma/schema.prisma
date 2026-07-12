@@ -252,6 +252,13 @@ model Job {
   apiKey                ApiKey          @relation(fields: [apiKeyId], references: [id])
   timeoutSeconds         Int            @default(600) // default 10m, ceiling enforced in app logic (§2.1)
   maxRetries             Int            @default(2)
+  // Email notification to the Job owner on completion/failure, §2.2 —
+  // per-job configurable, independent of the admin-allow-listed webhook
+  // delivery above. attachPdfToEmail only has any effect if at least one
+  // of the notify flags is also set.
+  notifyOnSuccess        Boolean         @default(false)
+  notifyOnFailure        Boolean         @default(false)
+  attachPdfToEmail       Boolean         @default(false)
   createdById            String
   createdBy              User            @relation(fields: [createdById], references: [id])
   createdAt              DateTime        @default(now())

@@ -24,8 +24,11 @@ api:
 worker:
   replicaCount: 2
   healthPort: 3001
+  # Requests memory bumped (256Mi -> 384Mi) for the same reason as the
+  # API: a Job with attachPdfToEmail set (§2.2/§2.5) launches headless
+  # Chromium synchronously inside the run.
   resources:
-    requests: { cpu: "200m", memory: "256Mi" }
+    requests: { cpu: "200m", memory: "384Mi" }
     limits: { cpu: "1", memory: "1Gi" }
   # §2.1: worker replica count is the actual lever for concurrency beyond
   # the in-process GLOBAL_MAX_CONCURRENT_RUNS limit.

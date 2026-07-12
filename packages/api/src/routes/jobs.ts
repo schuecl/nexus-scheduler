@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createJobSchema, updateJobSchema, setJobWebhooksSchema } from "@nexus-scheduler/shared";
+import { createJobSchema, updateJobSchema, setJobWebhooksSchema, setJobNotificationsSchema } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
@@ -171,6 +171,35 @@ export function createJobsRouter(): Router {
     });
 
     res.status(204).send();
+  });
+
+  // Per-job email notification preferences (§2.2) — sent to the Job
+  // owner (createdBy) on completion/failure, independent of the
+  // admin-allow-listed webhook delivery above.
+  router.put("/:id/notifications", requireAuth, requireJobAccess("EDIT"), async (req, res) => {
+    const parsed = setJobNotificationsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+
+    const job = await prisma.job.update({ where: { id: req.params.id }, data: parsed.data });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "job.notifications.update",
+      targetType: "job",
+      targetId: job.id,
+      targetName: job.name,
+      result: "SUCCESS",
+      details: parsed.data,
+    });
+
+    res.json(job);
   });
 
   return router;
