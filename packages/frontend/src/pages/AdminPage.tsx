@@ -634,43 +634,149 @@ function CostRatesPanel() {
 // separate from, and with no effect on, the system-wide classification
 // banner, which isn't app-managed data at all (it's set once as part of
 // deployment configuration, not edited here).
+interface ClassificationLabelFormState {
+  text: string;
+  abbreviation: string;
+  badgeBgColor: string;
+  badgeTextColor: string;
+  sortOrder: number;
+  isDefault: boolean;
+}
+
+const BLANK_LABEL_FORM: ClassificationLabelFormState = {
+  text: "",
+  abbreviation: "",
+  badgeBgColor: "#b71c1c",
+  badgeTextColor: "#ffffff",
+  sortOrder: 0,
+  isDefault: false,
+};
+
+function ClassificationLabelFormFields({
+  form,
+  onChange,
+}: {
+  form: ClassificationLabelFormState;
+  onChange: (next: ClassificationLabelFormState) => void;
+}) {
+  return (
+    <Stack spacing={2} sx={{ mt: 1 }}>
+      <TextField
+        label="Text"
+        value={form.text}
+        onChange={(e) => onChange({ ...form, text: e.target.value })}
+        autoFocus
+        fullWidth
+      />
+      <TextField
+        label="Abbreviation (optional, shown on badge)"
+        value={form.abbreviation}
+        onChange={(e) => onChange({ ...form, abbreviation: e.target.value })}
+        fullWidth
+      />
+      <Stack direction="row" spacing={2}>
+        <TextField
+          label="Badge background color"
+          type="color"
+          value={form.badgeBgColor}
+          onChange={(e) => onChange({ ...form, badgeBgColor: e.target.value })}
+          fullWidth
+        />
+        <TextField
+          label="Badge text color"
+          type="color"
+          value={form.badgeTextColor}
+          onChange={(e) => onChange({ ...form, badgeTextColor: e.target.value })}
+          fullWidth
+        />
+      </Stack>
+      <TextField
+        label="Sort order"
+        type="number"
+        value={form.sortOrder}
+        onChange={(e) => onChange({ ...form, sortOrder: Number(e.target.value) })}
+        fullWidth
+      />
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={form.isDefault}
+            onChange={(e) => onChange({ ...form, isDefault: e.target.checked })}
+          />
+        }
+        label="Default for new Projects"
+      />
+    </Stack>
+  );
+}
+
 function ClassificationLabelsPanel() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [abbreviation, setAbbreviation] = useState("");
-  const [badgeBgColor, setBadgeBgColor] = useState("#b71c1c");
-  const [badgeTextColor, setBadgeTextColor] = useState("#ffffff");
-  const [sortOrder, setSortOrder] = useState(0);
-  const [isDefault, setIsDefault] = useState(false);
+  const [createForm, setCreateForm] = useState<ClassificationLabelFormState>(BLANK_LABEL_FORM);
+  const [editLabel, setEditLabel] = useState<ClassificationLabel | null>(null);
+  const [editForm, setEditForm] = useState<ClassificationLabelFormState>(BLANK_LABEL_FORM);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const labelsQuery = useQuery({
     queryKey: ["classification-labels"],
     queryFn: () => apiFetch<ClassificationLabel[]>("/api/classification-labels"),
   });
 
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["classification-labels"] });
+
   const createLabel = useMutation({
     mutationFn: () =>
       apiFetch("/api/classification-labels", {
         method: "POST",
-        body: JSON.stringify({
-          text,
-          abbreviation: abbreviation || undefined,
-          badgeBgColor,
-          badgeTextColor,
-          sortOrder,
-          isDefault,
-        }),
+        body: JSON.stringify({ ...createForm, abbreviation: createForm.abbreviation || undefined }),
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["classification-labels"] });
+      void invalidate();
       setCreateOpen(false);
-      setText("");
-      setAbbreviation("");
-      setSortOrder(0);
-      setIsDefault(false);
+      setCreateForm(BLANK_LABEL_FORM);
     },
   });
+
+  const updateLabel = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/classification-labels/${editLabel!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...editForm, abbreviation: editForm.abbreviation || undefined }),
+      }),
+    onSuccess: () => {
+      void invalidate();
+      setEditLabel(null);
+    },
+  });
+
+  const deleteLabel = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/classification-labels/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void invalidate();
+      setDeleteError(null);
+    },
+    onError: async (err: unknown) => {
+      // apiFetch throws a bare Error on non-2xx; the API's actual 409
+      // message (Project count still tagged with this label) is more
+      // useful than a generic "request failed."
+      if (err instanceof Error) {
+        setDeleteError(err.message);
+      }
+    },
+  });
+
+  const openEdit = (label: ClassificationLabel) => {
+    setEditLabel(label);
+    setEditForm({
+      text: label.text,
+      abbreviation: label.abbreviation ?? "",
+      badgeBgColor: label.badgeBgColor,
+      badgeTextColor: label.badgeTextColor,
+      sortOrder: label.sortOrder,
+      isDefault: label.isDefault,
+    });
+  };
 
   return (
     <Box>
@@ -685,9 +791,33 @@ function ClassificationLabelsPanel() {
         banner shown on every page.
       </Typography>
 
+      {deleteError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
+
       <List dense>
         {labelsQuery.data?.map((label) => (
-          <ListItem key={label.id} divider>
+          <ListItem
+            key={label.id}
+            divider
+            secondaryAction={
+              <Stack direction="row" spacing={1}>
+                <Button size="small" onClick={() => openEdit(label)}>
+                  Edit
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  disabled={deleteLabel.isPending}
+                  onClick={() => deleteLabel.mutate(label.id)}
+                >
+                  Delete
+                </Button>
+              </Stack>
+            }
+          >
             <ListItemText
               primary={
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -715,47 +845,33 @@ function ClassificationLabelsPanel() {
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Classification Label</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Text" value={text} onChange={(e) => setText(e.target.value)} autoFocus fullWidth />
-            <TextField
-              label="Abbreviation (optional, shown on badge)"
-              value={abbreviation}
-              onChange={(e) => setAbbreviation(e.target.value)}
-              fullWidth
-            />
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="Badge background color"
-                type="color"
-                value={badgeBgColor}
-                onChange={(e) => setBadgeBgColor(e.target.value)}
-                fullWidth
-              />
-              <TextField
-                label="Badge text color"
-                type="color"
-                value={badgeTextColor}
-                onChange={(e) => setBadgeTextColor(e.target.value)}
-                fullWidth
-              />
-            </Stack>
-            <TextField
-              label="Sort order"
-              type="number"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(Number(e.target.value))}
-              fullWidth
-            />
-            <FormControlLabel
-              control={<Checkbox checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />}
-              label="Default for new Projects"
-            />
-          </Stack>
+          <ClassificationLabelFormFields form={createForm} onChange={setCreateForm} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!text || createLabel.isPending} onClick={() => createLabel.mutate()}>
+          <Button
+            variant="contained"
+            disabled={!createForm.text || createLabel.isPending}
+            onClick={() => createLabel.mutate()}
+          >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!editLabel} onClose={() => setEditLabel(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Classification Label</DialogTitle>
+        <DialogContent>
+          <ClassificationLabelFormFields form={editForm} onChange={setEditForm} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditLabel(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editForm.text || updateLabel.isPending}
+            onClick={() => updateLabel.mutate()}
+          >
+            Save
           </Button>
         </DialogActions>
       </Dialog>

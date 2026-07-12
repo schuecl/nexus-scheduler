@@ -8,7 +8,20 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     ...init,
   });
   if (!response.ok) {
-    throw new Error(`Request to ${path} failed with ${response.status}`);
+    // Every route handler responds with { error: "..." } on failure —
+    // surface that specific message (e.g. "cannot delete — 2 Project(s)
+    // are currently tagged...") instead of just the status code, when
+    // the body actually parses as JSON with one.
+    let message = `Request to ${path} failed with ${response.status}`;
+    try {
+      const body = (await response.clone().json()) as { error?: unknown };
+      if (typeof body.error === "string" && body.error) {
+        message = body.error;
+      }
+    } catch {
+      // Non-JSON error body — fall back to the generic message above.
+    }
+    throw new Error(message);
   }
   if (response.status === 204) {
     return undefined as T;

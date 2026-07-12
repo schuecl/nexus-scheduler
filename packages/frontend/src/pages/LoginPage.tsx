@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Alert, Box, Button, Divider, Link as MuiLink, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Avatar, Box, Button, Divider, Link as MuiLink, Paper, Stack, TextField, Typography } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
+import { useSettings } from "../context/SettingsContext";
 import { apiFetch } from "../api/client";
 
 // Two paths, both always available: SSO (the standard path — CAC/PIV is
@@ -11,6 +12,7 @@ import { apiFetch } from "../api/client";
 // reject it.
 export function LoginPage() {
   const { user, login, localLogin } = useAuth();
+  const { settings } = useSettings();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +49,17 @@ export function LoginPage() {
     <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
       <Paper sx={{ p: 4, width: 400 }}>
         <Stack spacing={3}>
-          <Typography variant="h5" textAlign="center">
-            Sign in
-          </Typography>
+          <Stack spacing={1} alignItems="center">
+            {settings.logoUrl && (
+              <Avatar src={settings.logoUrl} variant="square" sx={{ width: 56, height: 56 }} />
+            )}
+            <Typography variant="h6" textAlign="center" color="text.secondary">
+              {settings.productName}
+            </Typography>
+            <Typography variant="h5" textAlign="center">
+              Sign in
+            </Typography>
+          </Stack>
 
           <Button variant="contained" size="large" onClick={login}>
             Continue with SSO
