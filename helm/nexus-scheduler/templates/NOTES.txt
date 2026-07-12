@@ -1,0 +1,36 @@
+Nexus Scheduler ({{ .Chart.AppVersion }}) has been deployed as release
+"{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Before this is reachable, make sure the following pre-existing Secrets
+exist in this namespace (none are created by this chart — REQUIREMENTS
+§9.1/§10):
+
+  - {{ .Values.secrets.appSecretName }}
+      keys: SESSION_SECRET, API_KEY_ENCRYPTION_KEY, DATABASE_URL, REDIS_URL
+  - {{ .Values.secrets.oidcSecretName }}
+      keys: OIDC_CLIENT_SECRET
+  - {{ .Values.secrets.smtpSecretName }}
+      keys: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
+
+{{- if .Values.postgresql.enabled }}
+PostgreSQL was deployed by this chart's subchart at:
+  {{ include "nexus-scheduler.databaseHost" . }}:5432
+{{- else }}
+PostgreSQL is expected to already exist at:
+  {{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+Redis was deployed by this chart's subchart at:
+  {{ include "nexus-scheduler.redisHost" . }}:6379
+{{- else }}
+Redis is expected to already exist at:
+  {{ .Values.externalRedis.host }}:{{ .Values.externalRedis.port }}
+{{- end }}
+
+The environment's existing nginx reverse proxy (REQUIREMENTS §9.1) should
+target:
+  - {{ include "nexus-scheduler.fullname" . }}-frontend  (Service, port 80)
+  - {{ include "nexus-scheduler.fullname" . }}-api        (Service, port {{ .Values.api.port }}) for /api and /auth
+
+Or, if `ingress.enabled=true`, the Ingress at {{ .Values.ingress.host }}.

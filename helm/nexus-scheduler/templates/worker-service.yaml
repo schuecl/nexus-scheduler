@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nexus-scheduler.fullname" . }}-worker
+  labels:
+    {{- include "nexus-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  selector:
+    {{- include "nexus-scheduler.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+  ports:
+    - port: {{ .Values.worker.healthPort }}
+      targetPort: {{ .Values.worker.healthPort }}
+      name: health

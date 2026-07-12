@@ -1,0 +1,405 @@
+// Nexus Scheduler data model.
+// Mirrors the illustrative ER diagram in ARCHITECTURE.md §4 and the
+// functional requirements in REQUIREMENTS.md §2-§8. Expect this schema to
+// evolve as implementation proceeds — treat it as scaffolding, not final.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity, roles, Teams
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEW
+}
+
+enum AuthSource {
+  OIDC
+  LOCAL
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  givenName    String?
+  familyName   String?
+  displayName  String?
+  authSource   AuthSource
+  passwordHash String? // set only for AuthSource.LOCAL (break-glass fallback, REQUIREMENTS §4)
+  role         Role       @default(VIEW)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  teamMemberships   TeamMembership[]
+  ownedProjects      Project[]           @relation("ProjectOwner")
+  apiKeys            ApiKey[]
+  promptVersions     PromptVersion[]
+  jobsCreated        Job[]
+  schedulesCreated   Schedule[]
+  promptFavorites    PromptFavorite[]
+
+  @@map("users")
+}
+
+model Team {
+  id           String   @id @default(uuid())
+  name         String
+  parentTeamId String?
+  parentTeam   Team?    @relation("TeamHierarchy", fields: [parentTeamId], references: [id])
+  subTeams     Team[]   @relation("TeamHierarchy")
+  createdAt    DateTime @default(now())
+
+  memberships TeamMembership[]
+  apiKeys     ApiKey[]
+
+  @@map("teams")
+}
+
+model TeamMembership {
+  teamId   String
+  userId   String
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@map("team_memberships")
+}
+
+enum ApiKeyOwnerType {
+  USER
+  TEAM
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+// LibreChat API keys — stored encrypted at rest (REQUIREMENTS §4).
+// `encryptedKey` holds ciphertext only; the encryption key itself lives
+// outside the DB (K8s Secret / env var), never in this table.
+model ApiKey {
+  id            String          @id @default(uuid())
+  ownerType     ApiKeyOwnerType
+  ownerUserId   String?
+  ownerTeamId   String?
+  owningUser    User?           @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  owningTeam    Team?           @relation(fields: [ownerTeamId], references: [id], onDelete: Cascade)
+  label         String?
+  encryptedKey  String
+  status        ApiKeyStatus    @default(ACTIVE)
+  expiresAt     DateTime?
+  createdAt     DateTime        @default(now())
+
+  jobs Job[]
+
+  @@map("api_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Classification & Marking (REQUIREMENTS §6)
+// ---------------------------------------------------------------------------
+
+model ClassificationLabel {
+  id              String   @id @default(uuid())
+  text            String
+  abbreviation    String?
+  badgeBgColor    String
+  badgeTextColor  String
+  sortOrder       Int      @default(0)
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  projects Project[]
+
+  @@map("classification_labels")
+}
+
+// ---------------------------------------------------------------------------
+// Projects, Prompts, Teams sharing (REQUIREMENTS §2.3)
+// ---------------------------------------------------------------------------
+
+enum ProjectVisibility {
+  PRIVATE
+  SHARED
+}
+
+model Project {
+  id                     String             @id @default(uuid())
+  name                   String
+  description            String?
+  ownerId                String
+  owner                  User               @relation("ProjectOwner", fields: [ownerId], references: [id])
+  classificationLabelId  String?
+  classificationLabel    ClassificationLabel? @relation(fields: [classificationLabelId], references: [id])
+  visibility             ProjectVisibility  @default(PRIVATE)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  acls    ProjectAcl[]
+  prompts Prompt[]
+  jobs    Job[]
+
+  @@map("projects")
+}
+
+enum GranteeType {
+  USER
+  TEAM
+  ORG
+}
+
+enum AccessLevel {
+  READ
+  EDIT
+}
+
+model ProjectAcl {
+  id            String      @id @default(uuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  granteeType   GranteeType
+  granteeUserId String?
+  granteeTeamId String?
+  accessLevel   AccessLevel
+  createdAt     DateTime    @default(now())
+
+  @@map("project_acls")
+}
+
+model Prompt {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions  PromptVersion[]
+  jobs      Job[]
+  favorites PromptFavorite[]
+
+  @@map("prompts")
+}
+
+// One row per edit — REQUIREMENTS §2.3 version history.
+model PromptVersion {
+  id            String   @id @default(uuid())
+  promptId      String
+  prompt        Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  content       String
+  variables     Json     @default("[]") // declared {{variable}} params: name/type/default
+  createdById   String
+  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+
+  schedules Schedule[]
+
+  @@unique([promptId, versionNumber])
+  @@map("prompt_versions")
+}
+
+model PromptFavorite {
+  userId    String
+  promptId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt    Prompt   @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, promptId])
+  @@map("prompt_favorites")
+}
+
+// ---------------------------------------------------------------------------
+// Jobs, Schedules, Runs (REQUIREMENTS §2.1, §2.4)
+// ---------------------------------------------------------------------------
+
+enum VersionPinMode {
+  PINNED
+  LATEST
+}
+
+model Job {
+  id                    String          @id @default(uuid())
+  projectId             String
+  project               Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                  String
+  promptId              String
+  prompt                Prompt          @relation(fields: [promptId], references: [id])
+  agentId               String // LibreChat agent ID (§2.1)
+  apiKeyId              String
+  apiKey                ApiKey          @relation(fields: [apiKeyId], references: [id])
+  timeoutSeconds         Int            @default(600) // default 10m, ceiling enforced in app logic (§2.1)
+  maxRetries             Int            @default(2)
+  createdById            String
+  createdBy              User            @relation(fields: [createdById], references: [id])
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  schedules      Schedule[]
+  runs           Run[]
+  webhookLinks   JobWebhookDestination[]
+
+  @@map("jobs")
+}
+
+enum ScheduleType {
+  ONE_TIME
+  RECURRING
+}
+
+enum ApprovalStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Schedule {
+  id                  String         @id @default(uuid())
+  jobId               String
+  job                 Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  type                ScheduleType
+  intervalConfig       Json // interval-picker config, not raw cron (§2)
+  timezone             String // IANA tz name (§2.4)
+  nextFireAt           DateTime?
+  paused               Boolean        @default(false)
+  approvalStatus       ApprovalStatus @default(DRAFT)
+  versionPinMode       VersionPinMode @default(LATEST)
+  pinnedPromptVersionId String?
+  pinnedPromptVersion   PromptVersion? @relation(fields: [pinnedPromptVersionId], references: [id])
+  createdById           String
+  createdBy             User           @relation(fields: [createdById], references: [id])
+  createdAt             DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  runs Run[]
+
+  @@map("schedules")
+}
+
+enum TriggerType {
+  SCHEDULED
+  MANUAL
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
+model Run {
+  id               String      @id @default(uuid())
+  jobId            String
+  job              Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  scheduleId       String?
+  schedule         Schedule?   @relation(fields: [scheduleId], references: [id])
+  triggerType      TriggerType
+  status           RunStatus   @default(PENDING)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  promptTokens     Int?
+  completionTokens Int?
+  computedCost     Decimal?    @db.Decimal(12, 6)
+  output           String?
+  errorMessage     String?
+  createdAt        DateTime    @default(now())
+
+  @@map("runs")
+}
+
+// ---------------------------------------------------------------------------
+// Outbound webhooks (REQUIREMENTS §2.2)
+// ---------------------------------------------------------------------------
+
+model WebhookDestination {
+  id             String   @id @default(uuid())
+  name           String
+  url            String // must be on the admin allow-list by policy, not app-enforced uniqueness
+  hmacSecretRef  String // reference to a secret store entry, not the secret itself
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  jobLinks JobWebhookDestination[]
+
+  @@map("webhook_destinations")
+}
+
+model JobWebhookDestination {
+  jobId                String
+  webhookDestinationId String
+  job                  Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  webhookDestination   WebhookDestination  @relation(fields: [webhookDestinationId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, webhookDestinationId])
+  @@map("job_webhook_destinations")
+}
+
+// ---------------------------------------------------------------------------
+// Cost rates (REQUIREMENTS §8)
+// ---------------------------------------------------------------------------
+
+model CostRate {
+  id                        String   @id @default(uuid())
+  agentId                   String? // null = global default rate
+  promptRatePerMillion      Decimal  @db.Decimal(10, 4)
+  completionRatePerMillion  Decimal  @db.Decimal(10, 4)
+  effectiveFrom             DateTime @default(now())
+  createdAt                 DateTime @default(now())
+
+  @@map("cost_rates")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail (REQUIREMENTS §7.1)
+// ---------------------------------------------------------------------------
+
+enum ActorType {
+  USER
+  SERVICE
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+}
+
+model AuditEvent {
+  id            String      @id @default(uuid())
+  timestamp     DateTime    @default(now())
+  actorType     ActorType
+  actorId       String
+  actorEmail    String
+  action        String // "<resource>.<operation>", e.g. "job.create"
+  targetType    String
+  targetId      String?
+  targetName    String?
+  result        AuditResult
+  errorMessage  String?
+  sourceIp      String?
+  correlationId String?
+  details       Json?
+
+  @@index([timestamp])
+  @@index([correlationId])
+  @@map("audit_events")
+}

@@ -1,0 +1,23 @@
+apiVersion: v2
+name: nexus-scheduler
+description: >-
+  Web application for scheduling agentic AI tasks against LibreChat's
+  Agents API. See REQUIREMENTS.md and ARCHITECTURE.md in the repo root.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# PostgreSQL/Redis are optional subcharts (REQUIREMENTS §9.1: "optionally
+# including... as a subchart/dependency, or bring-your-own"). Bitnami's
+# charts are used here as well-known, established references — in an
+# air-gapped deployment, mirror them (and their images) into the internal
+# chart/image registry and point `dependencies[].repository` there.
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

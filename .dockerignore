@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.vite
+**/coverage
+**/*.log
+.git
+.env
+.env.*
+packages/shared/prisma/generated

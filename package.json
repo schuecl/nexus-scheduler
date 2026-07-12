@@ -1,0 +1,27 @@
+{
+  "name": "nexus-scheduler",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web application for scheduling agentic AI tasks against LibreChat's Agents API.",
+  "workspaces": [
+    "packages/shared",
+    "packages/api",
+    "packages/worker",
+    "packages/frontend"
+  ],
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "build": "npm run build --workspace=packages/shared && npm run build --workspace=packages/api && npm run build --workspace=packages/worker && npm run build --workspace=packages/frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate --workspace=packages/shared",
+    "prisma:migrate": "npm run prisma:migrate --workspace=packages/shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
