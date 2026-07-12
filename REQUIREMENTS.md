@@ -93,6 +93,15 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   per-user default max **5 concurrent job executions**, both
   admin-configurable. Worker capacity should scale horizontally (via
   replica count) if real usage exceeds these defaults.
+- **"Run Now" (manual/on-demand execution)**: any user with edit access to
+  a job (owner, or an editor/admin with edit access to its Project) can
+  trigger an immediate one-off execution outside its schedule — for
+  testing a prompt/agent pairing before trusting it to a recurring
+  schedule, or for an ad-hoc re-run. Manual runs are recorded in run
+  history like any other run (tagged `trigger_type=manual` vs.
+  `scheduled`) and count against the same concurrency limits. Email
+  notification for manual runs defaults to **off** (avoids notification
+  noise while iterating) but can be enabled per-run.
 
 ### 2.2 Job Output Handling
 
@@ -101,6 +110,17 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Users can view job run history and full output/detail in the web UI.
 - Email notification (via SMTP) is optionally sent to the job owner on
   completion and/or failure, per-job configurable.
+- **Outbound webhook delivery**: a job can optionally be configured to
+  `POST` its run result (JSON: status, output, timing, run ID) to an
+  internal destination on completion and/or failure.
+  - For security in an air-gapped, high-security network, webhook
+    destinations are **not arbitrary user-supplied URLs** — they must be
+    selected from an **admin-maintained allow-list** of internal
+    endpoints, preventing exfiltration/SSRF to unapproved destinations.
+  - Payloads are signed (HMAC, per-destination signing secret) so
+    receivers can verify authenticity and integrity.
+  - Delivery uses the same retry policy as job execution (§2.1); delivery
+    attempts/failures are logged and audited.
 
 ### 2.3 Saved & Shareable Prompts (Projects & Teams)
 
@@ -134,6 +154,22 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   when the schedule was created/last edited, or track "always use latest
   version" — the schedule owner picks at creation time and can change it
   later.
+- **Prompt templating (variables)**: saved prompts can contain
+  `{{variable}}` placeholders resolved at run time, so one shared prompt
+  serves many contexts instead of near-duplicate copies:
+  - **Built-in variables** resolved automatically (e.g. `{{date}}`,
+    `{{datetime}}`, `{{schedule_name}}`, `{{run_id}}`).
+  - **User-defined parameters** declared on the prompt (name, type —
+    text/number/date, default value), which are filled in when a schedule
+    is created from that prompt and can be edited later.
+  - Substitution happens server-side at execution time, before the
+    request is sent to LibreChat.
+- **Discovery**: Projects and prompts support free-text **tags** and are
+  searchable (name/description/tags) via a **Prompt Library** browse view
+  covering everything the current user has access to — filterable by tag,
+  owner, and Team, sortable by "most used" (run count) or "recently
+  updated." Users can **favorite/star** prompts for quick access. This is
+  what makes sharing actually discoverable, not just permitted.
 
 ### 2.4 Schedule Mechanics
 
@@ -149,6 +185,25 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   occurrence fires normally on its regular schedule. Avoids surprise
   bursts of stale/backlogged agentic runs after an outage or deploy. A
   skipped fire is still recorded (as a `skipped` run) for visibility.
+- **Approval workflow (maker-checker) for shared schedules**: a schedule
+  that lives in a **Team-shared or org-shared Project** must be approved
+  before it becomes active — and again after any substantive edit (target
+  agent, prompt/prompt version, or timing; metadata-only edits like a
+  description do not require re-approval). Rationale: an unattended
+  recurring agentic task with broad visibility/blast radius warrants a
+  second set of eyes before it runs unattended, especially in a
+  high-security Government environment.
+  - Eligible approvers: the Project owner, or any user/Team granted edit
+    access on that Project — excluding the person who made the change,
+    when another eligible approver exists. If the author is the Project's
+    sole owner with no other collaborators, self-approval is allowed (so
+    a single-owner Project isn't deadlocked).
+  - Admins can always approve directly, bypassing the above.
+  - Pending-approval schedules sit in a visible approval queue; approve/
+    reject actions are audited (§7.1) and the requester is notified of
+    the outcome.
+  - **Private (owner-only) schedules do not require approval** — only
+    those shared beyond their owner.
 
 ## 3. Constraints
 
@@ -170,7 +225,7 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   - Container images must be built to be pushed into an internal/offline
     registry.
 - **Government network / high security priority**:
-  - Follow security hardening best practices throughout (see §8).
+  - Follow security hardening best practices throughout (see §10).
 - **Use well-known, established components** for each architectural layer
   (e.g., PostgreSQL, Redis, nginx) rather than niche/bespoke tooling.
 
@@ -218,7 +273,7 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Modern web UI (responsive, accessible).
 - **Accessibility**: target **WCAG 2.1 AA** conformance (aligns with
   Section 508 expectations common in Government deployments) — exact
-  conformance scope/testing process still to be finalized (see §12).
+  conformance scope/testing process still to be finalized (see §14).
 - Branding/customization support: logo, product name, color theme
   configurable by an admin without a rebuild (e.g., via mounted config or
   admin settings screen).
@@ -229,7 +284,37 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   - SMTP server settings configurable by admin (host, port, TLS, auth,
     from-address).
 
-## 6. Auditing & Logging
+## 6. Classification & Marking
+
+Nexus Scheduler is deployed **inside** an already-classified/accredited
+Government network — the system does not need to enforce cross-domain
+separation, but it does need to carry and display the marking conventions
+that Government users expect.
+
+- **Admin-editable classification taxonomy**: classification labels are
+  **not** a hardcoded scheme — an admin defines the ordered list of labels
+  applicable to this deployment (e.g. label text/abbreviation, plus a
+  banner background color and a legible banner text color per label), and
+  can create, rename, reorder, or retire labels over time.
+- **Content tagging**: Projects and saved prompts can be tagged with
+  exactly one classification label from the admin-defined taxonomy (jobs/
+  schedules inherit their Project's label by default). A configurable
+  default label applies to newly created Projects (e.g. the deployment's
+  baseline classification). The active label renders as a badge wherever
+  the tagged item appears (library/browse views, detail views).
+- **Persistent classification banner**: a banner bar is **fixed at the top
+  and bottom of every page**, always visible (does not scroll away),
+  showing admin-configured **banner text** and **background/text color**.
+  This is a **system-wide** banner reflecting the deployment's overall
+  classification/accreditation level — set once by an admin as part of
+  system configuration (alongside the §5 branding settings), not
+  recomputed per page/per item. Banner color contrast must meet the same
+  WCAG 2.1 AA target as the rest of the UI (§5).
+  - Whether per-item classification tags should ever *additionally*
+    influence the banner (vs. the banner always reflecting only the
+    system-wide setting) is an open question — see §14.
+
+## 7. Auditing & Logging
 
 - All actions are logged and attributed to an **actor identity**:
   - Human users → by **email**.
@@ -242,8 +327,11 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
     branding changes, SMTP config changes.
   - **Agent/task actions**: job execution start, completion, failure,
     cancellation, and the LibreChat request/response metadata.
+  - **Governance actions**: schedule approval requests, approvals,
+    rejections (§2.4); webhook delivery attempts (§2.2); classification
+    label changes on Projects/prompts (§6).
 
-### 6.1 Audit Event Schema (Proposed)
+### 7.1 Audit Event Schema (Proposed)
 
 Every audit record must unambiguously answer **who did what, when** (plus
 enough context to investigate an incident). Proposed minimal schema:
@@ -255,8 +343,8 @@ enough context to investigate an incident). Proposed minimal schema:
 | `actor_type` | `user` \| `service`. |
 | `actor_id` | User ID or service identifier (e.g. `system:scheduler`). |
 | `actor_email` | Denormalized human-readable actor (user's email, or service name) — satisfies "by user email or service" directly, without a join, even if the user record later changes/is removed. |
-| `action` | Verb in `<resource>.<operation>` form, e.g. `job.create`, `schedule.update`, `run.start`, `run.cancel`, `login.success`, `login.failure`, `apikey.rotate`, `team.membership.add`. |
-| `target_type` | `job` \| `schedule` \| `run` \| `project` \| `prompt` \| `team` \| `user` \| `apikey` \| `system_setting`. |
+| `action` | Verb in `<resource>.<operation>` form, e.g. `job.create`, `schedule.update`, `run.start`, `run.cancel`, `login.success`, `login.failure`, `apikey.rotate`, `team.membership.add`, `schedule.approve`, `webhook.deliver`. |
+| `target_type` | `job` \| `schedule` \| `run` \| `project` \| `prompt` \| `team` \| `user` \| `apikey` \| `system_setting` \| `webhook`. |
 | `target_id` | ID of the affected resource. |
 | `target_name` | Denormalized display name of the target *at the time of the event* (survives later renames/deletes). |
 | `result` | `success` \| `failure`, plus `error_message` when applicable. |
@@ -265,7 +353,7 @@ enough context to investigate an incident). Proposed minimal schema:
 | `details` | JSON blob for action-specific context (e.g. changed-field diff on an update, or the LibreChat request/response metadata for a run). |
 
 This is the row shape stored in PostgreSQL. When mirrored to **syslog**
-(§ below), fields map onto RFC 5424 as: `TIMESTAMP` = `timestamp`,
+(below), fields map onto RFC 5424 as: `TIMESTAMP` = `timestamp`,
 `HOSTNAME`/`APP-NAME` = the emitting pod, `MSGID` = `action`, and the rest
 (`event_id`, `actor_type`, `actor_id`, `actor_email`, `target_type`,
 `target_id`, `result`, `correlation_id`) as RFC 5424 `STRUCTURED-DATA`
@@ -273,7 +361,7 @@ parameters under a single `nexusAudit@<enterprise-id>` SD-ID; `details`
 and a human-readable summary form the `MSG` body.
 
 - Local log/audit retention: **14 days by default**, configurable by
-  admin. This governs the **audit trail** (§6.1 events). **Job run
+  admin. This governs the **audit trail** (§7.1 events). **Job run
   history/output (§2.2) is a separate, product-facing dataset and is not
   bound by the 14-day audit window**: default retention is **90 days**,
   admin-configurable, with an admin-triggered purge/archival job past
@@ -292,9 +380,29 @@ and a human-readable summary form the `MSG` body.
   - Enable/disable and destination (host:port, transport, TLS on/off) are
     admin-configurable.
 
-## 7. Deployment
+## 8. Usage & Reporting
 
-### 7.1 Kubernetes (Production)
+Distinct from the audit trail (§7) — this is admin-facing analytics over
+run activity, for capacity planning and governance in a 500+ user
+deployment.
+
+- **Reporting dashboard**: run counts and success/failure rates over time,
+  sliceable by user, Team, Project, and target agent.
+- **Cost/usage visibility**: if LibreChat's Agents API response includes
+  token/usage metadata, capture and surface it per run so admins can see
+  relative consumption by user/Team/Project. Whether LibreChat's API
+  actually returns this needs confirming against the live API (see §14).
+- **Optional quotas**: per-user and/or per-Team cumulative run quotas
+  (e.g. runs per day/month), separate from the §2.1 concurrency limits
+  (concurrency caps *simultaneous* runs; a quota caps *cumulative* usage
+  over a period). Default: **no quota** (unlimited); admin can opt in per
+  user/Team for cost or capacity governance.
+- **Exportable reports**: usage data exportable as CSV for chargeback/
+  showback reporting outside the app.
+
+## 9. Deployment
+
+### 9.1 Kubernetes (Production)
 
 - **Helm chart** for deployment, optionally including:
   - PostgreSQL (as a subchart/dependency, or bring-your-own).
@@ -310,7 +418,7 @@ and a human-readable summary form the `MSG` body.
   credentials, API key encryption key) sourced from Kubernetes Secrets —
   never baked into images.
 
-### 7.2 Docker Compose (Local Dev / Testing)
+### 9.2 Docker Compose (Local Dev / Testing)
 
 - Single `docker-compose.yml` (or set of compose files) that stands up
   everything needed to run and exercise Nexus Scheduler locally:
@@ -330,7 +438,7 @@ and a human-readable summary form the `MSG` body.
   intended to validate the scheduler application itself, not to simulate
   the air-gapped constraint.
 
-## 8. Security Considerations
+## 10. Security Considerations
 
 - All traffic terminates TLS at the (externally managed) nginx layer in
   production; internal service-to-service traffic should still be
@@ -363,8 +471,12 @@ and a human-readable summary form the `MSG` body.
   exported/imported as JSON, so power users can back up, promote between
   environments, or share configuration outside of Nexus Scheduler's
   built-in Project sharing.
+- **Webhook destination allow-listing** (§2.2): outbound webhook targets
+  are restricted to an admin-maintained allow-list, not arbitrary URLs —
+  prevents the outbound-delivery feature from becoming an exfiltration
+  path in a high-security network.
 
-## 9. Proposed Architecture (Draft)
+## 11. Proposed Architecture (Draft)
 
 > This section captures a working technical direction; not yet finalized.
 
@@ -378,20 +490,24 @@ and a human-readable summary form the `MSG` body.
     of workers.
 - **Database**: PostgreSQL — users, roles, Teams (+ membership + Team-
   owned API keys), job definitions, schedules, run history, audit log,
-  Projects, saved prompts (+ prompt version history).
+  Projects, saved prompts (+ prompt version history), classification
+  taxonomy, webhook destinations, usage/quota data.
 - **Reverse proxy**: nginx (external/pre-existing in prod; included in
   Compose for local parity).
 - Both the Backend API and Scheduler/Worker expose `/healthz`
-  (liveness/readiness) and `/metrics` (Prometheus) endpoints per §8.
+  (liveness/readiness) and `/metrics` (Prometheus) endpoints per §10.
 
-## 10. Non-Goals (v1)
+## 12. Non-Goals (v1)
 
 - Multi-tenant / multi-organization isolation beyond role-based access
   within a single deployment.
 - Continuing/threading LibreChat conversations across scheduled runs.
-- Outbound webhook/callback delivery of job results (may revisit later).
+- Job chaining / dependent-job pipelines (run Job B after Job A) — a
+  single job/schedule targets one LibreChat agent call per run.
+- Dynamic, per-item-driven classification banner switching — the §6
+  banner is a static, system-wide, admin-set indicator.
 
-## 11. Glossary
+## 13. Glossary
 
 - **Job**: a defined unit of work — a prompt/payload to send to the
   LibreChat agent API, plus execution configuration.
@@ -404,20 +520,34 @@ and a human-readable summary form the `MSG` body.
 - **Team**: a locally-defined (UI-managed) group of users, used as a
   sharing target for Project ACLs; independent of roles and OIDC groups.
   Can optionally hold its own LibreChat API key for shared schedules.
+- **Classification Label**: an admin-defined marking (text + banner
+  colors) that can be applied to a Project/prompt; distinct from the
+  system-wide classification banner (§6).
+- **Webhook Destination**: an admin-allow-listed internal URL a job can
+  be configured to POST its run result to on completion.
 
-## 12. Open Questions
+## 14. Open Questions
 
 - Accessibility conformance scope (§5): confirm WCAG 2.1 AA is the right
   target (vs. a formal Section 508 VPAT requirement) and how it will be
   tested/verified.
 - Exact structured-data field list for RFC 5424 syslog messages is
-  proposed in §6.1 — confirm it covers what a target SIEM integration
+  proposed in §7.1 — confirm it covers what a target SIEM integration
   needs.
 - Concurrency defaults (25 global / 5 per-user) are accepted as a
   starting point; **explicitly deferred for revisit** once real usage
   patterns are observed post-launch — no action needed now.
+- Does the live LibreChat Agents API response include token/cost usage
+  metadata? Needed to confirm the §8 cost-visibility feature is feasible
+  as described.
+- Should per-item classification tags (§6) ever influence the system-wide
+  banner, or does the banner always stay purely admin-set/static (current
+  assumption)?
+- Should approval (§2.4) also be required for *edits* to already-approved
+  shared schedules beyond the substantive fields called out (agent,
+  prompt/version, timing), or is that scope correct as drafted?
 
-## 13. Change Log
+## 15. Change Log
 
 - 2026-07-12: Initial draft created from project kickoff requirements.
 - 2026-07-12: Resolved initial open questions — recurring schedules use
@@ -436,7 +566,7 @@ and a human-readable summary form the `MSG` body.
   explicitly deferred for post-launch revisit.
 - 2026-07-12: Confirmed Teams support nesting with inherited membership;
   confirmed version pinning is the schedule owner's per-schedule choice;
-  added proposed audit event schema (§6.1) and its RFC 5424 field
+  added proposed audit event schema (§7.1) and its RFC 5424 field
   mapping; gap-analysis pass added: retry-policy defaults, LibreChat
   agent discovery, API key lifecycle handling, schedule time zone
   handling, schedule pause/resume, WCAG 2.1 AA accessibility target,
@@ -453,3 +583,14 @@ and a human-readable summary form the `MSG` body.
   are skipped (not caught up) on scheduler/worker recovery; FIPS 140-2/
   140-3 validated cryptography is now a **required** constraint on base
   images and crypto library choices.
+- 2026-07-12: Second usefulness pass — added "Run Now"/manual execution
+  (§2.1), outbound webhook delivery with admin allow-listing (§2.2),
+  prompt templating/variables and Prompt Library discovery (§2.3),
+  maker-checker approval workflow for shared schedules (§2.4), a new
+  **Classification & Marking** section (§6: admin-editable classification
+  taxonomy, content tagging, persistent top/bottom classification banner
+  with configurable text and colors), and a new **Usage & Reporting**
+  section (§8: dashboard, cost visibility, optional quotas, CSV export).
+  Sections renumbered accordingly; webhook delivery removed from
+  Non-Goals since it's now a real feature; job-chaining and dynamic
+  banner-switching added to Non-Goals as explicit v1 exclusions.
