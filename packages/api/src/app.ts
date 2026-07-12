@@ -18,6 +18,8 @@ import { createProjectPromptsRouter, createPromptsRouter } from "./routes/prompt
 import { createApiKeysRouter } from "./routes/apiKeys.js";
 import { createJobSchedulesRouter, createSchedulesRouter } from "./routes/schedules.js";
 import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js";
+import { createSettingsRouter } from "./routes/settings.js";
+import { createCostRatesRouter } from "./routes/costRates.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 export function createApp(config: AppConfig, logger: Logger): Express {
@@ -62,6 +64,8 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/classification-labels", createClassificationLabelsRouter());
   app.use("/api/api-keys", createApiKeysRouter(config));
   app.use("/api/webhook-destinations", createWebhookDestinationsRouter(config));
+  app.use("/api/settings", createSettingsRouter());
+  app.use("/api/cost-rates", createCostRatesRouter());
 
   app.use(errorHandler(logger));
 

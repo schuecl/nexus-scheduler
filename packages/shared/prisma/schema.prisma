@@ -378,6 +378,31 @@ model CostRate {
 }
 
 // ---------------------------------------------------------------------------
+// System settings (REQUIREMENTS §5 branding, §6 classification banner)
+// ---------------------------------------------------------------------------
+
+// Singleton row (always id=1, enforced in application code, not a real
+// autoincrement sequence) — admin-editable branding and the persistent,
+// system-wide classification banner. Deliberately separate from
+// ClassificationLabel (§6): that's a per-object taxonomy, this is the
+// one static banner shown on every page regardless of content.
+model AppSettings {
+  id                             Int      @id @default(1)
+  productName                    String   @default("Nexus Scheduler")
+  logoUrl                        String?
+  primaryColor                   String   @default("#1565c0")
+  // Loud, obviously-wrong defaults on purpose — REQUIREMENTS §6 requires
+  // this be explicitly configured; a plausible-looking default (e.g.
+  // "UNCLASSIFIED") would risk masking a deployment that never set it.
+  classificationBannerText       String   @default("UNCONFIGURED — SET CLASSIFICATION BANNER IN ADMIN SETTINGS")
+  classificationBannerBgColor    String   @default("#b71c1c")
+  classificationBannerTextColor  String   @default("#ffffff")
+  updatedAt                      DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+// ---------------------------------------------------------------------------
 // Audit trail (REQUIREMENTS §7.1)
 // ---------------------------------------------------------------------------
 

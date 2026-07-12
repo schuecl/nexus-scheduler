@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Box,
   Button,
   Checkbox,
@@ -9,15 +10,22 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  FormControl,
   FormControlLabel,
+  InputLabel,
   List,
   ListItem,
   ListItemText,
+  MenuItem,
+  Select,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
+import { useSettings } from "../context/SettingsContext";
 import { apiFetch } from "../api/client";
 
 interface ClassificationLabel {
@@ -41,12 +49,18 @@ export function AdminPage() {
     <Stack spacing={4}>
       <Typography variant="h4">Admin</Typography>
       <Typography color="text.secondary">
-        User/role management, branding, SMTP, and cost rates (REQUIREMENTS §4-§8) still need to be
-        built here. Classification taxonomy (§6) and the webhook destination allow-list (§2.2) are
-        implemented below.
+        SMTP configuration (REQUIREMENTS §5) still needs to be built here — everything else in
+        §4-§8's admin surface is implemented below.
       </Typography>
 
+      <SystemSettingsPanel />
+      <Divider />
+      <UserManagementPanel />
+      <Divider />
       <ClassificationLabelsPanel />
+      <Divider />
+      <CostRatesPanel />
+      <Divider />
       <WebhookDestinationsPanel />
     </Stack>
   );
@@ -158,6 +172,285 @@ function WebhookDestinationsPanel() {
             variant="contained"
             disabled={!name || !url || createDestination.isPending}
             onClick={() => createDestination.mutate()}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
+// Branding (§5) and the system-wide classification banner (§6) — one
+// settings surface, two independent concerns. The banner is never
+// derived from anything else here; it's just admin-set text/colors.
+function SystemSettingsPanel() {
+  const { settings, refetch } = useSettings();
+  const [productName, setProductName] = useState(settings.productName);
+  const [logoUrl, setLogoUrl] = useState(settings.logoUrl ?? "");
+  const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
+  const [bannerText, setBannerText] = useState(settings.classificationBannerText);
+  const [bannerBg, setBannerBg] = useState(settings.classificationBannerBgColor);
+  const [bannerFg, setBannerFg] = useState(settings.classificationBannerTextColor);
+
+  // Settings arrive asynchronously (see SettingsContext) — seed the form
+  // once they load rather than leaving fields stuck on the placeholder.
+  useEffect(() => {
+    setProductName(settings.productName);
+    setLogoUrl(settings.logoUrl ?? "");
+    setPrimaryColor(settings.primaryColor);
+    setBannerText(settings.classificationBannerText);
+    setBannerBg(settings.classificationBannerBgColor);
+    setBannerFg(settings.classificationBannerTextColor);
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          productName,
+          logoUrl: logoUrl || null,
+          primaryColor,
+          classificationBannerText: bannerText,
+          classificationBannerBgColor: bannerBg,
+          classificationBannerTextColor: bannerFg,
+        }),
+      }),
+    onSuccess: () => refetch(),
+  });
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Branding &amp; Classification Banner
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        The banner below is the single, static banner shown at the top and bottom of every page —
+        independent of the per-Project/Prompt classification labels further down this page.
+      </Typography>
+
+      <Stack spacing={2} sx={{ maxWidth: 480 }}>
+        <TextField label="Product name" value={productName} onChange={(e) => setProductName(e.target.value)} />
+        <TextField
+          label="Logo URL (optional)"
+          value={logoUrl}
+          onChange={(e) => setLogoUrl(e.target.value)}
+        />
+        <TextField
+          label="Primary color"
+          type="color"
+          value={primaryColor}
+          onChange={(e) => setPrimaryColor(e.target.value)}
+        />
+        <Divider />
+        <TextField label="Classification banner text" value={bannerText} onChange={(e) => setBannerText(e.target.value)} />
+        <Stack direction="row" spacing={2}>
+          <TextField
+            label="Banner background color"
+            type="color"
+            value={bannerBg}
+            onChange={(e) => setBannerBg(e.target.value)}
+            fullWidth
+          />
+          <TextField
+            label="Banner text color"
+            type="color"
+            value={bannerFg}
+            onChange={(e) => setBannerFg(e.target.value)}
+            fullWidth
+          />
+        </Stack>
+        {save.isSuccess && <Alert severity="success">Saved.</Alert>}
+        <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate()} sx={{ alignSelf: "flex-start" }}>
+          Save
+        </Button>
+      </Stack>
+    </Box>
+  );
+}
+
+interface AdminUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: "ADMIN" | "EDITOR" | "VIEW";
+  active: boolean;
+  authSource: "OIDC" | "LOCAL";
+}
+
+// Role/active-status management (§4). Name/email come from OIDC and
+// aren't editable here — a user's own account can't be demoted or
+// deactivated from this screen, enforced both here and server-side.
+function UserManagementPanel() {
+  const { user: currentUser } = useAuth();
+  const queryClient = useQueryClient();
+
+  const usersQuery = useQuery({
+    queryKey: ["users", "admin-list"],
+    queryFn: () => apiFetch<AdminUser[]>("/api/users"),
+  });
+
+  const updateUser = useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; role?: AdminUser["role"]; active?: boolean }) =>
+      apiFetch(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["users", "admin-list"] }),
+  });
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Users
+      </Typography>
+      <List dense>
+        {usersQuery.data?.map((u) => {
+          const isSelf = u.id === currentUser?.id;
+          return (
+            <ListItem key={u.id} divider>
+              <ListItemText
+                primary={
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <span>{u.displayName ?? u.email}</span>
+                    <Chip size="small" label={u.authSource} variant="outlined" />
+                    {!u.active && <Chip size="small" label="Inactive" color="error" />}
+                  </Stack>
+                }
+                secondary={u.email}
+              />
+              <FormControl size="small" sx={{ minWidth: 110, mr: 2 }}>
+                <Select
+                  value={u.role}
+                  disabled={isSelf || updateUser.isPending}
+                  onChange={(e) => updateUser.mutate({ id: u.id, role: e.target.value as AdminUser["role"] })}
+                >
+                  <MenuItem value="ADMIN">Admin</MenuItem>
+                  <MenuItem value="EDITOR">Editor</MenuItem>
+                  <MenuItem value="VIEW">View</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={u.active}
+                    disabled={isSelf || updateUser.isPending}
+                    onChange={(e) => updateUser.mutate({ id: u.id, active: e.target.checked })}
+                  />
+                }
+                label="Active"
+              />
+            </ListItem>
+          );
+        })}
+        {usersQuery.data?.length === 0 && <Typography color="text.secondary">No users yet.</Typography>}
+      </List>
+    </Box>
+  );
+}
+
+interface CostRate {
+  id: string;
+  agentId: string | null;
+  promptRatePerMillion: string;
+  completionRatePerMillion: string;
+  effectiveFrom: string;
+}
+
+// Internal cost computation rates (§8) — no external billing API exists
+// in an air-gapped deployment, so cost is derived from these + tracked
+// token counts (packages/worker/src/costCalculator.ts).
+function CostRatesPanel() {
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [agentId, setAgentId] = useState("");
+  const [promptRate, setPromptRate] = useState("");
+  const [completionRate, setCompletionRate] = useState("");
+
+  const ratesQuery = useQuery({
+    queryKey: ["cost-rates"],
+    queryFn: () => apiFetch<CostRate[]>("/api/cost-rates"),
+  });
+
+  const createRate = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/cost-rates", {
+        method: "POST",
+        body: JSON.stringify({
+          agentId: agentId || undefined,
+          promptRatePerMillion: Number(promptRate),
+          completionRatePerMillion: Number(completionRate),
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cost-rates"] });
+      setCreateOpen(false);
+      setAgentId("");
+      setPromptRate("");
+      setCompletionRate("");
+    },
+  });
+
+  return (
+    <Box>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="h6">Cost Rates</Typography>
+        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+          New Rate
+        </Button>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        $ per million tokens, used to compute a run's cost from its tracked token usage. Rates
+        apply from their effective date forward — past runs keep the cost computed at the time
+        they ran.
+      </Typography>
+
+      <List dense>
+        {ratesQuery.data?.map((rate) => (
+          <ListItem key={rate.id} divider>
+            <ListItemText
+              primary={rate.agentId ?? "(global default)"}
+              secondary={`Prompt: $${rate.promptRatePerMillion}/M · Completion: $${rate.completionRatePerMillion}/M · effective ${new Date(rate.effectiveFrom).toLocaleDateString()}`}
+            />
+          </ListItem>
+        ))}
+        {ratesQuery.data?.length === 0 && (
+          <Typography color="text.secondary">
+            No cost rates configured yet — runs will show token counts with cost "not costed."
+          </Typography>
+        )}
+      </List>
+
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>New Cost Rate</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Agent ID (optional — blank applies as the global default)"
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Prompt rate ($ per million tokens)"
+              type="number"
+              value={promptRate}
+              onChange={(e) => setPromptRate(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Completion rate ($ per million tokens)"
+              type="number"
+              value={completionRate}
+              onChange={(e) => setCompletionRate(e.target.value)}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!promptRate || !completionRate || createRate.isPending}
+            onClick={() => createRate.mutate()}
           >
             Create
           </Button>

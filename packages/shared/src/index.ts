@@ -10,3 +10,6 @@ export * from "./schemas/project.js";
 export * from "./schemas/prompt.js";
 export * from "./schemas/apiKey.js";
 export * from "./schemas/webhook.js";
+export * from "./schemas/settings.js";
+export * from "./schemas/costRate.js";
+export * from "./schemas/user.js";

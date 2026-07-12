@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { AppBar, Box, Button, Toolbar, Typography } from "@mui/material";
+import { AppBar, Avatar, Box, Button, Toolbar, Typography } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import { ClassificationBanner } from "../components/ClassificationBanner";
-import { defaultBranding, defaultClassificationBanner } from "../branding";
+import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 
 const NAV_LINKS = [
@@ -18,15 +18,22 @@ const NAV_LINKS = [
 // Top and bottom classification banner, always visible — REQUIREMENTS §6.
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, login, logout } = useAuth();
+  const { settings } = useSettings();
+  const bannerConfig = {
+    text: settings.classificationBannerText,
+    backgroundColor: settings.classificationBannerBgColor,
+    textColor: settings.classificationBannerTextColor,
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      <ClassificationBanner config={defaultClassificationBanner} />
+      <ClassificationBanner config={bannerConfig} />
 
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar sx={{ gap: 2 }}>
+          {settings.logoUrl && <Avatar src={settings.logoUrl} variant="square" sx={{ width: 32, height: 32 }} />}
           <Typography variant="h6" sx={{ flexGrow: 0 }}>
-            {defaultBranding.productName}
+            {settings.productName}
           </Typography>
           <Box sx={{ flexGrow: 1, display: "flex", gap: 1 }}>
             {NAV_LINKS.map((link) => (
@@ -56,7 +63,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {children}
       </Box>
 
-      <ClassificationBanner config={defaultClassificationBanner} />
+      <ClassificationBanner config={bannerConfig} />
     </Box>
   );
 }

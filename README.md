@@ -217,8 +217,36 @@ attached destination is notified on every terminal outcome (success and
 failure both) — there's no per-destination success/failure toggle yet,
 though the payload's `status` field lets a receiver filter client-side.
 
+- **Admin UI, the rest of it**: branding + the system-wide classification
+  banner, user/role management, and cost rates.
+  - **Branding & classification banner** (§5/§6): a new `AppSettings`
+    singleton row (product name, logo URL, primary color, banner
+    text/colors). `GET /api/settings` is deliberately unauthenticated —
+    the banner has to render before/independent of login resolving — and
+    defaults to the same loud "UNCONFIGURED" placeholder the frontend
+    used to hardcode, on purpose (REQUIREMENTS §6: a plausible-looking
+    default like "UNCLASSIFIED" would risk masking a deployment that
+    never actually set it). The frontend's theme and `AppLayout` banner
+    are now both driven by a `SettingsContext` fetched at app root,
+    replacing the hardcoded values entirely.
+  - **User/role management** (§4): admin-only list of every user with
+    role and active-status toggles. A user can't demote or deactivate
+    their own account (enforced both client- and server-side). Does
+    **not** include local-account creation or a local login flow —
+    OIDC-created users only; break-glass local auth is still a gap (see
+    below).
+  - **Cost rates** (§8): same "consumer with no producer" shape as the
+    recent Prompt-variable and webhook gaps — the Worker's
+    `costCalculator.ts` has looked up `CostRate` rows since the Usage &
+    Reporting work, but there was no way to create one, so every run's
+    cost was silently "not costed." Admin CRUD now exists (global
+    default or per-agent rate, $ per million prompt/completion tokens).
+
 Stubbed / not yet built: PDF report generation, per-user concurrency
 limiting (only the global limit is enforced today), Prometheus metrics,
-syslog output, and the rest of the admin UI (user/role management,
-branding, cost rates, SMTP config). See REQUIREMENTS.md for the full
-feature set these should implement.
+syslog output, SMTP configuration, and local-account creation/login
+(the `passwordHash`/`AuthSource.LOCAL` fields have existed in the
+schema since the original scaffold, but there is still no way to
+create a local account or log in with one — OIDC is the only working
+login path). See REQUIREMENTS.md for the full feature set these should
+implement.
