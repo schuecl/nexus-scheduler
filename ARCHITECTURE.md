@@ -81,8 +81,9 @@ between them — see REQUIREMENTS.md §2.1 and §11.
 | Component | Responsibility |
 |---|---|
 | Frontend (SPA) | Job/schedule/Project/Team UI, Prompt Library, admin settings, classification banner rendering |
-| Backend API | AuthN/AuthZ (OIDC + local), CRUD for jobs/schedules/Projects/Teams/prompts, audit log access, approval queue, reporting endpoints |
-| Scheduler/Worker | Polls due schedules, enqueues/dequeues runs respecting concurrency limits, calls LibreChat, retries, computes cost, sends notifications/webhooks, writes audit events |
+| Backend API | AuthN/AuthZ (OIDC + local), CRUD for jobs/schedules/Projects/Teams/prompts, audit log access, approval queue, reporting endpoints, on-demand PDF download |
+| Scheduler/Worker | Polls due schedules, enqueues/dequeues runs respecting concurrency limits, calls LibreChat, retries, computes cost, sends notifications/webhooks/emailed PDF reports, writes audit events |
+| PDF Renderer | Shared HTML-to-PDF rendering capability (in-process library or internal call, no network egress) used by both API (on-demand download) and Worker (emailed reports) — REQUIREMENTS.md §2.5 |
 | PostgreSQL | System of record: see §5 data model |
 | Redis | Job queue + scheduling coordination across Worker replicas |
 | nginx | TLS termination + reverse proxy (pre-existing in prod; included in Compose for local parity) |
@@ -130,7 +131,10 @@ sequenceDiagram
     end
     W->>DB: Write audit event (run.start / run.complete)
     opt Email notification configured
-        W->>SMTP: Send completion/failure email
+        opt PDF report attachment enabled
+            W->>W: Render PDF (branding + classification banner)
+        end
+        W->>SMTP: Send completion/failure email (optionally with PDF attached)
     end
     opt Webhook configured
         W->>WH: POST signed run result (allow-listed destination only)

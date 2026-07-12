@@ -110,6 +110,8 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Users can view job run history and full output/detail in the web UI.
 - Email notification (via SMTP) is optionally sent to the job owner on
   completion and/or failure, per-job configurable.
+- Job output can also be delivered as a formatted **PDF report** (email
+  attachment or on-demand download) — see §2.5.
 - **Outbound webhook delivery**: a job can optionally be configured to
   `POST` its run result (JSON: status, output, timing, run ID) to an
   internal destination on completion and/or failure.
@@ -204,6 +206,42 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
     the outcome.
   - **Private (owner-only) schedules do not require approval** — only
     those shared beyond their owner.
+
+### 2.5 Report Generation & Delivery
+
+- Nexus Scheduler can render structured content — a run's output, or an
+  admin usage/audit summary (§8) — as a **PDF report**, using a
+  well-known, actively maintained HTML-to-PDF rendering engine (e.g.
+  headless Chromium print-to-PDF via Puppeteer/Playwright, or WeasyPrint;
+  final choice tracks the backend language selected in §11). The renderer
+  ships bundled in the container image so rendering works fully offline
+  — no CDN fonts/external asset fetches at render time, consistent with
+  the air-gapped constraint (§3).
+- **Job/run reports**: any run's stored output can be rendered as a PDF
+  (job name, run metadata — schedule, timestamp, agent, run ID — plus the
+  LibreChat output), available two ways:
+  - **Email delivery**: a per-job configurable option attaches the PDF to
+    the existing completion/failure email (§2.2) instead of, or alongside,
+    inline text.
+  - **On-demand download**: a "Download PDF" action on any run's detail
+    view in the UI.
+- **Admin/usage reports**: the §8 dashboard (run counts, success/failure
+  rates, token usage, cost) is exportable as **PDF** in addition to CSV,
+  and an admin can configure a **recurring report email** (e.g. "send a
+  weekly usage summary PDF to these recipients") over the same SMTP
+  integration used for job notifications.
+- **Generated on demand, not stored as a binary**: a PDF is rendered
+  fresh from already-persisted structured data (run output, usage
+  aggregates) at request/send time rather than adding a new
+  object-storage layer — cheap to regenerate since the underlying content
+  already lives in PostgreSQL.
+- **Branding & classification marking carry over**: PDFs use the same
+  admin-configured branding (logo, product name, color theme — §5) as the
+  web UI, and carry the **system-wide classification banner** (§6) as a
+  header/footer on every page — marking travels with the document once it
+  leaves the browser (email attachment, downloaded file). If the source
+  content has an object-level classification label (§6), that label also
+  appears on the report's cover/first page as a secondary marking.
 
 ## 3. Constraints
 
@@ -420,8 +458,8 @@ deployment.
   caps *cumulative* usage over a period). Default: **no quota**
   (unlimited); admin can opt in per user/Team for cost or capacity
   governance.
-- **Exportable reports**: usage data exportable as CSV for chargeback/
-  showback reporting outside the app.
+- **Exportable reports**: usage data exportable as CSV, or as a **PDF**
+  report with optional recurring email delivery — see §2.5.
 
 ## 9. Deployment
 
@@ -498,6 +536,11 @@ deployment.
   are restricted to an admin-maintained allow-list, not arbitrary URLs —
   prevents the outbound-delivery feature from becoming an exfiltration
   path in a high-security network.
+- **PDF renderer network isolation** (§2.5): the HTML-to-PDF rendering
+  engine must not be able to fetch remote URLs/resources at render time
+  (all fonts/assets bundled locally) — the same SSRF/exfiltration concern
+  as the webhook allow-list above, since a renderer that fetches
+  attacker- or user-influenced URLs is a classic sandbox-escape vector.
 
 ## 11. Proposed Architecture (Draft)
 
@@ -556,6 +599,9 @@ deployment.
 - **Cost Rate**: an admin-configured $-per-million-tokens rate (prompt
   and completion, optionally per agent/model) used to compute internal
   cost figures from tracked token usage (§8).
+- **PDF Report**: an on-demand-rendered PDF of a run's output or an admin
+  usage summary, branded and classification-marked, delivered by email
+  attachment or UI download (§2.5).
 
 ## 14. Open Questions
 
@@ -572,6 +618,9 @@ deployment.
   returns a `usage` object on chat-completions responses (expected, since
   it's OpenAI-compatible, but needs a live check against the target
   LibreChat instance before implementation locks in on it).
+- PDF rendering engine choice (§2.5) tracks the backend language/
+  framework decision (e.g. WeasyPrint implies Python, Puppeteer/
+  Playwright implies Node) — finalize together with §11 architecture.
 
 ## 15. Change Log
 
@@ -631,3 +680,13 @@ deployment.
   tokens, optionally per agent/model), calculated at run time from the
   rate in effect then so historical costs don't shift if rates change
   later.
+- 2026-07-12: Added **Report Generation & Delivery** (§2.5): on-demand
+  PDF rendering (well-known HTML-to-PDF engine, bundled for offline use)
+  for job/run output and for §8 admin usage reports, delivered via email
+  attachment (reusing existing SMTP integration, including a new
+  recurring-usage-report-email option for admins) or on-demand UI
+  download. PDFs carry the same branding as the web UI plus the §6
+  system-wide classification banner (and an object-level classification
+  label when present) so marking travels with exported documents. Added
+  a security note that the PDF renderer must not fetch remote resources
+  at render time, mirroring the webhook allow-list's SSRF rationale.
