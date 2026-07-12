@@ -10,25 +10,41 @@ let client: Client | undefined;
 // CAC/PIV smart-card auth happens entirely upstream inside Keycloak
 // (REQUIREMENTS.md §4) — Nexus Scheduler never sees a certificate, only
 // the resulting OIDC token.
+//
+// Deliberately never throws: an unreachable issuer or a realm that
+// hasn't been created yet (the default state of the local Compose
+// stack's Keycloak — see README) must not take the whole API process
+// down. Local/break-glass admin login (§4) is explicitly supposed to
+// work "regardless of... Keycloak... being available," which isn't
+// true if a failed discovery here crashes startup before the HTTP
+// server ever starts listening.
 export async function initOidcClient(config: AppConfig, logger: Logger): Promise<Client | undefined> {
   if (!config.OIDC_ISSUER_URL || !config.OIDC_CLIENT_ID || !config.OIDC_REDIRECT_URI) {
     logger.warn("OIDC not configured — only local-account login (if enabled) will work");
     return undefined;
   }
 
-  const issuer = await Issuer.discover(config.OIDC_ISSUER_URL);
-  client = new issuer.Client({
-    client_id: config.OIDC_CLIENT_ID,
-    client_secret: config.OIDC_CLIENT_SECRET,
-    redirect_uris: [config.OIDC_REDIRECT_URI],
-    response_types: ["code"],
-  });
-  return client;
+  try {
+    const issuer = await Issuer.discover(config.OIDC_ISSUER_URL);
+    client = new issuer.Client({
+      client_id: config.OIDC_CLIENT_ID,
+      client_secret: config.OIDC_CLIENT_SECRET,
+      redirect_uris: [config.OIDC_REDIRECT_URI],
+      response_types: ["code"],
+    });
+    return client;
+  } catch (err) {
+    logger.error(
+      { err, issuer: config.OIDC_ISSUER_URL },
+      "OIDC discovery failed — SSO login is unavailable until this is fixed; local-account login (if enabled) still works",
+    );
+    return undefined;
+  }
 }
 
 export function getOidcClient(): Client {
   if (!client) {
-    throw new Error("OIDC client requested before initOidcClient() completed");
+    throw new Error("OIDC is not configured or failed to initialize on this deployment");
   }
   return client;
 }

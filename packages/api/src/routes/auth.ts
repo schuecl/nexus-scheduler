@@ -19,11 +19,16 @@ export function createAuthRouter(config: AppConfig, logger: Logger): Router {
   const router = Router();
 
   router.get("/login", (req, res) => {
-    if (!config.OIDC_CLIENT_ID) {
-      res.status(503).json({ error: "OIDC is not configured on this deployment" });
+    let client;
+    try {
+      client = getOidcClient();
+    } catch {
+      // Covers both "not configured" and "configured but discovery
+      // failed at startup" (e.g. the realm doesn't exist yet) — either
+      // way SSO just isn't available right now, not a server error.
+      res.status(503).json({ error: "OIDC is not configured or unavailable on this deployment" });
       return;
     }
-    const client = getOidcClient();
     const { codeVerifier, codeChallenge, state, nonce } = generatePkce();
     req.session.oidc = {
       state,
