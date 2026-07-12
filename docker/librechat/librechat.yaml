@@ -1,0 +1,30 @@
+# LibreChat's own custom-endpoint config (bind-mounted at
+# /app/librechat.yaml, CONFIG_PATH set in docker-compose.yml). Safe to
+# commit — no secrets live here, unlike docker/librechat/.env.
+#
+# Defines the local Ollama instance (this repo's own ollama/ollama-pull
+# Compose services) as an OpenAI-compatible custom endpoint, running
+# phi4-mini — Microsoft's lightest Phi-4 model — as a free, no-API-key
+# model to test Nexus Scheduler's full pipeline against. Anthropic/
+# Claude (docker-compose.yml's ANTHROPIC_API_KEY) is configured
+# separately as a built-in endpoint, not through this file.
+version: 1.3.13
+cache: true
+
+endpoints:
+  custom:
+    - name: "Ollama"
+      apiKey: "ollama"
+      baseURL: "http://ollama:11434/v1"
+      models:
+        default:
+          - "phi4-mini"
+        # Ollama's own /v1/models lists whatever's actually been pulled
+        # (see the ollama-pull service) — let LibreChat query it live
+        # rather than trusting the hardcoded default above to stay
+        # accurate as models are added/changed.
+        fetch: true
+      titleConvo: true
+      titleModel: "phi4-mini"
+      summarize: false
+      modelDisplayLabel: "Ollama (phi4-mini)"
