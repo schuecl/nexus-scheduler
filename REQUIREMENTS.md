@@ -291,28 +291,33 @@ Government network — the system does not need to enforce cross-domain
 separation, but it does need to carry and display the marking conventions
 that Government users expect.
 
-- **Admin-editable classification taxonomy**: classification labels are
-  **not** a hardcoded scheme — an admin defines the ordered list of labels
-  applicable to this deployment (e.g. label text/abbreviation, plus a
-  banner background color and a legible banner text color per label), and
+These are **two deliberately independent** concerns — one system-wide, one
+per-object — and the banner is never derived from or influenced by object
+tags:
+
+- **Persistent classification banner (system-level)**: a banner bar is
+  **fixed at the top and bottom of every page**, always visible (does not
+  scroll away), showing admin-configured **banner text** and
+  **background/text color**. This is a **single, system-wide** banner
+  reflecting the deployment's overall classification/accreditation level
+  — set once by an admin as part of system configuration (alongside the
+  §5 branding settings). It is static: it never changes based on which
+  page or object is being viewed. Banner color contrast must meet the
+  same WCAG 2.1 AA target as the rest of the UI (§5).
+- **Admin-editable classification taxonomy (object-level)**: separately,
+  classification **labels** are available for tagging individual objects.
+  Labels are **not** a hardcoded scheme — an admin defines the ordered
+  list of labels applicable to this deployment (label text/abbreviation,
+  plus a badge background color and a legible text color per label), and
   can create, rename, reorder, or retire labels over time.
 - **Content tagging**: Projects and saved prompts can be tagged with
   exactly one classification label from the admin-defined taxonomy (jobs/
   schedules inherit their Project's label by default). A configurable
   default label applies to newly created Projects (e.g. the deployment's
-  baseline classification). The active label renders as a badge wherever
-  the tagged item appears (library/browse views, detail views).
-- **Persistent classification banner**: a banner bar is **fixed at the top
-  and bottom of every page**, always visible (does not scroll away),
-  showing admin-configured **banner text** and **background/text color**.
-  This is a **system-wide** banner reflecting the deployment's overall
-  classification/accreditation level — set once by an admin as part of
-  system configuration (alongside the §5 branding settings), not
-  recomputed per page/per item. Banner color contrast must meet the same
-  WCAG 2.1 AA target as the rest of the UI (§5).
-  - Whether per-item classification tags should ever *additionally*
-    influence the banner (vs. the banner always reflecting only the
-    system-wide setting) is an open question — see §14.
+  baseline classification). The active label renders as a **badge**
+  wherever the tagged item appears (library/browse views, detail views) —
+  informational marking on the object, distinct from and with no effect
+  on the system banner above.
 
 ## 7. Auditing & Logging
 
@@ -388,15 +393,33 @@ deployment.
 
 - **Reporting dashboard**: run counts and success/failure rates over time,
   sliceable by user, Team, Project, and target agent.
-- **Cost/usage visibility**: if LibreChat's Agents API response includes
-  token/usage metadata, capture and surface it per run so admins can see
-  relative consumption by user/Team/Project. Whether LibreChat's API
-  actually returns this needs confirming against the live API (see §14).
+- **Token usage tracking**: LibreChat's Agents API is OpenAI-compatible
+  and standard chat-completions responses include a `usage` object
+  (`prompt_tokens`, `completion_tokens`, `total_tokens`). Nexus Scheduler
+  captures and stores this breakdown for every run (final confirmation
+  against the live deployed LibreChat version still needed — degrade
+  gracefully to "unavailable" for a given run if `usage` is absent).
+- **Cost calculation via admin-configured rates**: since this deployment
+  is entirely offline/air-gapped and running in owned datacenters, there
+  is no external billing API to pull real dollar costs from — instead,
+  cost is **computed internally** from tracked token counts using
+  admin-configurable rates (e.g. "$X per 1M prompt tokens" / "$Y per 1M
+  completion tokens"), settable **per agent/model** since different
+  agents may warrant different internal rates, with a global default rate
+  applied when no per-agent override is set. Cost is computed **at run
+  time using the rate in effect then** and stored alongside the run (not
+  recomputed retroactively), so a later rate change doesn't rewrite
+  historical cost figures. Runs before any rate is configured show token
+  counts with cost as "not costed."
+- Both token counts and computed cost roll up into the dashboard above,
+  sliceable by user/Team/Project/agent, for internal chargeback/showback
+  even without a real external invoice.
 - **Optional quotas**: per-user and/or per-Team cumulative run quotas
-  (e.g. runs per day/month), separate from the §2.1 concurrency limits
-  (concurrency caps *simultaneous* runs; a quota caps *cumulative* usage
-  over a period). Default: **no quota** (unlimited); admin can opt in per
-  user/Team for cost or capacity governance.
+  (e.g. runs per day/month, or a token/cost budget), separate from the
+  §2.1 concurrency limits (concurrency caps *simultaneous* runs; a quota
+  caps *cumulative* usage over a period). Default: **no quota**
+  (unlimited); admin can opt in per user/Team for cost or capacity
+  governance.
 - **Exportable reports**: usage data exportable as CSV for chargeback/
   showback reporting outside the app.
 
@@ -489,9 +512,11 @@ deployment.
     backing a queue library) to support concurrency and horizontal scaling
     of workers.
 - **Database**: PostgreSQL — users, roles, Teams (+ membership + Team-
-  owned API keys), job definitions, schedules, run history, audit log,
-  Projects, saved prompts (+ prompt version history), classification
-  taxonomy, webhook destinations, usage/quota data.
+  owned API keys), job definitions, schedules, run history (+ per-run
+  token counts and computed cost), audit log, Projects, saved prompts
+  (+ prompt version history), classification taxonomy, cost rate table
+  (per agent/model, prompt vs. completion), webhook destinations,
+  usage/quota data.
 - **Reverse proxy**: nginx (external/pre-existing in prod; included in
   Compose for local parity).
 - Both the Backend API and Scheduler/Worker expose `/healthz`
@@ -520,11 +545,17 @@ deployment.
 - **Team**: a locally-defined (UI-managed) group of users, used as a
   sharing target for Project ACLs; independent of roles and OIDC groups.
   Can optionally hold its own LibreChat API key for shared schedules.
-- **Classification Label**: an admin-defined marking (text + banner
-  colors) that can be applied to a Project/prompt; distinct from the
-  system-wide classification banner (§6).
+- **Classification Banner**: the single, static, system-wide banner
+  (admin-set text/colors) fixed at the top and bottom of every page,
+  reflecting the deployment's overall classification level (§6).
+- **Classification Label**: an admin-defined, per-object marking (text +
+  badge colors) applied to a Project/prompt; independent of, and with no
+  effect on, the Classification Banner (§6).
 - **Webhook Destination**: an admin-allow-listed internal URL a job can
   be configured to POST its run result to on completion.
+- **Cost Rate**: an admin-configured $-per-million-tokens rate (prompt
+  and completion, optionally per agent/model) used to compute internal
+  cost figures from tracked token usage (§8).
 
 ## 14. Open Questions
 
@@ -537,15 +568,10 @@ deployment.
 - Concurrency defaults (25 global / 5 per-user) are accepted as a
   starting point; **explicitly deferred for revisit** once real usage
   patterns are observed post-launch — no action needed now.
-- Does the live LibreChat Agents API response include token/cost usage
-  metadata? Needed to confirm the §8 cost-visibility feature is feasible
-  as described.
-- Should per-item classification tags (§6) ever influence the system-wide
-  banner, or does the banner always stay purely admin-set/static (current
-  assumption)?
-- Should approval (§2.4) also be required for *edits* to already-approved
-  shared schedules beyond the substantive fields called out (agent,
-  prompt/version, timing), or is that scope correct as drafted?
+- Confirm the live deployed LibreChat version's Agents API actually
+  returns a `usage` object on chat-completions responses (expected, since
+  it's OpenAI-compatible, but needs a live check against the target
+  LibreChat instance before implementation locks in on it).
 
 ## 15. Change Log
 
@@ -594,3 +620,14 @@ deployment.
   Sections renumbered accordingly; webhook delivery removed from
   Non-Goals since it's now a real feature; job-chaining and dynamic
   banner-switching added to Non-Goals as explicit v1 exclusions.
+- 2026-07-12: Clarified that the §6 classification banner (system-wide,
+  static) and per-object classification labels are fully independent —
+  labels never drive the banner; confirmed approval re-triggering (§2.4)
+  applies to substantive edits only, as originally drafted; redesigned
+  §8 cost visibility around internally computed cost — since this
+  deployment is fully offline/air-gapped with no external billing API,
+  Nexus Scheduler tracks LibreChat's per-run token usage and computes
+  cost from **admin-configurable rates** ($ per million prompt/completion
+  tokens, optionally per agent/model), calculated at run time from the
+  rate in effect then so historical costs don't shift if rates change
+  later.
