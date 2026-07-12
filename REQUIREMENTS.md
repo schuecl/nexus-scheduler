@@ -56,6 +56,21 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   adapter module so breaking changes upstream are easy to absorb.
 - Job execution timeout and retry policy are configurable (see below);
   concurrency limits (global and per-user) are configurable by an admin.
+- **Retry policy default**: on transient failure (network error, LibreChat
+  5xx/timeout), retry **2 times** with exponential backoff (e.g. 30s,
+  120s) before marking the run failed. Non-transient failures (e.g. 401
+  invalid API key, 400 bad request) are **not retried**. Retry count and
+  backoff are configurable per job, admin sets the global ceiling.
+- **Agent discovery**: rather than requiring users to hand-type a
+  LibreChat agent ID, Nexus Scheduler should call LibreChat to list the
+  agents available to the configured API key (if LibreChat exposes such a
+  listing endpoint) and present them as a picker when building a job.
+  Falls back to manual agent-ID entry if discovery isn't available.
+- **API key lifecycle**: LibreChat API keys can carry an expiration date.
+  Nexus Scheduler must detect an expired/revoked key (via a failed auth
+  response from LibreChat), mark the key invalid, notify the owning user
+  (UI banner + email), and **pause rather than silently fail** any
+  schedules depending on that key until it's replaced.
 - **Default execution timeout: 10 minutes per job run**, admin-configurable
   with a hard ceiling of 60 minutes (agentic/multi-step tasks can run long,
   but an unbounded call risks starving worker capacity). Jobs may override
@@ -87,7 +102,10 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   other's work.
 - **Teams** are a first-class grouping of users, defined and managed
   entirely **within Nexus Scheduler's own UI** (not sourced from Keycloak/
-  OIDC groups — local-only, admin/editor-managed membership).
+  OIDC groups — local-only, admin/editor-managed membership). **Teams
+  support nesting** (a Team may have sub-Teams); membership is inherited
+  down the hierarchy, so adding a user to a parent Team grants them
+  membership of all its descendant Teams for ACL purposes.
 - **Project ACLs are granted by individual user or by Team**: a Project
   owner can share a Project (read or edit access) with one or more
   specific users, one or more Teams, or org-wide/all authenticated users.
@@ -102,8 +120,23 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   creates a new version, prior versions remain viewable/diffable, and a
   prompt can be reverted to an earlier version. Job/schedule definitions
   reference a specific prompt version so in-flight schedules aren't
-  silently altered by a later edit (schedules can opt in to "always use
-  latest" or pin to a version).
+  silently altered by a later edit. **Version pinning is the schedule
+  owner's choice, set per-schedule**: pin to the prompt version in effect
+  when the schedule was created/last edited, or track "always use latest
+  version" — the schedule owner picks at creation time and can change it
+  later.
+
+### 2.4 Schedule Mechanics
+
+- Every schedule has an explicit **IANA time zone** (not implicitly
+  server-local); recurring schedules compute next-fire time DST-safely in
+  that zone. Users see next/last run times rendered in their own browser
+  time zone as well as the schedule's configured zone.
+- Schedules can be **paused/resumed** without deleting them (and without
+  losing run history) — a common operational need for "pause this report
+  while I'm on leave" type workflows.
+- **Missed-run handling** (e.g. scheduler/worker downtime spans a fire
+  time): open question, see §12.
 
 ## 3. Constraints
 
@@ -163,10 +196,17 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Passwords for local accounts must be stored using a strong adaptive hash
   (e.g., bcrypt/argon2); no plaintext or reversible storage.
 - Per-user LibreChat API keys must be stored **encrypted at rest**.
+- **Session management**: idle session timeout (admin-configurable,
+  default TBD) and absolute session lifetime, consistent with typical
+  Government session-lock expectations (e.g. NIST 800-53 AC-11-style
+  controls). Applies to both OIDC and local-auth sessions.
 
 ## 5. Look & Feel
 
 - Modern web UI (responsive, accessible).
+- **Accessibility**: target **WCAG 2.1 AA** conformance (aligns with
+  Section 508 expectations common in Government deployments) — exact
+  conformance scope/testing process still to be finalized (see §12).
 - Branding/customization support: logo, product name, color theme
   configurable by an admin without a rebuild (e.g., via mounted config or
   admin settings screen).
@@ -190,8 +230,42 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
     branding changes, SMTP config changes.
   - **Agent/task actions**: job execution start, completion, failure,
     cancellation, and the LibreChat request/response metadata.
+
+### 6.1 Audit Event Schema (Proposed)
+
+Every audit record must unambiguously answer **who did what, when** (plus
+enough context to investigate an incident). Proposed minimal schema:
+
+| Field | Description |
+|---|---|
+| `event_id` | UUID, unique per event. |
+| `timestamp` | UTC, ISO 8601 with millisecond precision. Server clock only — never client-supplied. |
+| `actor_type` | `user` \| `service`. |
+| `actor_id` | User ID or service identifier (e.g. `system:scheduler`). |
+| `actor_email` | Denormalized human-readable actor (user's email, or service name) — satisfies "by user email or service" directly, without a join, even if the user record later changes/is removed. |
+| `action` | Verb in `<resource>.<operation>` form, e.g. `job.create`, `schedule.update`, `run.start`, `run.cancel`, `login.success`, `login.failure`, `apikey.rotate`, `team.membership.add`. |
+| `target_type` | `job` \| `schedule` \| `run` \| `project` \| `prompt` \| `team` \| `user` \| `apikey` \| `system_setting`. |
+| `target_id` | ID of the affected resource. |
+| `target_name` | Denormalized display name of the target *at the time of the event* (survives later renames/deletes). |
+| `result` | `success` \| `failure`, plus `error_message` when applicable. |
+| `source_ip` | Client IP for UI/API-driven actions (null for internal scheduler-initiated events). |
+| `correlation_id` | Groups related events (e.g. one `correlation_id` ties `run.start` → `run.complete` → `notification.sent` for a single job run). |
+| `details` | JSON blob for action-specific context (e.g. changed-field diff on an update, or the LibreChat request/response metadata for a run). |
+
+This is the row shape stored in PostgreSQL. When mirrored to **syslog**
+(§ below), fields map onto RFC 5424 as: `TIMESTAMP` = `timestamp`,
+`HOSTNAME`/`APP-NAME` = the emitting pod, `MSGID` = `action`, and the rest
+(`event_id`, `actor_type`, `actor_id`, `actor_email`, `target_type`,
+`target_id`, `result`, `correlation_id`) as RFC 5424 `STRUCTURED-DATA`
+parameters under a single `nexusAudit@<enterprise-id>` SD-ID; `details`
+and a human-readable summary form the `MSG` body.
+
 - Local log/audit retention: **14 days by default**, configurable by
-  admin.
+  admin. This governs the **audit trail** (§6.1 events). **Job run
+  history/output (§2.2) is a separate, product-facing dataset and is not
+  bound by the 14-day audit window** — its retention period is an open
+  question (see §12), since users will want to reference past run
+  results well beyond two weeks.
 - Audit records are stored in **PostgreSQL** (structured, queryable) as
   the system of record for local retention/UI display.
 - Nexus Scheduler must **also support emitting logs via syslog** so
@@ -259,6 +333,21 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Dependency/container images scanned for CVEs as part of the build
   pipeline (tooling TBD — must itself be air-gap-compatible).
 - No telemetry/analytics calls to external services (air-gap constraint).
+- **FIPS 140-2/140-3 validated cryptography**: whether this is a hard
+  requirement for the target Government network is an open question (see
+  §12) — if required, it constrains base image/runtime and crypto library
+  choices (e.g. OpenSSL FIPS module, distro FIPS mode) and should be
+  decided before implementation starts.
+- **Operational health & metrics**: Kubernetes liveness/readiness probe
+  endpoints on both the API and scheduler/worker containers, plus a
+  Prometheus-compatible `/metrics` endpoint (queue depth, running job
+  count, success/failure rates, LibreChat call latency) for cluster-local
+  monitoring — distinct from the user-facing audit log, this is for
+  platform operators.
+- **Import/export**: job, schedule, and prompt definitions can be
+  exported/imported as JSON, so power users can back up, promote between
+  environments, or share configuration outside of Nexus Scheduler's
+  built-in Project sharing.
 
 ## 9. Proposed Architecture (Draft)
 
@@ -277,6 +366,8 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   (+ prompt version history).
 - **Reverse proxy**: nginx (external/pre-existing in prod; included in
   Compose for local parity).
+- Both the Backend API and Scheduler/Worker expose `/healthz`
+  (liveness/readiness) and `/metrics` (Prometheus) endpoints per §8.
 
 ## 10. Non-Goals (v1)
 
@@ -300,17 +391,30 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 
 ## 12. Open Questions
 
-- Exact structured-data fields to include in RFC 5424 syslog messages for
-  each audited event type (e.g. actor, action, target, result) — needs a
-  concrete field schema.
+- **Team/service-owned schedule execution identity**: when a schedule
+  lives in a Team-shared Project, whose LibreChat API key executes it —
+  always the creator's personal key, or should Nexus Scheduler support a
+  Team/service-level API key so execution doesn't break if the creator
+  leaves or their key is revoked?
+- **Job run history retention**: now explicitly decoupled from the
+  14-day audit default (§6) — what should the default retention for
+  run history/output actually be (e.g. 90 days, 1 year, indefinite with
+  admin-configurable purge)?
+- **Missed-run / catch-up semantics** (§2.4): if the scheduler/worker is
+  down across a scheduled fire time, should the run fire immediately on
+  recovery ("catch-up"), be skipped entirely, or should this be
+  configurable per schedule?
+- **FIPS 140-2/140-3 validated cryptography** (§8): hard requirement for
+  this Government network, or standard hardened crypto is sufficient?
+- Accessibility conformance scope (§5): confirm WCAG 2.1 AA is the right
+  target (vs. a formal Section 508 VPAT requirement) and how it will be
+  tested/verified.
+- Exact structured-data field list for RFC 5424 syslog messages is
+  proposed in §6.1 — confirm it covers what a target SIEM integration
+  needs.
 - Concurrency defaults (25 global / 5 per-user) are accepted as a
   starting point; **explicitly deferred for revisit** once real usage
   patterns are observed post-launch — no action needed now.
-- Should Team membership support nesting (teams of teams) or only flat
-  membership? Defaulting to flat unless a need emerges.
-- Should prompt version pinning ("always latest" vs. pinned version) be
-  the schedule owner's choice per-schedule (current assumption), or a
-  Project-level policy set by the Project owner?
 
 ## 13. Change Log
 
@@ -329,3 +433,15 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
   confirmed as RFC 5424 with optional (admin-configurable) TLS; noted
   Nexus Scheduler is part of the MPNexus platform; concurrency defaults
   explicitly deferred for post-launch revisit.
+- 2026-07-12: Confirmed Teams support nesting with inherited membership;
+  confirmed version pinning is the schedule owner's per-schedule choice;
+  added proposed audit event schema (§6.1) and its RFC 5424 field
+  mapping; gap-analysis pass added: retry-policy defaults, LibreChat
+  agent discovery, API key lifecycle handling, schedule time zone
+  handling, schedule pause/resume, WCAG 2.1 AA accessibility target,
+  session idle-timeout requirement, decoupled run-history retention from
+  the 14-day audit window, FIPS crypto flag, health/metrics endpoints,
+  and JSON import/export of job/schedule/prompt definitions. New open
+  questions raised: Team/service-owned schedule execution identity,
+  run-history retention default, missed-run/catch-up semantics, and
+  whether FIPS-validated crypto is mandatory.
