@@ -38,11 +38,12 @@ npm run build       # builds shared -> api -> worker -> frontend, in order
 
 ### Full stack via Docker Compose
 
-Stands up Postgres, Redis, Keycloak, Mailpit, and the app itself — see
-REQUIREMENTS.md §9.2 for what this is (and isn't) meant to validate.
+Stands up Postgres, Redis, Keycloak, Mailpit, a real local LibreChat
+install (+ its own MongoDB), and the app itself — see REQUIREMENTS.md
+§9.2 for what this is (and isn't) meant to validate.
 
 ```bash
-./scripts/generate-local-env.sh   # writes .env with random local secrets — do this once
+./scripts/generate-local-env.sh   # writes .env + docker/librechat/.env — do this once
 docker compose up --build
 ```
 
@@ -55,9 +56,42 @@ Then:
   auth/TLS) to test password-reset/account emails.
 - Mailpit (catches outbound email): http://localhost:8025
 - Keycloak admin console: http://localhost:8081 (`admin` / see `.env`)
+- LibreChat: http://localhost:3080
 
 Keycloak has no realm pre-provisioned yet — create a `nexus-scheduler`
 realm and client manually to test the OIDC login flow end to end.
+
+**LibreChat first-run setup** — none of this is scriptable, it's
+LibreChat's own UI flow, and it's what actually makes a Job runnable
+end to end rather than just erroring against a nonexistent backend:
+1. Add at least one real AI provider key (`OPENAI_API_KEY`,
+   `ANTHROPIC_API_KEY`, etc.) to `docker/librechat/.env`, then
+   `docker compose restart librechat` — LibreChat has nothing to call
+   without one.
+2. Visit http://localhost:3080 and register an account (this is
+   LibreChat's own local auth — `ALLOW_REGISTRATION=true` is set by
+   default in the generated env file — separate from Nexus Scheduler's
+   own users entirely).
+3. Create an Agent in LibreChat's UI.
+4. Generate a LibreChat API key for that account (REQUIREMENTS §2.1:
+   LibreChat API keys are created via `POST /api/api-keys` on the
+   LibreChat side, outside Nexus Scheduler).
+5. Back in Nexus Scheduler, add that key under **API Keys**, then use
+   the Agent's ID from step 3 when creating a **Job**.
+
+This install is intentionally minimal: LibreChat's own default Compose
+setup also runs Meilisearch (conversation search) and a RAG API +
+pgvector (file-embedding search) — neither is needed for the Agents API
+Nexus Scheduler actually calls, so both are omitted and search is
+disabled (`SEARCH=false`) rather than left pointing at a service that
+isn't running.
+
+**If you already had a `.env` from before LibreChat was added**:
+`generate-local-env.sh` never overwrites an existing `.env`, so it'll
+still have the old `LIBRECHAT_BASE_URL=http://host.docker.internal:3080`
+default. Edit that one line to `http://librechat:3080` by hand (re-running
+the script will still create the new `docker/librechat/.env` alongside
+it, since that file didn't exist before).
 
 ### Running a single package against the Compose infra
 

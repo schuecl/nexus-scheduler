@@ -3,11 +3,18 @@
 # simulate the air-gapped constraint of the production environment.
 #
 # Quick start:
-#   ./scripts/generate-local-env.sh   # writes .env with random secrets
+#   ./scripts/generate-local-env.sh   # writes .env + docker/librechat/.env
 #   docker compose up --build
 #
 # Then: http://localhost:8080 (app via local nginx), :8025 (Mailpit UI),
-# :8081 (Keycloak, admin/${KEYCLOAK_ADMIN_PASSWORD}).
+# :8081 (Keycloak, admin/${KEYCLOAK_ADMIN_PASSWORD}), :3080 (LibreChat).
+#
+# LibreChat needs at least one AI provider API key before it can run an
+# Agent — add one to docker/librechat/.env (generated on first run,
+# alongside this file's own .env) and `docker compose restart
+# librechat`. See README's Docker Compose section for the full
+# first-run flow (register in LibreChat, create an Agent, generate a
+# LibreChat API key, paste it into Nexus Scheduler's own API Keys page).
 
 services:
   postgres:
@@ -54,6 +61,45 @@ services:
     ports:
       - "8025:8025" # web UI
       - "1025:1025" # SMTP
+
+  librechat-mongo:
+    image: mongo:8.0.20
+    command: mongod --noauth
+    volumes:
+      - librechat-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The actual AI backend Nexus Scheduler's Worker calls (REQUIREMENTS
+  # §2.1) — a real local install, not a mock, so job runs actually work
+  # end to end. Minimal footprint: LibreChat's own default Compose setup
+  # also includes Meilisearch (conversation search) and a RAG API +
+  # pgvector (file-embedding search); neither is needed for the Agents
+  # API this app calls, so both are omitted here and search is disabled
+  # via SEARCH=false rather than left pointing at a service that isn't
+  # running.
+  librechat:
+    image: registry.librechat.ai/danny-avila/librechat-dev:latest
+    depends_on:
+      librechat-mongo:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3080
+      MONGO_URI: mongodb://librechat-mongo:27017/LibreChat
+      SEARCH: "false"
+    volumes:
+      - type: bind
+        source: ./docker/librechat/.env
+        target: /app/.env
+      - librechat-images:/app/client/public/images
+      - librechat-uploads:/app/uploads
+      - librechat-logs:/app/logs
+    ports:
+      - "3080:3080"
 
   migrate:
     build:
@@ -132,3 +178,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  librechat-mongo-data:
+  librechat-images:
+  librechat-uploads:
+  librechat-logs:

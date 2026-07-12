@@ -18,3 +18,4 @@ packages/frontend/.vite/
 
 # Local secrets generated for docker-compose
 docker/generated/
+docker/librechat/.env
