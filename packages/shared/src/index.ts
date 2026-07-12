@@ -7,3 +7,4 @@ export * from "./schemas/schedule.js";
 export * from "./schemas/job.js";
 export * from "./schemas/team.js";
 export * from "./schemas/project.js";
+export * from "./schemas/prompt.js";

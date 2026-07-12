@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { to: "/jobs", label: "Jobs" },
   { to: "/schedules", label: "Schedules" },
   { to: "/projects", label: "Projects" },
+  { to: "/prompts", label: "Prompt Library" },
   { to: "/teams", label: "Teams" },
   { to: "/admin", label: "Admin" },
 ];

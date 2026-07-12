@@ -1,0 +1,251 @@
+import { Router } from "express";
+import {
+  createPromptSchema,
+  updatePromptSchema,
+  createPromptVersionSchema,
+} from "@nexus-scheduler/shared";
+import { prisma } from "../db.js";
+import { requireAuth } from "../middleware/requireAuth.js";
+import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
+import { requirePromptAccess } from "../middleware/requirePromptAccess.js";
+import { getAccessibleProjectIds } from "../access.js";
+import { recordAuditEvent } from "../audit.js";
+
+// Mounted at /api/projects/:projectId/prompts (mergeParams) — create/list
+// scoped to one Project, gated the same way any other Project content
+// mutation is (EDIT to create, READ to list) — REQUIREMENTS.md §2.3.
+export function createProjectPromptsRouter(): Router {
+  const router = Router({ mergeParams: true });
+
+  router.get("/", requireAuth, requireProjectAccess("READ"), async (req, res) => {
+    const prompts = await prisma.prompt.findMany({
+      where: { projectId: req.params.projectId },
+      orderBy: { updatedAt: "desc" },
+    });
+    res.json(prompts);
+  });
+
+  router.post("/", requireAuth, requireProjectAccess("EDIT"), async (req, res) => {
+    const parsed = createPromptSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+    const projectId = req.params.projectId!;
+
+    const prompt = await prisma.$transaction(async (tx) => {
+      const created = await tx.prompt.create({
+        data: {
+          projectId,
+          name: parsed.data.name,
+          description: parsed.data.description,
+          tags: parsed.data.tags,
+        },
+      });
+      await tx.promptVersion.create({
+        data: {
+          promptId: created.id,
+          versionNumber: 1,
+          content: parsed.data.content,
+          variables: parsed.data.variables,
+          createdById: user.id,
+        },
+      });
+      return created;
+    });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "prompt.create",
+      targetType: "prompt",
+      targetId: prompt.id,
+      targetName: prompt.name,
+      result: "SUCCESS",
+    });
+
+    res.status(201).json(prompt);
+  });
+
+  return router;
+}
+
+// Mounted at /api/prompts — prompt-id-scoped operations, plus the
+// library-wide search/discovery view (§2.3) across every Project the
+// user can see.
+export function createPromptsRouter(): Router {
+  const router = Router();
+
+  router.get("/", requireAuth, async (req, res) => {
+    const user = req.session.user!;
+    const projectIds = await getAccessibleProjectIds(user.id);
+    if (projectIds.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    const search = typeof req.query.search === "string" ? req.query.search : undefined;
+    const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
+    const favoritesOnly = req.query.favoritesOnly === "true";
+
+    const favoriteIds = favoritesOnly
+      ? new Set(
+          (await prisma.promptFavorite.findMany({ where: { userId: user.id }, select: { promptId: true } })).map(
+            (f) => f.promptId,
+          ),
+        )
+      : null;
+
+    const prompts = await prisma.prompt.findMany({
+      where: {
+        projectId: { in: projectIds },
+        ...(search
+          ? { OR: [{ name: { contains: search, mode: "insensitive" } }, { description: { contains: search, mode: "insensitive" } }] }
+          : {}),
+        ...(tag ? { tags: { has: tag } } : {}),
+        ...(favoriteIds ? { id: { in: [...favoriteIds] } } : {}),
+      },
+      include: { project: { select: { id: true, name: true } } },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    const myFavoriteIds = new Set(
+      (await prisma.promptFavorite.findMany({ where: { userId: user.id }, select: { promptId: true } })).map(
+        (f) => f.promptId,
+      ),
+    );
+
+    res.json(prompts.map((p) => ({ ...p, isFavorite: myFavoriteIds.has(p.id) })));
+  });
+
+  router.get("/:id", requireAuth, requirePromptAccess("READ"), async (req, res) => {
+    const user = req.session.user!;
+    const [prompt, isFavorite] = await Promise.all([
+      prisma.prompt.findUnique({
+        where: { id: req.params.id },
+        include: { versions: { orderBy: { versionNumber: "desc" } } },
+      }),
+      prisma.promptFavorite.findUnique({
+        where: { userId_promptId: { userId: user.id, promptId: req.params.id! } },
+      }),
+    ]);
+    res.json({ ...prompt, isFavorite: !!isFavorite, projectAccess: req.projectAccess });
+  });
+
+  router.patch("/:id", requireAuth, requirePromptAccess("EDIT"), async (req, res) => {
+    const parsed = updatePromptSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+    const prompt = await prisma.prompt.update({ where: { id: req.params.id }, data: parsed.data });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "prompt.update",
+      targetType: "prompt",
+      targetId: prompt.id,
+      targetName: prompt.name,
+      result: "SUCCESS",
+      details: parsed.data,
+    });
+
+    res.json(prompt);
+  });
+
+  router.delete("/:id", requireAuth, requirePromptAccess("EDIT"), async (req, res) => {
+    const user = req.session.user!;
+    const prompt = await prisma.prompt.delete({ where: { id: req.params.id } });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "prompt.delete",
+      targetType: "prompt",
+      targetId: prompt.id,
+      targetName: prompt.name,
+      result: "SUCCESS",
+    });
+
+    res.status(204).send();
+  });
+
+  router.get("/:id/versions", requireAuth, requirePromptAccess("READ"), async (req, res) => {
+    const versions = await prisma.promptVersion.findMany({
+      where: { promptId: req.params.id },
+      orderBy: { versionNumber: "desc" },
+      include: { createdBy: { select: { id: true, email: true, displayName: true } } },
+    });
+    res.json(versions);
+  });
+
+  // Every edit creates a new version rather than mutating content in
+  // place (REQUIREMENTS.md §2.3) — prior versions stay intact so
+  // schedules pinned to them are unaffected.
+  router.post("/:id/versions", requireAuth, requirePromptAccess("EDIT"), async (req, res) => {
+    const parsed = createPromptVersionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+
+    const latest = await prisma.promptVersion.findFirst({
+      where: { promptId: req.params.id },
+      orderBy: { versionNumber: "desc" },
+    });
+    const version = await prisma.promptVersion.create({
+      data: {
+        promptId: req.params.id!,
+        versionNumber: (latest?.versionNumber ?? 0) + 1,
+        content: parsed.data.content,
+        variables: parsed.data.variables,
+        createdById: user.id,
+      },
+    });
+    await prisma.prompt.update({ where: { id: req.params.id }, data: { updatedAt: new Date() } });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "prompt.version.create",
+      targetType: "prompt",
+      targetId: req.params.id,
+      result: "SUCCESS",
+      details: { versionNumber: version.versionNumber },
+    });
+
+    res.status(201).json(version);
+  });
+
+  router.post("/:id/favorite", requireAuth, requirePromptAccess("READ"), async (req, res) => {
+    const user = req.session.user!;
+    await prisma.promptFavorite.upsert({
+      where: { userId_promptId: { userId: user.id, promptId: req.params.id! } },
+      create: { userId: user.id, promptId: req.params.id! },
+      update: {},
+    });
+    res.status(204).send();
+  });
+
+  router.delete("/:id/favorite", requireAuth, requirePromptAccess("READ"), async (req, res) => {
+    const user = req.session.user!;
+    await prisma.promptFavorite
+      .delete({ where: { userId_promptId: { userId: user.id, promptId: req.params.id! } } })
+      .catch(() => undefined); // already-unfavorited is not an error
+    res.status(204).send();
+  });
+
+  return router;
+}

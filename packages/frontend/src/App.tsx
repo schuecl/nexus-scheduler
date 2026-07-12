@@ -9,6 +9,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/JobsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { PromptLibraryPage } from "./pages/PromptLibraryPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { AdminPage } from "./pages/AdminPage";
 
@@ -28,6 +29,7 @@ export function App() {
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/schedules" element={<SchedulesPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/prompts" element={<PromptLibraryPage />} />
                 <Route path="/teams" element={<TeamsPage />} />
                 <Route path="/admin" element={<AdminPage />} />
               </Routes>

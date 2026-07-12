@@ -23,6 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import { apiFetch } from "../api/client";
+import { PromptDetailDialog } from "../components/PromptDetailDialog";
 
 interface ClassificationLabel {
   id: string;
@@ -216,12 +217,133 @@ function ProjectDetailPanel({ projectId }: { projectId: string }) {
       {project.description && <Typography color="text.secondary">{project.description}</Typography>}
       <Typography variant="body2">Your access: {project.effectiveAccess}</Typography>
 
+      <Divider />
+      <ProjectPromptsPanel projectId={project.id} canEdit={project.effectiveAccess !== "READ"} />
+
       {project.effectiveAccess === "OWNER" && (
         <>
           <Divider />
           <ProjectSharingPanel projectId={project.id} />
         </>
       )}
+    </Stack>
+  );
+}
+
+interface Prompt {
+  id: string;
+  name: string;
+  description: string | null;
+  tags: string[];
+}
+
+function ProjectPromptsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [openPromptId, setOpenPromptId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
+  const [content, setContent] = useState("");
+
+  const promptsQuery = useQuery({
+    queryKey: ["projects", projectId, "prompts"],
+    queryFn: () => apiFetch<Prompt[]>(`/api/projects/${projectId}/prompts`),
+  });
+
+  const createPrompt = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/projects/${projectId}/prompts`, {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          description: description || undefined,
+          tags: tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+          content,
+          variables: [],
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "prompts"] });
+      setCreateOpen(false);
+      setName("");
+      setDescription("");
+      setTags("");
+      setContent("");
+    },
+  });
+
+  return (
+    <Stack spacing={1}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="subtitle1">Prompts</Typography>
+        {canEdit && (
+          <Button size="small" onClick={() => setCreateOpen(true)}>
+            New Prompt
+          </Button>
+        )}
+      </Stack>
+
+      <List dense>
+        {promptsQuery.data?.map((prompt) => (
+          <ListItem key={prompt.id} disablePadding>
+            <ListItemButton onClick={() => setOpenPromptId(prompt.id)}>
+              <ListItemText
+                primary={prompt.name}
+                secondary={prompt.tags.join(", ") || prompt.description}
+              />
+            </ListItemButton>
+          </ListItem>
+        ))}
+        {promptsQuery.data?.length === 0 && (
+          <Typography color="text.secondary">No prompts in this Project yet.</Typography>
+        )}
+      </List>
+
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>New Prompt</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth />
+            <TextField
+              label="Description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Tags (comma-separated)"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Prompt content"
+              helperText="Use {{variable}} placeholders — built-ins: date, datetime, schedule_name, run_id"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              multiline
+              minRows={4}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!name || !content || createPrompt.isPending}
+            onClick={() => createPrompt.mutate()}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {openPromptId && <PromptDetailDialog promptId={openPromptId} onClose={() => setOpenPromptId(null)} />}
     </Stack>
   );
 }

@@ -73,22 +73,38 @@ export async function getProjectAccess(userId: string, projectId: string): Promi
   return best;
 }
 
+// Shared by listAccessibleProjects and getAccessibleProjectIds so the two
+// never disagree about what "accessible" means.
+async function accessibleProjectWhere(userId: string) {
+  const effectiveTeamIds = await getEffectiveTeamIds(userId);
+  return {
+    OR: [
+      { ownerId: userId },
+      { acls: { some: { granteeType: "USER" as const, granteeUserId: userId } } },
+      { acls: { some: { granteeType: "ORG" as const } } },
+      ...(effectiveTeamIds.length > 0
+        ? [{ acls: { some: { granteeType: "TEAM" as const, granteeTeamId: { in: effectiveTeamIds } } } }]
+        : []),
+    ],
+  };
+}
+
 // Every Project a user can see at all, for the list view — same access
 // rules as getProjectAccess but as a single query rather than N checks.
 export async function listAccessibleProjects(userId: string) {
-  const effectiveTeamIds = await getEffectiveTeamIds(userId);
   return prisma.project.findMany({
-    where: {
-      OR: [
-        { ownerId: userId },
-        { acls: { some: { granteeType: "USER", granteeUserId: userId } } },
-        { acls: { some: { granteeType: "ORG" } } },
-        ...(effectiveTeamIds.length > 0
-          ? [{ acls: { some: { granteeType: "TEAM" as const, granteeTeamId: { in: effectiveTeamIds } } } }]
-          : []),
-      ],
-    },
+    where: await accessibleProjectWhere(userId),
     include: { classificationLabel: true, owner: { select: { id: true, email: true, displayName: true } } },
     orderBy: { updatedAt: "desc" },
   });
+}
+
+// Bare IDs — used to scope the library-wide Prompt search (§2.3) to
+// Projects the user can actually see, without pulling full Project rows.
+export async function getAccessibleProjectIds(userId: string): Promise<string[]> {
+  const projects = await prisma.project.findMany({
+    where: await accessibleProjectWhere(userId),
+    select: { id: true },
+  });
+  return projects.map((p) => p.id);
 }

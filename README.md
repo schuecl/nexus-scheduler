@@ -115,15 +115,29 @@ build in this environment):
   (granting/revoking ACLs) is deliberately owner-only, per §2.3's "a
   Project owner can share a Project" — EDIT collaborators can change
   content but not decide who else gets in.
+- **Prompts & Prompt Library** (§2.3): prompts live inside a Project,
+  each edit creates a new immutable `PromptVersion` rather than mutating
+  content in place (so schedules pinned to a version are never silently
+  altered), plus favorites and a library-wide search/tag/favorites view
+  (`GET /api/prompts`) scoped to every Project the user can see via
+  `getAccessibleProjectIds()`. Access is entirely inherited from the
+  containing Project (`requirePromptAccess` delegates straight to
+  `getProjectAccess`) — prompts don't carry their own ACLs.
 - Frontend shell: routing, MUI theme, the classification banner
-  component, an OIDC-aware auth context, and working Teams/Projects
-  pages (create, browse, manage membership, manage sharing)
+  component, an OIDC-aware auth context, working Teams/Projects pages
+  (create, browse, manage membership, manage sharing), a Prompts panel
+  inside each Project's detail view, and a top-level Prompt Library page
+  for org-wide search/tag/favorites discovery
 
-Stubbed / not yet built: Prompt Library (saved prompts, versioning,
-tags/search/favorites — Projects exist now but don't yet contain
-prompts), schedule approval workflow, PDF report generation, webhook
-delivery, per-user concurrency limiting (only the global limit is
-enforced today), Prometheus metrics, syslog output, most of the admin
-UI (user management, branding, classification-taxonomy editing, cost
-rates, SMTP config). See REQUIREMENTS.md for the full feature set these should
+Stubbed / not yet built: prompt **variable substitution UI** (the
+`{{variable}}` declaration form — the worker already resolves them at
+run time, §2.3, but there's no UI to declare non-default values yet),
+schedule approval workflow, PDF report generation, webhook delivery,
+per-user concurrency limiting (only the global limit is enforced
+today), Prometheus metrics, syslog output, most of the admin UI (user
+management, branding, classification-taxonomy editing, cost rates,
+SMTP config), and the Jobs/Schedules pages don't yet let you pick a
+Prompt when creating a Job (the API supports it — `POST /api/jobs`
+already takes a `promptId` — the UI just doesn't expose the picker
+yet). See REQUIREMENTS.md for the full feature set these should
 implement.

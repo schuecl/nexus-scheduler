@@ -14,6 +14,7 @@ import { createTeamsRouter } from "./routes/teams.js";
 import { createProjectsRouter } from "./routes/projects.js";
 import { createUsersRouter } from "./routes/users.js";
 import { createClassificationLabelsRouter } from "./routes/classificationLabels.js";
+import { createProjectPromptsRouter, createPromptsRouter } from "./routes/prompts.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 export function createApp(config: AppConfig, logger: Logger): Express {
@@ -49,6 +50,8 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/jobs", createJobsRouter());
   app.use("/api/teams", createTeamsRouter());
   app.use("/api/projects", createProjectsRouter());
+  app.use("/api/projects/:projectId/prompts", createProjectPromptsRouter());
+  app.use("/api/prompts", createPromptsRouter());
   app.use("/api/users", createUsersRouter());
   app.use("/api/classification-labels", createClassificationLabelsRouter());
 
