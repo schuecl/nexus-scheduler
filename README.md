@@ -182,8 +182,43 @@ one-time `runAt` in a zone other than the browser's. Correct for the
 common case; a dedicated cross-zone one-time picker is a follow-up if
 that turns out to matter.
 
-Stubbed / not yet built: PDF report generation, webhook delivery,
-per-user concurrency limiting (only the global limit is enforced
-today), Prometheus metrics, syslog output, and the rest of the admin UI
-(user/role management, branding, cost rates, SMTP config). See
-REQUIREMENTS.md for the full feature set these should implement.
+- **Outbound webhook delivery** (§2.2/§10): `WebhookDestination` and the
+  `JobWebhookDestination` join table existed in the schema since the
+  original scaffold, but nothing ever read or wrote them. Now:
+  - Admin-only allow-list (`packages/api/src/routes/
+    webhookDestinations.ts`) — a Job can only ever attach one of these
+    rows, never an arbitrary URL, which is what keeps this from becoming
+    an SSRF/exfiltration path. The signing secret is generated
+    server-side (`generateWebhookSecret()`) and AES-256-GCM encrypted at
+    rest; it's never entered or displayed in the UI, only used
+    server-side to sign deliveries.
+  - `PUT /api/jobs/:id/webhooks` lets a Job pick which allow-listed
+    destinations to notify (replaces the full set per call).
+  - The Worker's `deliverWebhooksForRun()` fires after every terminal
+    run (success or failure), POSTing a JSON payload with an
+    `X-Nexus-Signature: sha256=<hmac>` header so receivers can verify
+    authenticity. Every attempt (success or exhausted-retry failure) is
+    audited (`webhook.deliver`).
+  - Frontend: an Admin panel for the allow-list, and a "Webhooks" button
+    per Job (next to "Schedules") to pick which destinations apply.
+  - **Fixed in passing**: the shared `auditEventSchema`'s action-string
+    regex only allowed exactly one dot, but REQUIREMENTS §7.1's own
+    examples (and several actions already in use — `team.membership.add`,
+    `project.acl.grant`, `prompt.version.create`) have two. Loosened it
+    to allow one or more dot-separated segments.
+
+Known simplification: webhook delivery retries with short, fixed delays
+(a few seconds total) rather than the job's own 30s/120s exponential
+policy — delivery runs synchronously inside the run's BullMQ job, so a
+slow or dead receiver holding that up for minutes would cost real
+worker throughput. A failed delivery is logged and audited but never
+fails the run itself or triggers a BullMQ retry of the run. Also, every
+attached destination is notified on every terminal outcome (success and
+failure both) — there's no per-destination success/failure toggle yet,
+though the payload's `status` field lets a receiver filter client-side.
+
+Stubbed / not yet built: PDF report generation, per-user concurrency
+limiting (only the global limit is enforced today), Prometheus metrics,
+syslog output, and the rest of the admin UI (user/role management,
+branding, cost rates, SMTP config). See REQUIREMENTS.md for the full
+feature set these should implement.

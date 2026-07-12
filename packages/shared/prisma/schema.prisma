@@ -337,12 +337,15 @@ model Run {
 // ---------------------------------------------------------------------------
 
 model WebhookDestination {
-  id             String   @id @default(uuid())
-  name           String
-  url            String // must be on the admin allow-list by policy, not app-enforced uniqueness
-  hmacSecretRef  String // reference to a secret store entry, not the secret itself
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id                    String   @id @default(uuid())
+  name                  String
+  url                   String // admin-entered — this row *is* the allow-list, §2.2/§10
+  // Server-generated at creation, AES-256-GCM encrypted at rest (same
+  // scheme as ApiKey.encryptedKey) — never entered or displayed to an
+  // admin; used only server-side to sign outbound delivery payloads.
+  encryptedHmacSecret   String
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now())
 
   jobLinks JobWebhookDestination[]
 

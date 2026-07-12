@@ -25,6 +25,7 @@ import {
 import { apiFetch } from "../api/client";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
 import { ScheduleManagerDialog } from "../components/ScheduleManagerDialog";
+import { JobWebhooksDialog } from "../components/JobWebhooksDialog";
 import { VariableEditor, type PromptVariableDraft } from "../components/VariableEditor";
 
 interface ClassificationLabel {
@@ -378,6 +379,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [scheduleJob, setScheduleJob] = useState<Job | null>(null);
+  const [webhooksJobId, setWebhooksJobId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [promptId, setPromptId] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -439,9 +441,14 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
           <ListItem
             key={job.id}
             secondaryAction={
-              <Button size="small" onClick={() => setScheduleJob(job)}>
-                Schedules
-              </Button>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" onClick={() => setWebhooksJobId(job.id)}>
+                  Webhooks
+                </Button>
+                <Button size="small" onClick={() => setScheduleJob(job)}>
+                  Schedules
+                </Button>
+              </Stack>
             }
           >
             <ListItemText primary={job.name} secondary={`Agent: ${job.agentId}`} />
@@ -529,6 +536,9 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
           promptId={scheduleJob.promptId}
           onClose={() => setScheduleJob(null)}
         />
+      )}
+      {webhooksJobId && (
+        <JobWebhooksDialog jobId={webhooksJobId} onClose={() => setWebhooksJobId(null)} />
       )}
     </Stack>
   );

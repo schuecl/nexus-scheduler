@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createJobSchema, updateJobSchema } from "@nexus-scheduler/shared";
+import { createJobSchema, updateJobSchema, setJobWebhooksSchema } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
@@ -116,6 +116,58 @@ export function createJobsRouter(): Router {
       targetId: job.id,
       targetName: job.name,
       result: "SUCCESS",
+    });
+
+    res.status(204).send();
+  });
+
+  // Which admin-allow-listed destinations (§2.2) get this Job's run
+  // results — replaces the full set in one call rather than incremental
+  // add/remove, which is simpler for what's normally a short list.
+  router.get("/:id/webhooks", requireAuth, requireJobAccess("READ"), async (req, res) => {
+    const links = await prisma.jobWebhookDestination.findMany({
+      where: { jobId: req.params.id },
+      include: { webhookDestination: { select: { id: true, name: true, url: true, active: true } } },
+    });
+    res.json(links.map((l) => l.webhookDestination));
+  });
+
+  router.put("/:id/webhooks", requireAuth, requireJobAccess("EDIT"), async (req, res) => {
+    const parsed = setJobWebhooksSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+    const jobId = req.params.id!;
+
+    if (parsed.data.webhookDestinationIds.length > 0) {
+      const count = await prisma.webhookDestination.count({
+        where: { id: { in: parsed.data.webhookDestinationIds }, active: true },
+      });
+      if (count !== parsed.data.webhookDestinationIds.length) {
+        res.status(400).json({ error: "one or more webhookDestinationIds are not a valid, active destination" });
+        return;
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.jobWebhookDestination.deleteMany({ where: { jobId } }),
+      prisma.jobWebhookDestination.createMany({
+        data: parsed.data.webhookDestinationIds.map((webhookDestinationId) => ({ jobId, webhookDestinationId })),
+      }),
+    ]);
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "job.webhooks.update",
+      targetType: "job",
+      targetId: jobId,
+      result: "SUCCESS",
+      details: { webhookDestinationIds: parsed.data.webhookDestinationIds },
     });
 
     res.status(204).send();

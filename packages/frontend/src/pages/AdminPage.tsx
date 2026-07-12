@@ -42,11 +42,128 @@ export function AdminPage() {
       <Typography variant="h4">Admin</Typography>
       <Typography color="text.secondary">
         User/role management, branding, SMTP, and cost rates (REQUIREMENTS §4-§8) still need to be
-        built here. Classification taxonomy management (§6) is implemented below.
+        built here. Classification taxonomy (§6) and the webhook destination allow-list (§2.2) are
+        implemented below.
       </Typography>
 
       <ClassificationLabelsPanel />
+      <WebhookDestinationsPanel />
     </Stack>
+  );
+}
+
+interface WebhookDestination {
+  id: string;
+  name: string;
+  url: string;
+  active: boolean;
+  createdAt: string;
+}
+
+// This list *is* the allow-list (REQUIREMENTS §2.2/§10) — a Job can only
+// ever attach one of these rows, never an arbitrary URL a user typed in,
+// which is what keeps outbound delivery from becoming an exfiltration
+// path. The signing secret is generated and encrypted server-side; it's
+// never entered here and never shown back.
+function WebhookDestinationsPanel() {
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+
+  const destinationsQuery = useQuery({
+    queryKey: ["webhook-destinations"],
+    queryFn: () => apiFetch<WebhookDestination[]>("/api/webhook-destinations"),
+  });
+
+  const createDestination = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/webhook-destinations", { method: "POST", body: JSON.stringify({ name, url }) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["webhook-destinations"] });
+      setCreateOpen(false);
+      setName("");
+      setUrl("");
+    },
+  });
+
+  const setActive = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      apiFetch(`/api/webhook-destinations/${id}`, { method: "PATCH", body: JSON.stringify({ active }) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["webhook-destinations"] }),
+  });
+
+  return (
+    <Box>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="h6">Webhook Destinations</Typography>
+        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+          New Destination
+        </Button>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Internal endpoints a Job's run results can be delivered to. Only destinations added here
+        can ever be attached to a Job — there is no way to enter an arbitrary URL when configuring
+        a Job's notifications.
+      </Typography>
+
+      <List dense>
+        {destinationsQuery.data?.map((destination) => (
+          <ListItem
+            key={destination.id}
+            divider
+            secondaryAction={
+              <Button
+                size="small"
+                color={destination.active ? "error" : "primary"}
+                onClick={() => setActive.mutate({ id: destination.id, active: !destination.active })}
+              >
+                {destination.active ? "Disable" : "Enable"}
+              </Button>
+            }
+          >
+            <ListItemText
+              primary={
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <span>{destination.name}</span>
+                  {!destination.active && <Chip size="small" label="Disabled" />}
+                </Stack>
+              }
+              secondary={destination.url}
+            />
+          </ListItem>
+        ))}
+        {destinationsQuery.data?.length === 0 && (
+          <Typography color="text.secondary">No webhook destinations configured yet.</Typography>
+        )}
+      </List>
+
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>New Webhook Destination</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth />
+            <TextField
+              label="URL"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              helperText="Must be an internal endpoint reachable from the Worker"
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!name || !url || createDestination.isPending}
+            onClick={() => createDestination.mutate()}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }
 

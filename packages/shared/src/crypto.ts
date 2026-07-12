@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync } from "node:crypto";
 
 // AES-256-GCM for at-rest encryption of LibreChat API keys (REQUIREMENTS
 // §4) and other secrets stored in Postgres. AES-256-GCM is a FIPS-approved
@@ -35,4 +35,17 @@ export function decryptSecret(encoded: string, masterKey: string): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+}
+
+// Generates a fresh per-destination signing secret for outbound webhooks
+// (REQUIREMENTS §2.2) — 256 bits, hex-encoded so it's easy to hand a
+// receiving system for HMAC verification without any binary handling.
+export function generateWebhookSecret(): string {
+  return randomBytes(32).toString("hex");
+}
+
+// HMAC-SHA256 over the raw JSON body — receivers verify authenticity by
+// recomputing this with the same shared secret (§2.2).
+export function signWebhookPayload(rawBody: string, secret: string): string {
+  return createHmac("sha256", secret).update(rawBody).digest("hex");
 }

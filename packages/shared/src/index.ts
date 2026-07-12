@@ -9,3 +9,4 @@ export * from "./schemas/team.js";
 export * from "./schemas/project.js";
 export * from "./schemas/prompt.js";
 export * from "./schemas/apiKey.js";
+export * from "./schemas/webhook.js";

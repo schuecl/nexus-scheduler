@@ -8,7 +8,10 @@ export const auditEventSchema = z.object({
   actorType: z.enum(["USER", "SERVICE"]),
   actorId: z.string(),
   actorEmail: z.string().email(),
-  action: z.string().regex(/^[a-z_]+\.[a-z_]+$/, "expected '<resource>.<operation>' form"),
+  // "<resource>.<operation>", but REQUIREMENTS.md §7.1's own examples
+  // include multi-segment actions (e.g. "team.membership.add"), so this
+  // allows one or more dot-separated segments, not exactly one dot.
+  action: z.string().regex(/^[a-z_]+(\.[a-z_]+)+$/, "expected dot-separated '<resource>.<operation>' form"),
   targetType: z.string(),
   targetId: z.string().optional(),
   targetName: z.string().optional(),
