@@ -41,6 +41,8 @@ spec:
               value: {{ .Values.oidc.clientId | quote }}
             - name: OIDC_REDIRECT_URI
               value: {{ .Values.oidc.redirectUri | quote }}
+            - name: LIBRECHAT_BASE_URL
+              value: {{ .Values.librechat.baseUrl | quote }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secrets.appSecretName }}

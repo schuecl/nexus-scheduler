@@ -81,8 +81,16 @@ end to end rather than just erroring against a nonexistent backend:
 4. Generate a LibreChat API key for that account (REQUIREMENTS §2.1:
    LibreChat API keys are created via `POST /api/api-keys` on the
    LibreChat side, outside Nexus Scheduler).
-5. Back in Nexus Scheduler, add that key under **API Keys**, then use
-   the Agent's ID from step 3 when creating a **Job**.
+5. Back in Nexus Scheduler, add that key under **API Keys**, then pick
+   the Agent from step 3 when creating a **Job** — Nexus Scheduler tries
+   to auto-discover the Agents available to whichever key you select
+   (REQUIREMENTS §2.1) via `GET /api/agents/v1/models` on LibreChat,
+   the sibling of the `/chat/completions` endpoint it already calls to
+   run a Job, following the same OpenAI-compatible convention. This
+   hasn't been confirmed against a real LibreChat deployment — if the
+   picker comes up empty, the Job form falls back to a plain "LibreChat
+   Agent ID" text field automatically, and you can just paste the
+   Agent's ID from LibreChat's UI directly.
 
 This install is intentionally minimal: LibreChat's own default Compose
 setup also runs Meilisearch (conversation search) and a RAG API +
@@ -480,6 +488,24 @@ the run-report PDF and job-completion email, this one has no existing
 consumer/producer gap to close — it needs its own admin UI, its own
 render template, and (for the recurring part) its own schedule concept
 independent of Job/Schedule.
+
+- **Agent discovery** (§2.1): "rather than requiring users to hand-type
+  a LibreChat agent ID, Nexus Scheduler should call LibreChat to list
+  the agents available to the configured API key... Falls back to
+  manual agent-ID entry if discovery isn't available" — this had never
+  actually been built; the Job form's agent field was always a plain
+  text box. `GET /api/api-keys/:id/agents` (new, in
+  `packages/api/src/routes/apiKeys.ts`) decrypts the selected key and
+  calls `GET /api/agents/v1/models` on LibreChat — the sibling of the
+  `/chat/completions` endpoint the Worker already calls, following the
+  same OpenAI-compatible convention REQUIREMENTS documents for that
+  endpoint. **Not independently confirmed against a live LibreChat
+  deployment** (§14 already flagged this as an open item for the
+  `/chat/completions` endpoint itself); any failure — wrong path, 404,
+  unexpected response shape — is caught and the Job form's agent field
+  falls back to the original plain text input exactly as REQUIREMENTS
+  specifies, so a wrong guess here degrades gracefully rather than
+  breaking Job creation.
 
 Stubbed / not yet built: admin usage-report PDF export and recurring
 report email, an isolated PDF-renderer component, per-user concurrency

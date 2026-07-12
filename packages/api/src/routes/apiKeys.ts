@@ -1,15 +1,25 @@
 import { Router } from "express";
-import { createApiKeySchema, encryptSecret } from "@nexus-scheduler/shared";
+import { createApiKeySchema, encryptSecret, decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { getEffectiveTeamIds } from "../access.js";
 import { recordAuditEvent } from "../audit.js";
+import { listLibreChatAgentIds } from "../librechatDiscovery.js";
 import type { AppConfig } from "../config.js";
 
 // LibreChat API keys — entered per-user via the web UI, or held by a
 // Team for shared/durable schedules (REQUIREMENTS.md §2/§2.1/§4). Raw
 // key material is encrypted at rest and never echoed back in a response
 // after creation.
+async function canUseApiKey(
+  user: { id: string; role: string },
+  key: { ownerType: "USER" | "TEAM"; ownerUserId: string | null; ownerTeamId: string | null },
+): Promise<boolean> {
+  if (user.role === "ADMIN") return true;
+  if (key.ownerType === "USER") return key.ownerUserId === user.id;
+  return key.ownerTeamId !== null && (await getEffectiveTeamIds(user.id)).includes(key.ownerTeamId);
+}
+
 export function createApiKeysRouter(config: AppConfig): Router {
   const router = Router();
 
@@ -97,13 +107,7 @@ export function createApiKeysRouter(config: AppConfig): Router {
       return;
     }
 
-    const allowed =
-      user.role === "ADMIN" ||
-      (key.ownerType === "USER" && key.ownerUserId === user.id) ||
-      (key.ownerType === "TEAM" &&
-        key.ownerTeamId !== null &&
-        (await getEffectiveTeamIds(user.id)).includes(key.ownerTeamId));
-    if (!allowed) {
+    if (!(await canUseApiKey(user, key))) {
       res.status(403).json({ error: "not permitted to revoke this key" });
       return;
     }
@@ -123,6 +127,37 @@ export function createApiKeysRouter(config: AppConfig): Router {
     });
 
     res.status(204).send();
+  });
+
+  // Agent discovery (§2.1) — lets the Job form offer a picker instead
+  // of a hand-typed agent ID. Best-effort: any failure (LibreChat
+  // unreachable, endpoint not present on this deployment's version,
+  // unexpected response shape) is a plain error response, and the
+  // frontend falls back to manual entry rather than blocking Job
+  // creation on this working.
+  router.get("/:id/agents", requireAuth, async (req, res) => {
+    const user = req.session.user!;
+    const key = await prisma.apiKey.findUnique({ where: { id: req.params.id } });
+    if (!key) {
+      res.status(404).json({ error: "key not found" });
+      return;
+    }
+    if (!(await canUseApiKey(user, key))) {
+      res.status(403).json({ error: "not permitted to use this key" });
+      return;
+    }
+    if (!config.LIBRECHAT_BASE_URL) {
+      res.status(503).json({ error: "LIBRECHAT_BASE_URL is not configured on this deployment" });
+      return;
+    }
+
+    try {
+      const decrypted = decryptSecret(key.encryptedKey, config.API_KEY_ENCRYPTION_KEY);
+      const agentIds = await listLibreChatAgentIds(config.LIBRECHAT_BASE_URL, decrypted);
+      res.json(agentIds);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : "agent discovery failed" });
+    }
   });
 
   return router;

@@ -37,6 +37,13 @@ const envSchema = z.object({
   // In production this comes from a K8s Secret, never a default value.
   API_KEY_ENCRYPTION_KEY: z.string().min(32),
 
+  // Same LibreChat instance the Worker calls (§2.1) — used here only
+  // for Agent discovery when building a Job (GET /api/api-keys/:id/
+  // agents). Optional: discovery is explicitly a best-effort nicety
+  // that falls back to hand-typing an agent ID, never a hard
+  // dependency for the API to start.
+  LIBRECHAT_BASE_URL: z.string().url().optional(),
+
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 

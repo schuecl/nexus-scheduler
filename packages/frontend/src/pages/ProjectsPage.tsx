@@ -406,6 +406,18 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
     queryKey: ["api-keys"],
     queryFn: () => apiFetch<ApiKeyOption[]>("/api/api-keys"),
   });
+  // Agent discovery (REQUIREMENTS §2.1): offer a picker built from
+  // whichever Agents the selected key can see, falling back to a plain
+  // text field below if this fails — LibreChat not reachable, this
+  // deployment's version doesn't expose the discovery endpoint, no key
+  // selected yet, etc. Never blocks Job creation either way.
+  const agentsQuery = useQuery({
+    queryKey: ["api-keys", apiKeyId, "agents"],
+    queryFn: () => apiFetch<string[]>(`/api/api-keys/${apiKeyId}/agents`),
+    enabled: !!apiKeyId,
+    retry: false,
+  });
+  const discoveredAgentIds = apiKeyId ? agentsQuery.data ?? [] : [];
 
   const createJob = useMutation({
     mutationFn: () =>
@@ -492,19 +504,16 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                 ))}
               </Select>
             </FormControl>
-            <TextField
-              label="LibreChat Agent ID"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              fullWidth
-            />
             <FormControl fullWidth>
               <InputLabel id="job-apikey-label">API Key</InputLabel>
               <Select
                 labelId="job-apikey-label"
                 label="API Key"
                 value={apiKeyId}
-                onChange={(e) => setApiKeyId(e.target.value)}
+                onChange={(e) => {
+                  setApiKeyId(e.target.value);
+                  setAgentId(""); // a previously picked/typed agent may not apply to the new key
+                }}
               >
                 {apiKeysQuery.data?.map((k) => (
                   <MenuItem key={k.id} value={k.id}>
@@ -513,6 +522,37 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                 ))}
               </Select>
             </FormControl>
+            {discoveredAgentIds.length > 0 ? (
+              <FormControl fullWidth>
+                <InputLabel id="job-agent-label">Agent</InputLabel>
+                <Select
+                  labelId="job-agent-label"
+                  label="Agent"
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                >
+                  {discoveredAgentIds.map((id) => (
+                    <MenuItem key={id} value={id}>
+                      {id}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              <TextField
+                label="LibreChat Agent ID"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                fullWidth
+                helperText={
+                  apiKeyId && agentsQuery.isError
+                    ? "Couldn't auto-discover Agents for this key — enter the ID manually."
+                    : apiKeyId && agentsQuery.isLoading
+                      ? "Looking up available Agents…"
+                      : undefined
+                }
+              />
+            )}
             <Stack direction="row" spacing={2}>
               <TextField
                 label="Timeout (seconds)"

@@ -140,6 +140,7 @@ services:
       OIDC_REDIRECT_URI: http://localhost:8080/auth/callback
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      LIBRECHAT_BASE_URL: ${LIBRECHAT_BASE_URL}
       LOG_LEVEL: debug
     depends_on:
       postgres:
