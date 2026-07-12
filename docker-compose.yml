@@ -12,7 +12,7 @@
 # LibreChat needs at least one AI provider before it can run an Agent.
 # Two are wired up for local testing, either works, no config required
 # beyond what's already here:
-#   - Ollama running phi4-mini (free, local, no API key) — the ollama/
+#   - Ollama running qwen3:0.6b (free, local, no API key) — the ollama/
 #     ollama-pull services below, exposed to LibreChat via
 #     docker/librechat/librechat.yaml as a custom endpoint.
 #   - Claude/Anthropic — set ANTHROPIC_API_KEY in this file's own root
@@ -96,17 +96,17 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: pulls phi4-mini (Microsoft's lightest Phi-4 model, ~2.5GB)
-  # into the ollama service above once it's up. Only needs to run once
-  # per ollama-data volume — Ollama itself no-ops a re-pull of a model
-  # it already has. Check `docker compose logs -f ollama-pull` for
-  # download progress; it needs real internet access the first time.
+  # One-shot: pulls qwen3:0.6b (Qwen3's smallest model, ~0.5GB) into the
+  # ollama service above once it's up. Only needs to run once per
+  # ollama-data volume — Ollama itself no-ops a re-pull of a model it
+  # already has. Check `docker compose logs -f ollama-pull` for download
+  # progress; it needs real internet access the first time.
   ollama-pull:
     image: ollama/ollama:latest
     depends_on:
       ollama:
         condition: service_healthy
-    entrypoint: ["/bin/sh", "-c", "OLLAMA_HOST=ollama:11434 ollama pull phi4-mini"]
+    entrypoint: ["/bin/sh", "-c", "OLLAMA_HOST=ollama:11434 ollama pull qwen3:0.6b"]
 
   # The actual AI backend Nexus Scheduler's Worker calls (REQUIREMENTS
   # §2.1) — a real local install, not a mock, so job runs actually work
@@ -141,7 +141,7 @@ services:
       # default set instead — a few more entries in the dropdown than
       # originally intended, but Agent creation actually works.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # Custom (non-built-in) endpoints — the local Ollama/phi4-mini
+      # Custom (non-built-in) endpoints — the local Ollama/qwen3:0.6b
       # instance above — are defined in the bind-mounted librechat.yaml
       # below.
       CONFIG_PATH: /app/librechat.yaml

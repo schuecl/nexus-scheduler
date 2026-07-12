@@ -4,10 +4,10 @@
 #
 # Defines the local Ollama instance (this repo's own ollama/ollama-pull
 # Compose services) as an OpenAI-compatible custom endpoint, running
-# phi4-mini — Microsoft's lightest Phi-4 model — as a free, no-API-key
-# model to test Nexus Scheduler's full pipeline against. Anthropic/
-# Claude (docker-compose.yml's ANTHROPIC_API_KEY) is configured
-# separately as a built-in endpoint, not through this file.
+# qwen3:0.6b — Qwen3's smallest model — as a free, no-API-key model to
+# test Nexus Scheduler's full pipeline against. Anthropic/Claude
+# (docker-compose.yml's ANTHROPIC_API_KEY) is configured separately as
+# a built-in endpoint, not through this file.
 version: 1.3.13
 cache: true
 
@@ -18,13 +18,13 @@ endpoints:
       baseURL: "http://ollama:11434/v1"
       models:
         default:
-          - "phi4-mini"
+          - "qwen3:0.6b"
         # Ollama's own /v1/models lists whatever's actually been pulled
         # (see the ollama-pull service) — let LibreChat query it live
         # rather than trusting the hardcoded default above to stay
         # accurate as models are added/changed.
         fetch: true
       titleConvo: true
-      titleModel: "phi4-mini"
+      titleModel: "qwen3:0.6b"
       summarize: false
-      modelDisplayLabel: "Ollama (phi4-mini)"
+      modelDisplayLabel: "Ollama (qwen3:0.6b)"

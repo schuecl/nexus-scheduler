@@ -65,13 +65,12 @@ realm and client manually to test the OIDC login flow end to end.
 LibreChat's own UI flow, and it's what actually makes a Job runnable
 end to end rather than just erroring against a nonexistent backend:
 1. Pick a provider — two are wired up already, use either:
-   - **Ollama running `phi4-mini`** (free, local, no API key): the
-     `ollama` + `ollama-pull` Compose services pull Microsoft's
-     lightest Phi-4 model on first `up` (~2.5GB — check
-     `docker compose logs -f ollama-pull` for progress, needs real
-     internet access once). Exposed to LibreChat as a custom
-     OpenAI-compatible endpoint via `docker/librechat/librechat.yaml`
-     — nothing else to configure.
+   - **Ollama running `qwen3:0.6b`** (free, local, no API key): the
+     `ollama` + `ollama-pull` Compose services pull Qwen3's smallest
+     model on first `up` (~0.5GB — check `docker compose logs -f
+     ollama-pull` for progress, needs real internet access once).
+     Exposed to LibreChat as a custom OpenAI-compatible endpoint via
+     `docker/librechat/librechat.yaml` — nothing else to configure.
    - **Claude/Anthropic**: set `ANTHROPIC_API_KEY` in this repo's own
      root `.env` to a real key from https://console.anthropic.com/,
      then `docker compose restart librechat`.
@@ -83,7 +82,7 @@ end to end rather than just erroring against a nonexistent backend:
    default in the generated env file — separate from Nexus Scheduler's
    own users entirely).
 3. Create an Agent in LibreChat's UI, backed by whichever
-   provider/model you set up in step 1 (`Ollama (phi4-mini)` will show
+   provider/model you set up in step 1 (`Ollama (qwen3:0.6b)` will show
    up as its own endpoint in the model picker).
 4. Generate a LibreChat API key for that account (REQUIREMENTS §2.1:
    LibreChat API keys are created via `POST /api/api-keys` on the
@@ -99,10 +98,11 @@ end to end rather than just erroring against a nonexistent backend:
    Agent ID" text field automatically, and you can just paste the
    Agent's ID from LibreChat's UI directly.
 
-`phi4-mini` is a 3.8B-parameter model — it'll run on CPU (no GPU
-required for this Compose setup) but noticeably slower than a hosted
-API, which is fine for confirming the pipeline works end to end but
-worth knowing going in. If you have a GPU and want it faster, add a
+`qwen3:0.6b` is a 0.6B-parameter model — small enough to run on CPU
+(no GPU required for this Compose setup) reasonably quickly, though
+still noticeably slower and less capable than a hosted API. Fine for
+confirming the pipeline works end to end, not for judging output
+quality. If you have a GPU and want it faster, add a
 `deploy.resources.reservations.devices` block to the `ollama` service
 per Ollama's own Docker GPU docs — not set up here to keep this
 runnable on any machine by default.
