@@ -102,7 +102,6 @@ build in this environment):
 - Scheduler tick loop (due-schedule polling, missed-fire skip logic,
   next-fire-time computation) and a BullMQ run processor with
   retry/backoff, cost calculation, and the LibreChat Agents API adapter
-- A `jobs` CRUD slice proving the Express + Prisma + zod + audit pattern
 - **Teams** (§2.3): CRUD, nested hierarchy, membership management,
   including the "membership in a parent Team is inherited by every
   descendant Team" rule
@@ -123,21 +122,55 @@ build in this environment):
   `getAccessibleProjectIds()`. Access is entirely inherited from the
   containing Project (`requirePromptAccess` delegates straight to
   `getProjectAccess`) — prompts don't carry their own ACLs.
-- Frontend shell: routing, MUI theme, the classification banner
-  component, an OIDC-aware auth context, working Teams/Projects pages
-  (create, browse, manage membership, manage sharing), a Prompts panel
-  inside each Project's detail view, and a top-level Prompt Library page
-  for org-wide search/tag/favorites discovery
+- **API Keys** (§2/§4): personal or Team-owned LibreChat API keys,
+  encrypted at rest (AES-256-GCM, `packages/shared/src/crypto.ts`), raw
+  key material never returned after creation. `GET /api/api-keys`
+  returns every key a user can actually use — their own plus any
+  Team-owned key for a Team they're effectively a member of.
+- **Jobs**, properly Project-scoped (§2.3, §2.1): same access pattern as
+  Prompts (`requireJobAccess` → `getProjectAccess`) — this replaces the
+  earlier unscoped `jobs` CRUD stub, which listed every Job in the
+  system to any authenticated user regardless of Project access. Job
+  creation cross-checks that its `promptId` actually belongs to the same
+  Project.
+- **Schedules with the full maker-checker approval workflow** (§2.4):
+  one-time and recurring (interval-picker, not cron), pause/resume,
+  version pinning (`LATEST` vs. a specific `PromptVersion`). Schedules
+  in a **private** Project auto-approve; schedules in a **shared**
+  Project start `PENDING` and need approval before the Worker will ever
+  pick them up. `getEligibleApprovers()` in `access.ts` resolves who
+  that is (owner + every EDIT grantee, Team grants expanded through
+  membership, including inheritance) and enforces "you can't approve
+  your own change unless you're the only eligible approver," per §2.4's
+  exact wording. Editing a substantive field (timing, version pin) on an
+  already-approved shared schedule resets it to `PENDING` and
+  recomputes `nextFireAt` on (re-)approval; pause/resume are separate
+  endpoints so an operational toggle never accidentally re-triggers
+  approval.
+- Frontend, fully wired end to end: create an API key → create a
+  Project → add a Prompt → create a Job against that Prompt and key →
+  create a Schedule for that Job (one-time or recurring, with a live
+  interval-picker UI) → see it in the cross-Project **Approvals** queue
+  if its Project is shared → approve/reject. Plus the Teams/Projects
+  pages (create, browse, manage membership, manage sharing), a Prompts
+  panel inside each Project's detail view, and a top-level Prompt
+  Library page for org-wide search/tag/favorites discovery.
+
+Known simplification: the one-time schedule picker uses an HTML
+`datetime-local` input, which is always interpreted in the browser's
+local time zone — the schedule's separate `timezone` field is honored
+for display and for recurring-schedule math, but not (yet) for
+re-interpreting a one-time `runAt` in a zone other than the browser's.
+Correct for the common case (scheduling in your own time zone); a
+dedicated cross-zone one-time picker is a follow-up if that turns out
+to matter.
 
 Stubbed / not yet built: prompt **variable substitution UI** (the
 `{{variable}}` declaration form — the worker already resolves them at
-run time, §2.3, but there's no UI to declare non-default values yet),
-schedule approval workflow, PDF report generation, webhook delivery,
-per-user concurrency limiting (only the global limit is enforced
-today), Prometheus metrics, syslog output, most of the admin UI (user
+run time, §2.3, but there's no UI to declare non-default values on a
+schedule yet), PDF report generation, webhook delivery, per-user
+concurrency limiting (only the global limit is enforced today),
+Prometheus metrics, syslog output, and most of the admin UI (user
 management, branding, classification-taxonomy editing, cost rates,
-SMTP config), and the Jobs/Schedules pages don't yet let you pick a
-Prompt when creating a Job (the API supports it — `POST /api/jobs`
-already takes a `promptId` — the UI just doesn't expose the picker
-yet). See REQUIREMENTS.md for the full feature set these should
+SMTP config). See REQUIREMENTS.md for the full feature set these should
 implement.

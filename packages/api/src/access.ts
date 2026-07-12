@@ -108,3 +108,58 @@ export async function getAccessibleProjectIds(userId: string): Promise<string[]>
   });
   return projects.map((p) => p.id);
 }
+
+// Reverse of getEffectiveTeamIds: given a Team, every user who is
+// effectively a member of it — direct members, plus direct members of
+// any *ancestor* Team (since membership in a parent is inherited down
+// to its descendants, per §2.3).
+export async function getTeamMemberUserIds(teamId: string): Promise<string[]> {
+  const allTeams = await prisma.team.findMany({ select: { id: true, parentTeamId: true } });
+  const parentOf = new Map(allTeams.map((t) => [t.id, t.parentTeamId]));
+
+  const ancestorChain = [teamId];
+  let current = parentOf.get(teamId);
+  while (current) {
+    ancestorChain.push(current);
+    current = parentOf.get(current);
+  }
+
+  const memberships = await prisma.teamMembership.findMany({
+    where: { teamId: { in: ancestorChain } },
+    select: { userId: true },
+  });
+  return [...new Set(memberships.map((m) => m.userId))];
+}
+
+export interface EligibleApprovers {
+  userIds: Set<string>;
+  orgWideEdit: boolean; // an ORG-level EDIT grant means "anyone" is eligible
+}
+
+// Who can approve a schedule change in this Project (REQUIREMENTS.md
+// §2.4): the owner, or anyone/any-Team granted EDIT access — expanded
+// through Team membership (with inheritance) the same way project
+// access itself is resolved.
+export async function getEligibleApprovers(projectId: string): Promise<EligibleApprovers> {
+  const project = await prisma.project.findUnique({ where: { id: projectId }, include: { acls: true } });
+  const userIds = new Set<string>();
+  let orgWideEdit = false;
+  if (!project) {
+    return { userIds, orgWideEdit };
+  }
+  userIds.add(project.ownerId);
+
+  for (const acl of project.acls) {
+    if (acl.accessLevel !== "EDIT") continue;
+    if (acl.granteeType === "USER" && acl.granteeUserId) {
+      userIds.add(acl.granteeUserId);
+    } else if (acl.granteeType === "ORG") {
+      orgWideEdit = true;
+    } else if (acl.granteeType === "TEAM" && acl.granteeTeamId) {
+      for (const memberId of await getTeamMemberUserIds(acl.granteeTeamId)) {
+        userIds.add(memberId);
+      }
+    }
+  }
+  return { userIds, orgWideEdit };
+}

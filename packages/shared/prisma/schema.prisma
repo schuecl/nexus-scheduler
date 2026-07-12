@@ -275,7 +275,8 @@ model Schedule {
   jobId               String
   job                 Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
   type                ScheduleType
-  intervalConfig       Json // interval-picker config, not raw cron (§2)
+  runAt                DateTime? // set when type === ONE_TIME
+  intervalConfig       Json? // interval-picker config, not raw cron (§2); set when type === RECURRING
   timezone             String // IANA tz name (§2.4)
   nextFireAt           DateTime?
   paused               Boolean        @default(false)

@@ -26,13 +26,44 @@ export const intervalConfigSchema = z.discriminatedUnion("kind", [
 
 export type IntervalConfig = z.infer<typeof intervalConfigSchema>;
 
-export const createScheduleSchema = z.object({
-  jobId: z.string().uuid(),
-  type: z.enum(["ONE_TIME", "RECURRING"]),
-  runAt: z.string().datetime().optional(), // required when type === "ONE_TIME"
-  intervalConfig: intervalConfigSchema.optional(), // required when type === "RECURRING"
-  timezone: z.string().min(1), // IANA tz name, validated server-side against the tz database
-  versionPinMode: z.enum(["PINNED", "LATEST"]).default("LATEST"),
-});
+// jobId comes from the route (POST /api/jobs/:jobId/schedules), not the
+// body — same convention as createPromptSchema/createJobSchema.
+export const createScheduleSchema = z
+  .object({
+    type: z.enum(["ONE_TIME", "RECURRING"]),
+    runAt: z.string().datetime().optional(), // required when type === "ONE_TIME"
+    intervalConfig: intervalConfigSchema.optional(), // required when type === "RECURRING"
+    timezone: z.string().min(1), // IANA tz name, validated server-side against the tz database
+    versionPinMode: z.enum(["PINNED", "LATEST"]).default("LATEST"),
+    // required when versionPinMode === "PINNED" (§2.3: the schedule
+    // owner's per-schedule choice of which prompt version to run).
+    pinnedPromptVersionId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.type !== "ONE_TIME" || !!v.runAt, {
+    message: "runAt is required for a one-time schedule",
+    path: ["runAt"],
+  })
+  .refine((v) => v.type !== "RECURRING" || !!v.intervalConfig, {
+    message: "intervalConfig is required for a recurring schedule",
+    path: ["intervalConfig"],
+  })
+  .refine((v) => v.versionPinMode !== "PINNED" || !!v.pinnedPromptVersionId, {
+    message: "pinnedPromptVersionId is required when versionPinMode is PINNED",
+    path: ["pinnedPromptVersionId"],
+  });
 
 export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
+
+export const updateScheduleSchema = z
+  .object({
+    runAt: z.string().datetime().optional(),
+    intervalConfig: intervalConfigSchema.optional(),
+    timezone: z.string().min(1).optional(),
+    versionPinMode: z.enum(["PINNED", "LATEST"]).optional(),
+    pinnedPromptVersionId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => v.versionPinMode !== "PINNED" || !!v.pinnedPromptVersionId, {
+    message: "pinnedPromptVersionId is required when versionPinMode is PINNED",
+    path: ["pinnedPromptVersionId"],
+  });
+export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;

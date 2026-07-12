@@ -7,11 +7,11 @@ import { useAuth } from "../context/AuthContext";
 
 const NAV_LINKS = [
   { to: "/", label: "Dashboard" },
-  { to: "/jobs", label: "Jobs" },
-  { to: "/schedules", label: "Schedules" },
   { to: "/projects", label: "Projects" },
   { to: "/prompts", label: "Prompt Library" },
+  { to: "/schedules", label: "Approvals" },
   { to: "/teams", label: "Teams" },
+  { to: "/api-keys", label: "API Keys" },
   { to: "/admin", label: "Admin" },
 ];
 

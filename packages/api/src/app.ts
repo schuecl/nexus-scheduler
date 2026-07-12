@@ -8,13 +8,15 @@ import { pinoHttp } from "pino-http";
 import type { AppConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import { createHealthRouter } from "./routes/health.js";
-import { createJobsRouter } from "./routes/jobs.js";
+import { createJobsRouter, createProjectJobsRouter } from "./routes/jobs.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createTeamsRouter } from "./routes/teams.js";
 import { createProjectsRouter } from "./routes/projects.js";
 import { createUsersRouter } from "./routes/users.js";
 import { createClassificationLabelsRouter } from "./routes/classificationLabels.js";
 import { createProjectPromptsRouter, createPromptsRouter } from "./routes/prompts.js";
+import { createApiKeysRouter } from "./routes/apiKeys.js";
+import { createJobSchedulesRouter, createSchedulesRouter } from "./routes/schedules.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 export function createApp(config: AppConfig, logger: Logger): Express {
@@ -47,13 +49,17 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   // Liveness/readiness are unauthenticated by design (cluster probes).
   app.use(createHealthRouter());
   app.use("/auth", createAuthRouter(config, logger));
-  app.use("/api/jobs", createJobsRouter());
   app.use("/api/teams", createTeamsRouter());
   app.use("/api/projects", createProjectsRouter());
   app.use("/api/projects/:projectId/prompts", createProjectPromptsRouter());
+  app.use("/api/projects/:projectId/jobs", createProjectJobsRouter());
   app.use("/api/prompts", createPromptsRouter());
+  app.use("/api/jobs/:jobId/schedules", createJobSchedulesRouter());
+  app.use("/api/jobs", createJobsRouter());
+  app.use("/api/schedules", createSchedulesRouter());
   app.use("/api/users", createUsersRouter());
   app.use("/api/classification-labels", createClassificationLabelsRouter());
+  app.use("/api/api-keys", createApiKeysRouter(config));
 
   app.use(errorHandler(logger));
 
