@@ -153,6 +153,23 @@ export function createSchedulesRouter(): Router {
     const user = req.session.user!;
     const existing = await prisma.schedule.findUniqueOrThrow({ where: { id: req.params.id } });
 
+    // createScheduleSchema enforces this same-prompt check on create, but
+    // it's only Zod-level validation there — PATCH spreads parsed.data
+    // straight into the update with nothing re-checking it, so without
+    // this a user with EDIT on the schedule could pin any PromptVersion
+    // UUID in the system, including one from a Project they can't access,
+    // and read its content back via the run output once it fires.
+    if (parsed.data.pinnedPromptVersionId) {
+      const job = await prisma.job.findUnique({ where: { id: existing.jobId } });
+      const version = await prisma.promptVersion.findUnique({
+        where: { id: parsed.data.pinnedPromptVersionId },
+      });
+      if (!version || version.promptId !== job?.promptId) {
+        res.status(400).json({ error: "pinnedPromptVersionId must be a version of this Job's prompt" });
+        return;
+      }
+    }
+
     const touchedSubstantive = SUBSTANTIVE_FIELDS.some((field) => field in parsed.data);
     const project = await prisma.project.findUnique({ where: { id: req.scheduleProjectId } });
     const mustReapprove =
