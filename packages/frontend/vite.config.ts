@@ -6,8 +6,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:3000",
-      "/auth": "http://localhost:3000",
+      // Trailing slash matters: without it, this prefix-matches the
+      // SPA's own /api-keys client-side route too (Vite's dev proxy
+      // does a plain startsWith() check), sending direct navigation or
+      // a refresh on that page to the backend instead of serving the
+      // SPA — every real REST call is under /api/... or /auth/...
+      // with something after the slash, so requiring it here
+      // disambiguates the two without needing a regex.
+      "/api/": "http://localhost:3000",
+      "/auth/": "http://localhost:3000",
     },
   },
   build: {
