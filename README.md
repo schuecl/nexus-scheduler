@@ -579,8 +579,45 @@ independent of Job/Schedule.
     queue-depth gauge simply omitted for that scrape rather than
     blocking everything.
 
+- **Per-user concurrency limiting** (§2.1: default 5, admin-
+  configurable, layered on top of the existing global default-25
+  ceiling): `processor.ts` carried an explicit comment that this
+  "will need an explicit counter (e.g. a Redis-backed semaphore keyed
+  by user id) as a follow-up" — built now, exactly that way.
+  - `packages/worker/src/concurrency.ts`: a Redis sorted-set semaphore
+    per user (member = run ID, score = slot-expiry timestamp), acquired
+    via a single Lua script (atomic prune-expired + check-limit + add,
+    so concurrent acquire attempts for the same user can't race past
+    the limit) and released via `ZREM` when a run finishes. Attributed
+    to the Job's owner (`createdById`) — the only "user" identity
+    available on every Run regardless of trigger type — since
+    REQUIREMENTS leaves Team/service-owned execution identity as an
+    explicit open question (§14) this doesn't try to resolve.
+    Self-healing by design: each slot's TTL is the job's own timeout
+    plus a 5-minute buffer, so a worker that crashes mid-run without
+    releasing its slot doesn't permanently shrink that user's limit —
+    it just expires and gets pruned on the next acquire attempt for
+    that user.
+  - A throttled run is delayed and retried via BullMQ's own
+    `DelayedError`/`job.moveToDelayed()` mechanism rather than thrown
+    as a normal error — this deliberately does *not* count against the
+    job's own retry/backoff budget, since being throttled isn't a
+    failure, it's just waiting for a slot to free up.
+  - Reuses the Worker's own Redis connection (`worker.client`) rather
+    than opening a second one — BullMQ's own `RedisClient` type only
+    declares the commands BullMQ itself uses internally, so the
+    `eval`/`zrem` calls needed here are made through a small local
+    interface cast onto that same underlying connection.
+  - Verified against a real local Redis, not just reasoning about it:
+    confirmed acquiring up to the limit succeeds and one more is
+    correctly throttled; confirmed a different user is unaffected by
+    one user's saturation; confirmed releasing a slot lets a throttled
+    acquire through; confirmed an expired slot self-heals; and fired 50
+    concurrent acquire attempts against a limit of 5 to confirm the Lua
+    script's atomicity actually holds under real concurrent load
+    (exactly 5 succeeded, not more).
+
 Stubbed / not yet built: admin usage-report PDF export and recurring
-report email, an isolated PDF-renderer component, and per-user
-concurrency limiting (only the global limit is enforced today). See
+report email, and an isolated PDF-renderer component. See
 REQUIREMENTS.md for the full feature set these should
 implement.

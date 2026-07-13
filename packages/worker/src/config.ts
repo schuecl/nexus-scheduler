@@ -13,6 +13,10 @@ const envSchema = z.object({
   // eventually; env vars are the bootstrap default until an admin
   // settings table/UI exists.
   GLOBAL_MAX_CONCURRENT_RUNS: z.coerce.number().int().positive().default(25),
+  // Layered on top of the global ceiling above via a Redis-backed
+  // semaphore (concurrency.ts) — BullMQ's own `concurrency` option has
+  // no native per-key variant. Default per REQUIREMENTS §2.1.
+  PER_USER_MAX_CONCURRENT_RUNS: z.coerce.number().int().positive().default(5),
   DEFAULT_JOB_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
   MAX_JOB_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(3600),
   DEFAULT_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
