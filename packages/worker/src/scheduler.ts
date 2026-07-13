@@ -4,6 +4,7 @@ import { prisma } from "./db.js";
 import type { RunJobData } from "./queue.js";
 import type { Logger } from "./logger.js";
 import type { WorkerConfig } from "./config.js";
+import type { Metrics } from "./metrics.js";
 
 // Polls Postgres for due schedules and enqueues runs. REQUIREMENTS.md
 // §2.4: a fire time missed because the worker was down is *skipped*, not
@@ -13,6 +14,7 @@ export function startSchedulerLoop(
   queue: Queue<RunJobData>,
   config: WorkerConfig,
   logger: Logger,
+  metrics: Metrics,
 ): NodeJS.Timeout {
   const missedFireToleranceMs = config.SCHEDULER_TICK_MS * 2;
 
@@ -41,6 +43,7 @@ export function startSchedulerLoop(
               status: "SKIPPED",
             },
           });
+          metrics.runsTotal.inc({ status: "skipped" });
           logger.warn({ scheduleId: schedule.id, overdueMs }, "missed fire skipped");
         } else {
           const run = await prisma.run.create({

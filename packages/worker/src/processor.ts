@@ -10,23 +10,34 @@ import { sendRunNotificationEmail } from "./notifications.js";
 import { recordAuditEvent } from "./audit.js";
 import type { Logger } from "./logger.js";
 import type { WorkerConfig } from "./config.js";
+import type { Metrics } from "./metrics.js";
 
 // One BullMQ Worker enforces the *global* concurrency ceiling (§2.1) via
 // its `concurrency` option. Per-user concurrency limiting is not yet
 // implemented — BullMQ's open-source edition has no native per-group
 // concurrency primitive; tracking it will need an explicit counter (e.g.
 // a Redis-backed semaphore keyed by user id) as a follow-up.
-export function createRunProcessor(connection: ConnectionOptions, config: WorkerConfig, logger: Logger) {
+export function createRunProcessor(
+  connection: ConnectionOptions,
+  config: WorkerConfig,
+  logger: Logger,
+  metrics: Metrics,
+) {
   return new Worker<RunJobData>(
     RUNS_QUEUE_NAME,
     async (bullJob: BullJob<RunJobData>) => {
-      await processRun(bullJob, config, logger);
+      await processRun(bullJob, config, logger, metrics);
     },
     { connection, concurrency: config.GLOBAL_MAX_CONCURRENT_RUNS },
   );
 }
 
-async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, logger: Logger): Promise<void> {
+async function processRun(
+  bullJob: BullJob<RunJobData>,
+  config: WorkerConfig,
+  logger: Logger,
+  metrics: Metrics,
+): Promise<void> {
   const { runId } = bullJob.data;
   const isFinalAttempt = bullJob.attemptsMade + 1 >= (bullJob.opts.attempts ?? 1);
 
@@ -63,10 +74,16 @@ async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, lo
 
     const apiKey = decryptSecret(run.job.apiKey.encryptedKey, config.API_KEY_ENCRYPTION_KEY);
 
-    const response = await callAgent(run.job.agentId, renderedPrompt, apiKey, {
-      baseUrl: config.LIBRECHAT_BASE_URL,
-      timeoutMs: run.job.timeoutSeconds * 1000,
-    });
+    const stopLibrechatTimer = metrics.librechatCallDuration.startTimer();
+    let response;
+    try {
+      response = await callAgent(run.job.agentId, renderedPrompt, apiKey, {
+        baseUrl: config.LIBRECHAT_BASE_URL,
+        timeoutMs: run.job.timeoutSeconds * 1000,
+      });
+    } finally {
+      stopLibrechatTimer();
+    }
 
     const outputText = response.choices[0]?.message.content ?? "";
     const promptTokens = response.usage?.prompt_tokens ?? 0;
@@ -87,6 +104,7 @@ async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, lo
       },
     });
 
+    metrics.runsTotal.inc({ status: "success" });
     await recordAuditEvent({
       actorType: "SERVICE",
       actorId: "system:scheduler",
@@ -105,6 +123,7 @@ async function processRun(bullJob: BullJob<RunJobData>, config: WorkerConfig, lo
     const errorMessage = err instanceof Error ? err.message : "unknown error";
 
     if (!transient || isFinalAttempt) {
+      metrics.runsTotal.inc({ status: "failed" });
       await prisma.run.update({
         where: { id: runId },
         data: { status: "FAILED", completedAt: new Date(), errorMessage },

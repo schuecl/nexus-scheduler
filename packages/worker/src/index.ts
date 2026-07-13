@@ -6,6 +6,7 @@ import { parseRedisConnectionOptions } from "./redisConnection.js";
 import { startSchedulerLoop } from "./scheduler.js";
 import { createRunProcessor } from "./processor.js";
 import { startHealthServer } from "./health.js";
+import { createMetrics } from "./metrics.js";
 
 async function main() {
   const config = loadConfig();
@@ -13,10 +14,11 @@ async function main() {
 
   const connection = parseRedisConnectionOptions(config.REDIS_URL);
   const queue = createRunsQueue(connection);
+  const metrics = createMetrics(queue);
 
-  startHealthServer(config, logger);
-  startSchedulerLoop(queue, config, logger);
-  const runWorker = createRunProcessor(connection, config, logger);
+  startHealthServer(config, logger, metrics);
+  startSchedulerLoop(queue, config, logger, metrics);
+  const runWorker = createRunProcessor(connection, config, logger, metrics);
 
   runWorker.on("failed", (job, err) => {
     logger.error({ runId: job?.data.runId, err }, "run job failed permanently");

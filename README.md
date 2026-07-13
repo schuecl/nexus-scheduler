@@ -548,8 +548,39 @@ independent of Job/Schedule.
     trusted cert and correctly *rejects* an untrusted self-signed one
     (i.e. certificate verification isn't accidentally disabled).
 
+- **Prometheus `/metrics`** (§10/§11): both `/metrics` endpoints were
+  literal `"# metrics not yet implemented\n"` placeholders with a TODO
+  since the original scaffold — real now, via `prom-client`.
+  - **Worker**: `nexus_scheduler_runs_total{status}` (success/failed/
+    skipped, incremented on terminal outcomes only — a transient retry
+    in progress isn't counted yet), `nexus_scheduler_librechat_call_
+    duration_seconds` (histogram around the actual `callAgent()` call,
+    not the whole run), and `nexus_scheduler_queue_depth{state}` (pulled
+    live from BullMQ's own `getJobCounts()` at scrape time via a Gauge
+    `collect()` callback, so it can never drift from the queue's real
+    state — `state="active"` doubles as REQUIREMENTS' "running job
+    count"). Plus Node's default process metrics (event loop lag,
+    memory, GC).
+  - **API**: `nexus_scheduler_http_request_duration_seconds{method,
+    route, status_code}` (labeled by the matched route pattern, e.g.
+    `/api/jobs/:id`, not the raw URL — otherwise metrics would fan out
+    one series per distinct ID) plus the same default process metrics.
+  - Both Helm Deployments gained `prometheus.io/scrape`/`port`/`path`
+    pod annotations for auto-discovery.
+  - **Found and fixed via testing, not just reasoning about it**: the
+    queue-depth gauge's `collect()` originally awaited
+    `queue.getJobCounts()` with no bound. Testing against a genuinely
+    unreachable Redis (a real dead TCP port, not just an assertion)
+    showed this can hang well past any reasonable scrape interval —
+    which would take the *entire* `/metrics` response down with it, not
+    just this one gauge. Added a 2-second timeout race around the call;
+    re-tested against the same dead Redis and confirmed `/metrics` now
+    still returns every other metric within milliseconds, with the
+    queue-depth gauge simply omitted for that scrape rather than
+    blocking everything.
+
 Stubbed / not yet built: admin usage-report PDF export and recurring
-report email, an isolated PDF-renderer component, per-user concurrency
-limiting (only the global limit is enforced today), and Prometheus
-metrics. See REQUIREMENTS.md for the full feature set these should
+report email, an isolated PDF-renderer component, and per-user
+concurrency limiting (only the global limit is enforced today). See
+REQUIREMENTS.md for the full feature set these should
 implement.

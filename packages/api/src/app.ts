@@ -25,17 +25,20 @@ import { createCostRatesRouter } from "./routes/costRates.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRunsQueue } from "./queue.js";
 import { parseRedisConnectionOptions } from "./redisConnection.js";
+import { createMetrics, metricsMiddleware } from "./metrics.js";
 
 export function createApp(config: AppConfig, logger: Logger): Express {
   const app = express();
   const redisClient = new Redis(config.REDIS_URL);
   const runsQueue = createRunsQueue(parseRedisConnectionOptions(config.REDIS_URL));
+  const metrics = createMetrics();
 
   // Security headers baseline — REQUIREMENTS.md §10 (OWASP hardening).
   app.use(helmet());
   app.use(cors({ origin: false })); // same-origin via nginx in production; adjust for local dev if needed
   app.use(express.json({ limit: "1mb" }));
   app.use(pinoHttp({ logger }));
+  app.use(metricsMiddleware(metrics));
 
   app.use(
     session({
@@ -54,8 +57,8 @@ export function createApp(config: AppConfig, logger: Logger): Express {
     }),
   );
 
-  // Liveness/readiness are unauthenticated by design (cluster probes).
-  app.use(createHealthRouter());
+  // Liveness/readiness/metrics are unauthenticated by design (cluster probes/scrape).
+  app.use(createHealthRouter(metrics));
   app.use("/auth", createAuthRouter(config, logger));
   app.use("/api/teams", createTeamsRouter());
   app.use("/api/projects", createProjectsRouter());

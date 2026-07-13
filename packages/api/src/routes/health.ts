@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
+import type { Metrics } from "../metrics.js";
 
 // Kubernetes liveness/readiness probes — REQUIREMENTS.md §10/§11.
 // Liveness only proves the process is alive; readiness proves it can
 // actually reach its dependencies, so don't collapse these into one.
-export function createHealthRouter(): Router {
+export function createHealthRouter(metrics: Metrics): Router {
   const router = Router();
 
   router.get("/healthz", (_req, res) => {
@@ -20,11 +21,8 @@ export function createHealthRouter(): Router {
     }
   });
 
-  // TODO: replace with a real Prometheus registry (prom-client) once
-  // the metrics this app should expose (§10: queue depth, running job
-  // count, success/failure rates, LibreChat call latency) are wired up.
-  router.get("/metrics", (_req, res) => {
-    res.status(200).type("text/plain").send("# metrics not yet implemented\n");
+  router.get("/metrics", async (_req, res) => {
+    res.status(200).type(metrics.register.contentType).send(await metrics.register.metrics());
   });
 
   return router;

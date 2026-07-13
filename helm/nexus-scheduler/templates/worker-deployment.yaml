@@ -16,6 +16,10 @@ spec:
       labels:
         {{- include "nexus-scheduler.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: {{ .Values.worker.healthPort | quote }}
     spec:
       serviceAccountName: {{ include "nexus-scheduler.serviceAccountName" . }}
       securityContext:
