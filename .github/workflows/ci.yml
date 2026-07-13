@@ -14,10 +14,41 @@ jobs:
   build-and-test:
     name: Build & test
     runs-on: ubuntu-latest
+    services:
+      # Real Postgres for the access.ts/webhookDelivery.ts/processor.ts
+      # regression tests (§28) — those exercise the actual Prisma client
+      # against real rows rather than mocking it, matching how this
+      # project verifies everything else.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      # Real Redis for processor.ts's regression tests (§28) — those run
+      # actual BullMQ Worker/Queue instances against it, same "no mocking
+      # the system under test" posture as everything else here.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      # prisma generate reads the datasource url from the env even though it
-      # never connects; a dummy value keeps `prisma generate` from erroring.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      # Only ever used by test fixtures/round-trip assertions below — not
+      # a real secret, never used outside this CI job.
+      API_KEY_ENCRYPTION_KEY: ci-test-encryption-key-32-characters!!
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +62,9 @@ jobs:
 
       - name: Generate Prisma client
         run: npm run prisma:generate
+
+      - name: Push schema to the test database
+        run: npm run prisma:push --workspace=packages/shared
 
       - name: Lint
         run: npm run lint

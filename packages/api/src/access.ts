@@ -17,7 +17,7 @@ export async function getDescendantTeamIds(teamId: string): Promise<string[]> {
     }
   }
 
-  const visited = new Set<string>();
+  const visited = new Set<string>([teamId]);
   const queue = [...(childrenByParent.get(teamId) ?? [])];
   while (queue.length > 0) {
     const id = queue.shift()!;
@@ -27,6 +27,7 @@ export async function getDescendantTeamIds(teamId: string): Promise<string[]> {
       queue.push(childId);
     }
   }
+  visited.delete(teamId);
   return [...visited];
 }
 
