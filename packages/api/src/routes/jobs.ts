@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
 import { requireJobAccess } from "../middleware/requireJobAccess.js";
 import { recordAuditEvent } from "../audit.js";
+import { canUseApiKey } from "./apiKeys.js";
 
 // Mounted at /api/projects/:projectId/jobs (mergeParams) — same access
 // convention as Prompts: EDIT to create, READ to list (REQUIREMENTS §2.3).
@@ -33,6 +34,16 @@ export function createProjectJobsRouter(): Router {
     const prompt = await prisma.prompt.findUnique({ where: { id: parsed.data.promptId } });
     if (!prompt || prompt.projectId !== projectId) {
       res.status(400).json({ error: "promptId must reference a prompt in this Project" });
+      return;
+    }
+
+    // Guard against using someone else's personal key, or a Team key for
+    // a Team the requester doesn't belong to — the Worker later decrypts
+    // and calls LibreChat with whatever key is stored here, so this is
+    // the one place that boundary actually has to be enforced.
+    const apiKey = await prisma.apiKey.findUnique({ where: { id: parsed.data.apiKeyId } });
+    if (!apiKey || !(await canUseApiKey(user, apiKey))) {
+      res.status(400).json({ error: "apiKeyId must reference an API key you're allowed to use" });
       return;
     }
 
@@ -80,6 +91,14 @@ export function createJobsRouter(): Router {
       const prompt = await prisma.prompt.findUnique({ where: { id: parsed.data.promptId } });
       if (!prompt || prompt.projectId !== req.jobProjectId) {
         res.status(400).json({ error: "promptId must reference a prompt in this Project" });
+        return;
+      }
+    }
+
+    if (parsed.data.apiKeyId) {
+      const apiKey = await prisma.apiKey.findUnique({ where: { id: parsed.data.apiKeyId } });
+      if (!apiKey || !(await canUseApiKey(user, apiKey))) {
+        res.status(400).json({ error: "apiKeyId must reference an API key you're allowed to use" });
         return;
       }
     }

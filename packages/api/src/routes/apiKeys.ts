@@ -11,7 +11,7 @@ import type { AppConfig } from "../config.js";
 // Team for shared/durable schedules (REQUIREMENTS.md §2/§2.1/§4). Raw
 // key material is encrypted at rest and never echoed back in a response
 // after creation.
-async function canUseApiKey(
+export async function canUseApiKey(
   user: { id: string; role: string },
   key: { ownerType: "USER" | "TEAM"; ownerUserId: string | null; ownerTeamId: string | null },
 ): Promise<boolean> {
