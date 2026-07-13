@@ -15,6 +15,32 @@ export interface LibreChatChatCompletionRequest {
   stream?: false; // scheduled/unattended execution never streams (§2.1)
 }
 
+// OpenAI's function-calling shape — the beta Agents API's chat/completions
+// endpoint is documented as a "backward compatibility" layer for existing
+// OpenAI-compatible tooling, distinct from LibreChat's Open Responses
+// endpoint (POST /api/agents/v1/responses), which LibreChat's own docs
+// describe as what actually has "native support for... tool use" for
+// agentic workflows. That framing (plus LibreChat's own roadmap notes
+// on Open Responses' tool orchestration still being built out) suggests
+// this endpoint may not run an Agent's configured tools the way
+// LibreChat's own chat UI does — see describeUnexecutedToolCall() in
+// librechatClient.ts, which surfaces this instead of silently discarding
+// tool_calls the way treating message.content as the sole output would.
+export interface LibreChatToolCall {
+  id: string;
+  type: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface LibreChatResponseMessage {
+  role: "system" | "user" | "assistant";
+  content: string | null;
+  tool_calls?: LibreChatToolCall[];
+}
+
 // All fields optional and every naming convention below is speculative
 // except where noted — "OpenAI-compatible" doesn't guarantee LibreChat
 // normalizes every underlying provider's usage reporting to these exact
@@ -37,7 +63,7 @@ export interface LibreChatChatCompletionResponse {
   id: string;
   choices: Array<{
     index: number;
-    message: LibreChatChatMessage;
+    message: LibreChatResponseMessage;
     finish_reason: string;
   }>;
   usage?: LibreChatUsage; // presence to be confirmed against the live deployment, REQUIREMENTS §14

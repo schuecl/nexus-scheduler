@@ -1,6 +1,7 @@
 import type {
   LibreChatChatCompletionRequest,
   LibreChatChatCompletionResponse,
+  LibreChatResponseMessage,
   LibreChatUsage,
 } from "@nexus-scheduler/shared";
 
@@ -98,4 +99,32 @@ export function extractTokenUsage(
     return { promptTokens: usage.input_tokens, completionTokens: usage.output_tokens };
   }
   return null;
+}
+
+// Surfaces an attempted-but-unexecuted tool call rather than silently
+// treating a null/empty `message.content` as "the agent had nothing to
+// say." LibreChat's docs describe this chat/completions endpoint as a
+// backward-compatibility layer for OpenAI-compatible tooling, distinct
+// from the Open Responses endpoint they describe as having "native
+// support for... tool use" for agentic workflows — the working theory
+// for a live report of "the agent acts like it doesn't have tools" is
+// that this endpoint's response can carry an OpenAI-style tool_calls
+// entry that nothing on either side ever actually executes, rather than
+// this being a prompting issue. Returns null when there's nothing to
+// report so callers can fall back to the normal content-only path.
+export function describeUnexecutedToolCall(
+  message: LibreChatResponseMessage | undefined,
+  finishReason: string | undefined,
+): string | null {
+  if (!message?.tool_calls || message.tool_calls.length === 0) {
+    return null;
+  }
+  const names = message.tool_calls.map((call) => call.function?.name || "unknown").join(", ");
+  return (
+    `[Nexus Scheduler: the agent attempted to call ${message.tool_calls.length} ` +
+    `tool(s) (${names}${finishReason ? `, finish_reason=${finishReason}` : ""}) via ` +
+    "LibreChat's Agents API chat/completions endpoint. Nothing executes that tool call " +
+    "or feeds a result back to the agent for API-triggered requests like this one, so " +
+    "this run never received the agent's actual final answer.]"
+  );
 }

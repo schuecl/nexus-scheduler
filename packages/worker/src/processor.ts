@@ -2,7 +2,7 @@ import { Worker, DelayedError, type ConnectionOptions, type Job as BullJob } fro
 import { decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "./db.js";
 import { RUNS_QUEUE_NAME, type RunJobData } from "./queue.js";
-import { callAgent, extractTokenUsage, LibreChatError } from "./librechatClient.js";
+import { callAgent, describeUnexecutedToolCall, extractTokenUsage, LibreChatError } from "./librechatClient.js";
 import { renderPromptTemplate } from "./promptTemplate.js";
 import { computeCost } from "./costCalculator.js";
 import { deliverWebhooksForRun } from "./webhookDelivery.js";
@@ -122,7 +122,15 @@ async function processRun(
         stopLibrechatTimer();
       }
 
-      const outputText = response.choices[0]?.message.content ?? "";
+      const responseChoice = response.choices[0];
+      const toolCallNote = describeUnexecutedToolCall(responseChoice?.message, responseChoice?.finish_reason);
+      if (toolCallNote) {
+        logger.warn(
+          { runId, agentId: run.job.agentId, toolCalls: responseChoice?.message.tool_calls },
+          "LibreChat agent response included tool_calls this integration doesn't execute — the run's stored output is a diagnostic note, not the agent's actual answer",
+        );
+      }
+      const outputText = [toolCallNote, responseChoice?.message.content].filter(Boolean).join("\n\n");
       const tokenUsage = extractTokenUsage(response.usage);
       if (!tokenUsage && response.usage) {
         logger.warn(
