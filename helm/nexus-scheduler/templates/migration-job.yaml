@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nexus-scheduler.fullname" . }}-migrate
+  labels:
+    {{- include "nexus-scheduler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Runs before api/worker are (re)created on every install/upgrade,
+    # mirroring docker-compose's `migrate` service +
+    # `depends_on.migrate.condition: service_completed_successfully` —
+    # Helm waits for hook Jobs to complete before applying the rest of
+    # the release. hook-succeeded deletion keeps a fresh Job name
+    # available on the next upgrade instead of erroring on the old one
+    # still existing.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "nexus-scheduler.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "nexus-scheduler.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          # Same image as the api Deployment — its build stage already ran
+          # `prisma generate` (packages/shared/prisma/schema.prisma outputs
+          # to ./generated, not the default node_modules/@prisma/client)
+          # and `npm ci` downloaded the schema-engine binary into
+          # node_modules/@prisma/engines at build time, when the
+          # filesystem was still writable. Invoking the CLI directly
+          # (rather than via `npx prisma`, which — if the engine/binary
+          # weren't already present — would try to fetch and write it
+          # into that same node_modules/@prisma/engines path at *runtime*
+          # instead, failing under a read-only root filesystem with
+          # "Can't write to .../node_modules/@prisma/engines") means this
+          # Job never attempts any install/download of its own; it only
+          # reads what the image already has and talks to the database
+          # over the network.
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-api:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /app
+          command:
+            - node_modules/.bin/prisma
+            - db
+            - push
+            - --schema=packages/shared/prisma/schema.prisma
+            - --skip-generate
+          securityContext:
+            allowPrivilegeEscalation: {{ .Values.securityContext.allowPrivilegeEscalation }}
+            capabilities:
+              {{- toYaml .Values.securityContext.capabilities | nindent 14 }}
+            # Deliberately NOT readOnlyRootFilesystem: true like
+            # api/worker — the schema-engine binary itself is already
+            # baked into the image from the build stage, but Prisma still
+            # writes a small per-invocation lock/introspection file
+            # alongside it, which fails outright on a read-only root fs.
+            # This Job is short-lived and only ever runs as a Helm hook,
+            # not an always-on service, so the tradeoff is acceptable
+            # here specifically.
+            readOnlyRootFilesystem: false
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.databaseSecretName }}

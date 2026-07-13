@@ -907,6 +907,40 @@ if the security review calls for it.
     behavior for either subchart — both require tooling/infrastructure
     unavailable in this environment.
 
+- **Database migration Helm hook.** `docker-compose.yml` has always had a
+  dedicated `migrate` service (`prisma db push`) that `api`/`worker` wait
+  on via `depends_on.migrate.condition: service_completed_successfully`,
+  but the Helm chart had no equivalent at all — nothing in the chart ever
+  actually pushed the Prisma schema to a fresh database. Added
+  `templates/migration-job.yaml`: a `batch/v1` Job annotated as a
+  `pre-install,pre-upgrade` Helm hook (Helm blocks on hook Jobs before
+  applying the rest of the release, the same ordering guarantee Compose's
+  `depends_on` gives locally), using the same `-api` image and reading
+  `secrets.databaseSecretName` like the api/worker Deployments do. It
+  invokes `node_modules/.bin/prisma db push` directly rather than `npx
+  prisma` — the api image's build stage already ran `prisma generate`
+  and `npm ci` (downloading the schema-engine binary into
+  `node_modules/@prisma/engines` while the filesystem was still
+  writable), so the Job only ever reads what's already in the image and
+  talks to the database over the network. `npx prisma` would instead
+  re-check for that binary at container *runtime* and, finding the
+  writable-filesystem assumption violated under this chart's
+  `readOnlyRootFilesystem: true` container hardening, fail with `Can't
+  write to .../node_modules/@prisma/engines please make sure you install
+  'prisma' with the right permission` — which is almost certainly what
+  happens to anyone who improvises a migration step against this chart
+  before this fix. The Job's own container securityContext deliberately
+  sets `readOnlyRootFilesystem: false` (everything else — non-root,
+  no privilege escalation, all capabilities dropped — matches
+  api/worker): Prisma still writes a small per-invocation lock file
+  alongside the pre-baked engine binary even when it isn't downloading
+  anything, and this Job only ever runs as a short-lived hook rather than
+  an always-on service, so the tradeoff is scoped tightly. Verified the
+  same way as the rest of this chart in this sandbox (no Helm CLI, no
+  real cluster): rendered through the hand-built template harness against
+  merged values and validated as parseable YAML. **Not verified**: an
+  actual `helm install` exercising the hook Job against a real database.
+
 Stubbed / not yet built: nothing outstanding from this list as of this
 round — see REQUIREMENTS.md for the full feature set the app should
 implement, and each bullet above for the specific caveats/known
