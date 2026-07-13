@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cssColorSchema } from "./color.js";
 
 // Admin-editable branding (§5) and the system-wide classification
 // banner (§6) — one settings surface, two independent concerns living
@@ -8,10 +9,10 @@ import { z } from "zod";
 export const updateAppSettingsSchema = z.object({
   productName: z.string().min(1).max(100).optional(),
   logoUrl: z.string().url().nullable().optional(),
-  primaryColor: z.string().min(1).optional(),
+  primaryColor: cssColorSchema.optional(),
   classificationBannerText: z.string().min(1).max(200).optional(),
-  classificationBannerBgColor: z.string().min(1).optional(),
-  classificationBannerTextColor: z.string().min(1).optional(),
+  classificationBannerBgColor: cssColorSchema.optional(),
+  classificationBannerTextColor: cssColorSchema.optional(),
   smtpHost: z.string().min(1).nullable().optional(),
   smtpPort: z.number().int().positive().nullable().optional(),
   smtpSecure: z.boolean().optional(),

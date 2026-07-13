@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { cssColorSchema } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import { recordAuditEvent } from "../audit.js";
@@ -7,8 +8,8 @@ import { recordAuditEvent } from "../audit.js";
 const createLabelSchema = z.object({
   text: z.string().min(1).max(100),
   abbreviation: z.string().max(20).optional(),
-  badgeBgColor: z.string().min(1),
-  badgeTextColor: z.string().min(1),
+  badgeBgColor: cssColorSchema,
+  badgeTextColor: cssColorSchema,
   sortOrder: z.number().int().default(0),
   isDefault: z.boolean().default(false),
 });
