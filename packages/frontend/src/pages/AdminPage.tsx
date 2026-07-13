@@ -51,6 +51,8 @@ export function AdminPage() {
 
       <SystemSettingsPanel />
       <Divider />
+      <UsageReportPanel />
+      <Divider />
       <UserManagementPanel />
       <Divider />
       <ClassificationLabelsPanel />
@@ -195,6 +197,9 @@ interface AdminSettings {
   syslogPort: number | null;
   syslogTransport: "TCP" | "UDP";
   syslogTls: boolean;
+  usageReportEnabled: boolean;
+  usageReportRecipients: string[];
+  usageReportFrequency: "WEEKLY" | "MONTHLY";
 }
 
 // Branding (§5) and the system-wide classification banner (§6) — one
@@ -226,6 +231,9 @@ function SystemSettingsPanel() {
   const [syslogPort, setSyslogPort] = useState("");
   const [syslogTransport, setSyslogTransport] = useState<"TCP" | "UDP">("TCP");
   const [syslogTls, setSyslogTls] = useState(false);
+  const [usageReportEnabled, setUsageReportEnabled] = useState(false);
+  const [usageReportRecipients, setUsageReportRecipients] = useState(""); // comma-separated in the UI
+  const [usageReportFrequency, setUsageReportFrequency] = useState<"WEEKLY" | "MONTHLY">("WEEKLY");
 
   // Settings arrive asynchronously — seed the form once they load rather
   // than leaving fields stuck empty.
@@ -248,6 +256,9 @@ function SystemSettingsPanel() {
     setSyslogPort(s.syslogPort ? String(s.syslogPort) : "");
     setSyslogTransport(s.syslogTransport);
     setSyslogTls(s.syslogTls);
+    setUsageReportEnabled(s.usageReportEnabled);
+    setUsageReportRecipients(s.usageReportRecipients.join(", "));
+    setUsageReportFrequency(s.usageReportFrequency);
   }, [adminSettingsQuery.data]);
 
   const save = useMutation({
@@ -272,6 +283,12 @@ function SystemSettingsPanel() {
           syslogPort: syslogPort ? Number(syslogPort) : null,
           syslogTransport,
           syslogTls,
+          usageReportEnabled,
+          usageReportRecipients: usageReportRecipients
+            .split(",")
+            .map((r) => r.trim())
+            .filter(Boolean),
+          usageReportFrequency,
         }),
       }),
     onSuccess: () => {
@@ -399,6 +416,38 @@ function SystemSettingsPanel() {
           disabled={syslogTransport !== "TCP"}
         />
 
+        <Divider />
+        <Typography variant="subtitle1">Recurring Usage Report</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Emails the same run-counts/token-usage/cost PDF shown in the Usage Report panel below to
+          the listed recipients on a recurring cadence (§2.5/§8). On-demand export doesn't require
+          this to be enabled.
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch checked={usageReportEnabled} onChange={(e) => setUsageReportEnabled(e.target.checked)} />
+          }
+          label="Enabled"
+        />
+        <TextField
+          label="Recipients (comma-separated emails)"
+          value={usageReportRecipients}
+          onChange={(e) => setUsageReportRecipients(e.target.value)}
+          fullWidth
+        />
+        <FormControl fullWidth>
+          <InputLabel id="usage-report-frequency-label">Frequency</InputLabel>
+          <Select
+            labelId="usage-report-frequency-label"
+            label="Frequency"
+            value={usageReportFrequency}
+            onChange={(e) => setUsageReportFrequency(e.target.value as "WEEKLY" | "MONTHLY")}
+          >
+            <MenuItem value="WEEKLY">Weekly</MenuItem>
+            <MenuItem value="MONTHLY">Monthly</MenuItem>
+          </Select>
+        </FormControl>
+
         {save.isSuccess && <Alert severity="success">Saved.</Alert>}
         {testEmail.isSuccess && <Alert severity="success">Test email sent — check your inbox.</Alert>}
         {testEmail.isError && <Alert severity="error">Test email failed to send.</Alert>}
@@ -416,6 +465,96 @@ function SystemSettingsPanel() {
           </Button>
         </Stack>
       </Stack>
+    </Box>
+  );
+}
+
+interface UsageReportStats {
+  periodStart: string;
+  periodEnd: string;
+  runCounts: Partial<Record<"PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "CANCELLED" | "SKIPPED", number>>;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalCost: string | null;
+}
+
+function defaultDateInput(daysAgo: number): string {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// On-demand org-wide export (§8) — distinct from the per-user-scoped
+// Dashboard tab (which only shows Projects the requesting user can see).
+// CSV/PDF downloads navigate directly to the API route rather than
+// fetching a blob through apiFetch: same-origin session cookies carry
+// over on a plain navigation, and the API sets Content-Disposition so
+// the browser handles the filename/save-as itself.
+function UsageReportPanel() {
+  const [from, setFrom] = useState(defaultDateInput(30));
+  const [to, setTo] = useState(defaultDateInput(0));
+
+  const statsQuery = useQuery({
+    queryKey: ["usage-report", from, to],
+    queryFn: () =>
+      apiFetch<UsageReportStats>(`/api/admin/usage-report?from=${from}&to=${to}`),
+  });
+
+  const stats = statsQuery.data;
+  const total = stats ? Object.values(stats.runCounts).reduce((sum, n) => sum + (n ?? 0), 0) : 0;
+  const successRate = stats && total > 0 ? Math.round(((stats.runCounts.SUCCESS ?? 0) / total) * 100) : null;
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Usage Report
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Org-wide run counts, success/failure rate, token usage, and cost for a date range —
+        downloadable as CSV (per-run detail) or PDF (summary), independent of the recurring email
+        above.
+      </Typography>
+
+      <Stack direction="row" spacing={2} sx={{ mb: 2 }} alignItems="center">
+        <TextField
+          label="From"
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
+        <TextField
+          label="To"
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
+        <Button
+          variant="outlined"
+          component="a"
+          href={`/api/admin/usage-report/csv?from=${from}&to=${to}`}
+        >
+          Download CSV
+        </Button>
+        <Button
+          variant="outlined"
+          component="a"
+          href={`/api/admin/usage-report/pdf?from=${from}&to=${to}`}
+        >
+          Download PDF
+        </Button>
+      </Stack>
+
+      {stats && (
+        <Stack direction="row" spacing={3} flexWrap="wrap">
+          <Typography variant="body2">Total runs: {total}</Typography>
+          <Typography variant="body2">Success rate: {successRate === null ? "—" : `${successRate}%`}</Typography>
+          <Typography variant="body2">Prompt tokens: {stats.totalPromptTokens.toLocaleString()}</Typography>
+          <Typography variant="body2">Completion tokens: {stats.totalCompletionTokens.toLocaleString()}</Typography>
+          <Typography variant="body2">
+            Cost: {stats.totalCost === null ? "not costed" : `$${Number(stats.totalCost).toFixed(2)}`}
+          </Typography>
+        </Stack>
+      )}
     </Box>
   );
 }

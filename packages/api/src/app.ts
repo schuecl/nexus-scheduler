@@ -22,6 +22,7 @@ import { createDashboardRouter } from "./routes/dashboard.js";
 import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js";
 import { createSettingsRouter } from "./routes/settings.js";
 import { createCostRatesRouter } from "./routes/costRates.js";
+import { createAdminReportsRouter } from "./routes/adminReports.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRunsQueue } from "./queue.js";
 import { parseRedisConnectionOptions } from "./redisConnection.js";
@@ -77,6 +78,7 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/webhook-destinations", createWebhookDestinationsRouter(config));
   app.use("/api/settings", createSettingsRouter(config));
   app.use("/api/cost-rates", createCostRatesRouter());
+  app.use("/api/admin", createAdminReportsRouter());
 
   app.use(errorHandler(logger));
 

@@ -496,13 +496,50 @@ rendering into its own internal-only service, with its own Deployment/
 Service/NetworkPolicy in the Helm chart, is a reasonable following piece
 if the security review calls for it.
 
-Also not yet built: **admin usage-report PDF export / recurring usage
-report email** (§2.5's third delivery path — the §8 dashboard exported
-as PDF and emailed to admin-configured recipients on a schedule). Unlike
-the run-report PDF and job-completion email, this one has no existing
-consumer/producer gap to close — it needs its own admin UI, its own
-render template, and (for the recurring part) its own schedule concept
-independent of Job/Schedule.
+- **Admin usage-report PDF/CSV export and recurring report email**
+  (§2.5's third delivery path — the §8 dashboard's org-wide run counts/
+  success-failure rate/token usage/cost, exportable on demand and
+  emailable to admin-configured recipients on a schedule): unlike the
+  run-report PDF and job-completion email, this had no existing
+  consumer/producer gap to close — it needed its own admin UI, its own
+  render template, and its own schedule concept independent of Job/
+  Schedule, since REQUIREMENTS frames it as one admin-wide on/off
+  setting with a frequency, not a schedulable entity in its own right.
+  - `packages/api/src/routes/adminReports.ts` (new): `GET /api/admin/
+    usage-report` (JSON), `.../usage-report/csv` (per-run detail rows),
+    and `.../usage-report/pdf` (the same summary as a downloadable PDF),
+    all `requireAuth`+`requireAdmin` and audited as
+    `usage_report.export`. Defaults to the trailing 30 days when no
+    `from`/`to` query params are given.
+  - `packages/pdf/src/templates/usageReport.ts` (new): stat-tile summary
+    (total runs, success rate, prompt/completion tokens, cost) plus a
+    runs-by-status table, sharing the same branding/classification-
+    banner header/footer as the run-report PDF.
+  - `packages/worker/src/usageReportScheduler.ts` (new): an hourly tick
+    checking `AppSettings.usageReportEnabled`/`usageReportRecipients`/
+    `usageReportFrequency`/`usageReportLastSentAt` — "has enough time
+    elapsed since the last send" is the whole due-or-not rule, deliberately
+    not a cron-like next-fire-time column. When due, renders the PDF,
+    emails all recipients via the Worker's existing `sendEmail()` with
+    the PDF attached, stamps `usageReportLastSentAt`, and records a
+    `usage_report.send_email` audit event (a missing SMTP config is a
+    quiet skip+warn, same posture as other best-effort email/webhook/
+    syslog delivery elsewhere in the app).
+  - New `AppSettings` columns (`usageReportEnabled`,
+    `usageReportRecipients: String[]`, `usageReportFrequency`,
+    `usageReportLastSentAt`) and enum (`UsageReportFrequency`), admin-
+    editable in a new "Recurring Usage Report" section of the existing
+    System Settings panel; a separate new "Usage Report" panel above it
+    provides the on-demand date-range picker and CSV/PDF download
+    buttons (plain navigation to the API route rather than a blob fetch,
+    so the browser's own Content-Disposition handling covers the
+    filename/save-as).
+  - Verified via a real rendered PDF (not just typecheck) and a direct
+    unit check of the "is a report due" date-math against several
+    weekly/monthly/never-sent-yet cases. **Not verified**: an actual
+    end-to-end scheduled send (would require a live SMTP server and
+    waiting out a real weekly/monthly interval, or bypassing the interval
+    check).
 
 - **Agent discovery** (§2.1): "rather than requiring users to hand-type
   a LibreChat agent ID, Nexus Scheduler should call LibreChat to list
@@ -617,7 +654,8 @@ independent of Job/Schedule.
     script's atomicity actually holds under real concurrent load
     (exactly 5 succeeded, not more).
 
-Stubbed / not yet built: admin usage-report PDF export and recurring
-report email, and an isolated PDF-renderer component. See
-REQUIREMENTS.md for the full feature set these should
+Stubbed / not yet built: an isolated PDF-renderer component (see the
+"Known simplification" note above — splitting rendering into its own
+no-egress pod/service rather than an in-process library inside the API
+and Worker). See REQUIREMENTS.md for the full feature set this should
 implement.

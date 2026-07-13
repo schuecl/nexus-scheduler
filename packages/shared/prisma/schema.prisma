@@ -431,6 +431,16 @@ model AppSettings {
   syslogPort                     Int?
   syslogTransport                SyslogTransport @default(TCP)
   syslogTls                      Boolean         @default(false)
+  // Recurring admin usage-report email (§2.5/§8) — a PDF summary of
+  // run counts/success-failure rates/token usage/cost, sent to these
+  // recipients on the configured cadence over the same SMTP config
+  // above. lastSentAt drives "is one due yet" rather than a separate
+  // cron-like schedule table, since REQUIREMENTS frames this as one
+  // admin-wide setting, not multiple independently-schedulable reports.
+  usageReportEnabled             Boolean               @default(false)
+  usageReportRecipients          String[]              @default([])
+  usageReportFrequency           UsageReportFrequency  @default(WEEKLY)
+  usageReportLastSentAt          DateTime?
   updatedAt                      DateTime @updatedAt
 
   @@map("app_settings")
@@ -453,6 +463,11 @@ enum AuditResult {
 enum SyslogTransport {
   TCP
   UDP
+}
+
+enum UsageReportFrequency {
+  WEEKLY
+  MONTHLY
 }
 
 model AuditEvent {

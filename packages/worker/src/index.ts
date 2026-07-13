@@ -7,6 +7,7 @@ import { startSchedulerLoop } from "./scheduler.js";
 import { createRunProcessor } from "./processor.js";
 import { startHealthServer } from "./health.js";
 import { createMetrics } from "./metrics.js";
+import { startUsageReportLoop } from "./usageReportScheduler.js";
 
 async function main() {
   const config = loadConfig();
@@ -18,6 +19,7 @@ async function main() {
 
   startHealthServer(config, logger, metrics);
   startSchedulerLoop(queue, config, logger, metrics);
+  const usageReportInterval = startUsageReportLoop(config, logger);
   const runWorker = createRunProcessor(connection, config, logger, metrics);
 
   runWorker.on("failed", (job, err) => {
@@ -29,6 +31,7 @@ async function main() {
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, async () => {
       logger.info({ signal }, "shutting down worker");
+      clearInterval(usageReportInterval);
       await runWorker.close();
       await queue.close();
       process.exit(0);

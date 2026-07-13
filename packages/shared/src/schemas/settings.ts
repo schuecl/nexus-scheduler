@@ -27,5 +27,11 @@ export const updateAppSettingsSchema = z.object({
   syslogPort: z.number().int().positive().max(65535).nullable().optional(),
   syslogTransport: z.enum(["TCP", "UDP"]).optional(),
   syslogTls: z.boolean().optional(),
+  // Recurring admin usage-report email (§2.5/§8) — independent of both
+  // syslog and SMTP config above (though it's sent over that same SMTP
+  // integration).
+  usageReportEnabled: z.boolean().optional(),
+  usageReportRecipients: z.array(z.string().email()).optional(),
+  usageReportFrequency: z.enum(["WEEKLY", "MONTHLY"]).optional(),
 });
 export type UpdateAppSettingsInput = z.infer<typeof updateAppSettingsSchema>;
