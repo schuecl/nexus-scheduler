@@ -2,7 +2,7 @@ import { Worker, DelayedError, type ConnectionOptions, type Job as BullJob } fro
 import { decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "./db.js";
 import { RUNS_QUEUE_NAME, type RunJobData } from "./queue.js";
-import { callAgent, LibreChatError } from "./librechatClient.js";
+import { callAgent, extractTokenUsage, LibreChatError } from "./librechatClient.js";
 import { renderPromptTemplate } from "./promptTemplate.js";
 import { computeCost } from "./costCalculator.js";
 import { deliverWebhooksForRun } from "./webhookDelivery.js";
@@ -117,10 +117,15 @@ async function processRun(
       }
 
       const outputText = response.choices[0]?.message.content ?? "";
-      const promptTokens = response.usage?.prompt_tokens ?? 0;
-      const completionTokens = response.usage?.completion_tokens ?? 0;
-      const computedCost = response.usage
-        ? await computeCost(run.job.agentId, promptTokens, completionTokens, new Date())
+      const tokenUsage = extractTokenUsage(response.usage);
+      if (!tokenUsage && response.usage) {
+        logger.warn(
+          { runId, usage: response.usage },
+          "LibreChat returned a usage object in an unrecognized shape — token counts not recorded for this run",
+        );
+      }
+      const computedCost = tokenUsage
+        ? await computeCost(run.job.agentId, tokenUsage.promptTokens, tokenUsage.completionTokens, new Date())
         : null;
 
       await prisma.run.update({
@@ -129,8 +134,8 @@ async function processRun(
           status: "SUCCESS",
           completedAt: new Date(),
           output: outputText,
-          promptTokens: response.usage ? promptTokens : null,
-          completionTokens: response.usage ? completionTokens : null,
+          promptTokens: tokenUsage?.promptTokens ?? null,
+          completionTokens: tokenUsage?.completionTokens ?? null,
           computedCost: computedCost ?? undefined,
         },
       });

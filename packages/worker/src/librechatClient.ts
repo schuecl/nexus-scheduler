@@ -1,6 +1,7 @@
 import type {
   LibreChatChatCompletionRequest,
   LibreChatChatCompletionResponse,
+  LibreChatUsage,
 } from "@nexus-scheduler/shared";
 
 // Single point of contact with LibreChat's Agents API (beta) — kept
@@ -73,4 +74,28 @@ export async function callAgent(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Checks known usage-reporting conventions in order rather than
+// assuming the OpenAI-style field names REQUIREMENTS §2.1 describes are
+// actually what a given deployment's underlying provider returns — see
+// the LibreChatUsage comment in packages/shared/src/librechat.ts. Never
+// guesses a split from total_tokens alone (that would misattribute cost
+// between prompt/completion rates); returns null rather than 0 so the
+// caller can distinguish "no usage data" from "genuinely zero tokens."
+export function extractTokenUsage(
+  usage: LibreChatUsage | undefined,
+): { promptTokens: number; completionTokens: number } | null {
+  if (!usage) {
+    return null;
+  }
+  if (typeof usage.prompt_tokens === "number" && typeof usage.completion_tokens === "number") {
+    return { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens };
+  }
+  // Anthropic's native Messages API shape — plausible if LibreChat
+  // passes a Claude provider's usage through unnormalized.
+  if (typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
+    return { promptTokens: usage.input_tokens, completionTokens: usage.output_tokens };
+  }
+  return null;
 }
