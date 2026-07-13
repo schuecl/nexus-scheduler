@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -152,7 +153,11 @@ export function ProjectsPage() {
 
       <Box sx={{ flex: 1 }}>
         {selectedProjectId ? (
-          <ProjectDetailPanel projectId={selectedProjectId} />
+          <ProjectDetailPanel
+            key={selectedProjectId}
+            projectId={selectedProjectId}
+            onDeleted={() => setSelectedProjectId(null)}
+          />
         ) : (
           <Typography color="text.secondary">Select a Project to view details.</Typography>
         )}
@@ -202,23 +207,88 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectDetailPanel({ projectId }: { projectId: string }) {
+function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDeleted: () => void }) {
+  const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLabelId, setEditLabelId] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const detailQuery = useQuery({
     queryKey: ["projects", projectId],
     queryFn: () => apiFetch<ProjectDetail>(`/api/projects/${projectId}`),
+  });
+  const labelsQuery = useQuery({
+    queryKey: ["classification-labels"],
+    queryFn: () => apiFetch<ClassificationLabel[]>("/api/classification-labels"),
+  });
+
+  useEffect(() => {
+    if (detailQuery.data) {
+      setEditName(detailQuery.data.name);
+      setEditDescription(detailQuery.data.description ?? "");
+      setEditLabelId(detailQuery.data.classificationLabel?.id ?? "");
+    }
+  }, [detailQuery.data]);
+
+  const updateProject = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editName,
+          description: editDescription || undefined,
+          classificationLabelId: editLabelId || null,
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+      setEditOpen(false);
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: () => apiFetch(`/api/projects/${projectId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      onDeleted();
+    },
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
   });
 
   if (!detailQuery.data) {
     return null;
   }
   const project = detailQuery.data;
+  const canEdit = project.effectiveAccess !== "READ";
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Typography variant="h5">{project.name}</Typography>
-        <ClassificationBadge label={project.classificationLabel} />
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography variant="h5">{project.name}</Typography>
+          <ClassificationBadge label={project.classificationLabel} />
+        </Stack>
+        <Stack direction="row" spacing={1}>
+          {canEdit && (
+            <Button size="small" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          )}
+          {project.effectiveAccess === "OWNER" && (
+            <Button size="small" color="error" disabled={deleteProject.isPending} onClick={() => deleteProject.mutate()}>
+              Delete
+            </Button>
+          )}
+        </Stack>
       </Stack>
+      {deleteError && (
+        <Alert severity="error" onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
       {project.description && <Typography color="text.secondary">{project.description}</Typography>}
       <Typography variant="body2">Your access: {project.effectiveAccess}</Typography>
 
@@ -234,6 +304,51 @@ function ProjectDetailPanel({ projectId }: { projectId: string }) {
           <ProjectSharingPanel projectId={project.id} />
         </>
       )}
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Project</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus fullWidth />
+            <TextField
+              label="Description"
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel id="edit-project-label">Classification</InputLabel>
+              <Select
+                labelId="edit-project-label"
+                label="Classification"
+                value={editLabelId}
+                onChange={(e) => setEditLabelId(e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>Deployment default</em>
+                </MenuItem>
+                {labelsQuery.data?.map((label) => (
+                  <MenuItem key={label.id} value={label.id}>
+                    {label.text}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editName || updateProject.isPending}
+            onClick={() => updateProject.mutate()}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }
@@ -366,6 +481,9 @@ interface Job {
   name: string;
   agentId: string;
   promptId: string;
+  apiKeyId: string;
+  timeoutSeconds: number;
+  maxRetries: number;
   notifyOnSuccess: boolean;
   notifyOnFailure: boolean;
   attachPdfToEmail: boolean;
@@ -377,22 +495,147 @@ interface ApiKeyOption {
   ownerType: "USER" | "TEAM";
 }
 
+interface JobFormValues {
+  name: string;
+  promptId: string;
+  agentId: string;
+  apiKeyId: string;
+  timeoutSeconds: number;
+  maxRetries: number;
+}
+
+// Shared between the New Job and Edit Job dialogs so the agent-discovery
+// picker (REQUIREMENTS §2.1: offer a picker built from whichever Agents
+// the selected key can see, falling back to manual entry) only exists
+// in one place.
+function JobFormFields({
+  values,
+  onChange,
+  prompts,
+  apiKeys,
+  discoveredAgentIds,
+  agentsQuery,
+}: {
+  values: JobFormValues;
+  onChange: (next: JobFormValues) => void;
+  prompts: Prompt[] | undefined;
+  apiKeys: ApiKeyOption[] | undefined;
+  discoveredAgentIds: string[];
+  agentsQuery: { isError: boolean; isLoading: boolean };
+}) {
+  return (
+    <Stack spacing={2} sx={{ mt: 1 }}>
+      <TextField
+        label="Name"
+        value={values.name}
+        onChange={(e) => onChange({ ...values, name: e.target.value })}
+        autoFocus
+        fullWidth
+      />
+      <FormControl fullWidth>
+        <InputLabel id="job-prompt-label">Prompt</InputLabel>
+        <Select
+          labelId="job-prompt-label"
+          label="Prompt"
+          value={values.promptId}
+          onChange={(e) => onChange({ ...values, promptId: e.target.value })}
+        >
+          {prompts?.map((p) => (
+            <MenuItem key={p.id} value={p.id}>
+              {p.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <FormControl fullWidth>
+        <InputLabel id="job-apikey-label">API Key</InputLabel>
+        <Select
+          labelId="job-apikey-label"
+          label="API Key"
+          value={values.apiKeyId}
+          onChange={(e) => onChange({ ...values, apiKeyId: e.target.value, agentId: "" })}
+        >
+          {apiKeys?.map((k) => (
+            <MenuItem key={k.id} value={k.id}>
+              {k.label ?? "(unlabeled)"} {k.ownerType === "TEAM" ? "(Team)" : "(Personal)"}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      {discoveredAgentIds.length > 0 ? (
+        <FormControl fullWidth>
+          <InputLabel id="job-agent-label">Agent</InputLabel>
+          <Select
+            labelId="job-agent-label"
+            label="Agent"
+            value={values.agentId}
+            onChange={(e) => onChange({ ...values, agentId: e.target.value })}
+          >
+            {discoveredAgentIds.map((id) => (
+              <MenuItem key={id} value={id}>
+                {id}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      ) : (
+        <TextField
+          label="LibreChat Agent ID"
+          value={values.agentId}
+          onChange={(e) => onChange({ ...values, agentId: e.target.value })}
+          fullWidth
+          helperText={
+            values.apiKeyId && agentsQuery.isError
+              ? "Couldn't auto-discover Agents for this key — enter the ID manually."
+              : values.apiKeyId && agentsQuery.isLoading
+                ? "Looking up available Agents…"
+                : undefined
+          }
+        />
+      )}
+      <Stack direction="row" spacing={2}>
+        <TextField
+          label="Timeout (seconds)"
+          type="number"
+          value={values.timeoutSeconds}
+          onChange={(e) => onChange({ ...values, timeoutSeconds: Number(e.target.value) })}
+          fullWidth
+        />
+        <TextField
+          label="Max retries"
+          type="number"
+          value={values.maxRetries}
+          onChange={(e) => onChange({ ...values, maxRetries: Number(e.target.value) })}
+          fullWidth
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
 // Jobs live inside a Project the same way Prompts do — one call to
 // create a LibreChat agent invocation, ready to be attached to one or
 // more Schedules (REQUIREMENTS §2.1).
+const BLANK_JOB_FORM: JobFormValues = {
+  name: "",
+  promptId: "",
+  agentId: "",
+  apiKeyId: "",
+  timeoutSeconds: 600,
+  maxRetries: 2,
+};
+
 function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<JobFormValues>(BLANK_JOB_FORM);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [editForm, setEditForm] = useState<JobFormValues>(BLANK_JOB_FORM);
   const [scheduleJob, setScheduleJob] = useState<Job | null>(null);
   const [webhooksJobId, setWebhooksJobId] = useState<string | null>(null);
   const [runsJobId, setRunsJobId] = useState<string | null>(null);
   const [notificationsJob, setNotificationsJob] = useState<Job | null>(null);
-  const [name, setName] = useState("");
-  const [promptId, setPromptId] = useState("");
-  const [agentId, setAgentId] = useState("");
-  const [apiKeyId, setApiKeyId] = useState("");
-  const [timeoutSeconds, setTimeoutSeconds] = useState(600);
-  const [maxRetries, setMaxRetries] = useState(2);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const jobsQuery = useQuery({
     queryKey: ["projects", projectId, "jobs"],
@@ -410,30 +653,56 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
   // whichever Agents the selected key can see, falling back to a plain
   // text field below if this fails — LibreChat not reachable, this
   // deployment's version doesn't expose the discovery endpoint, no key
-  // selected yet, etc. Never blocks Job creation either way.
+  // selected yet, etc. Never blocks Job creation/editing either way.
+  // Shared across both the create and edit forms since only one of the
+  // two dialogs is ever open at a time.
+  const activeApiKeyId = createOpen ? createForm.apiKeyId : editForm.apiKeyId;
   const agentsQuery = useQuery({
-    queryKey: ["api-keys", apiKeyId, "agents"],
-    queryFn: () => apiFetch<string[]>(`/api/api-keys/${apiKeyId}/agents`),
-    enabled: !!apiKeyId,
+    queryKey: ["api-keys", activeApiKeyId, "agents"],
+    queryFn: () => apiFetch<string[]>(`/api/api-keys/${activeApiKeyId}/agents`),
+    enabled: !!activeApiKeyId,
     retry: false,
   });
-  const discoveredAgentIds = apiKeyId ? agentsQuery.data ?? [] : [];
+  const discoveredAgentIds = activeApiKeyId ? agentsQuery.data ?? [] : [];
 
   const createJob = useMutation({
     mutationFn: () =>
       apiFetch(`/api/projects/${projectId}/jobs`, {
         method: "POST",
-        body: JSON.stringify({ name, promptId, agentId, apiKeyId, timeoutSeconds, maxRetries }),
+        body: JSON.stringify(createForm),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "jobs"] });
       setCreateOpen(false);
-      setName("");
-      setPromptId("");
-      setAgentId("");
-      setApiKeyId("");
+      setCreateForm(BLANK_JOB_FORM);
     },
   });
+
+  const updateJob = useMutation({
+    mutationFn: () => apiFetch(`/api/jobs/${editingJob!.id}`, { method: "PATCH", body: JSON.stringify(editForm) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "jobs"] });
+      setEditingJob(null);
+    },
+  });
+
+  const deleteJob = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/jobs/${id}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "jobs"] }),
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
+  });
+
+  const openEdit = (job: Job) => {
+    setEditingJob(job);
+    setEditForm({
+      name: job.name,
+      promptId: job.promptId,
+      agentId: job.agentId,
+      apiKeyId: job.apiKeyId,
+      timeoutSeconds: job.timeoutSeconds,
+      maxRetries: job.maxRetries,
+    });
+  };
 
   return (
     <Stack spacing={1}>
@@ -454,6 +723,11 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
           Add a Prompt to this Project before creating a Job.
         </Typography>
       )}
+      {deleteError && (
+        <Alert severity="error" onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
 
       <List dense>
         {jobsQuery.data?.map((job) => (
@@ -473,6 +747,21 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                 <Button size="small" onClick={() => setScheduleJob(job)}>
                   Schedules
                 </Button>
+                {canEdit && (
+                  <>
+                    <Button size="small" onClick={() => openEdit(job)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      color="error"
+                      disabled={deleteJob.isPending}
+                      onClick={() => deleteJob.mutate(job.id)}
+                    >
+                      Delete
+                    </Button>
+                  </>
+                )}
               </Stack>
             }
           >
@@ -487,98 +776,47 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Job</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth />
-            <FormControl fullWidth>
-              <InputLabel id="job-prompt-label">Prompt</InputLabel>
-              <Select
-                labelId="job-prompt-label"
-                label="Prompt"
-                value={promptId}
-                onChange={(e) => setPromptId(e.target.value)}
-              >
-                {promptsQuery.data?.map((p) => (
-                  <MenuItem key={p.id} value={p.id}>
-                    {p.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl fullWidth>
-              <InputLabel id="job-apikey-label">API Key</InputLabel>
-              <Select
-                labelId="job-apikey-label"
-                label="API Key"
-                value={apiKeyId}
-                onChange={(e) => {
-                  setApiKeyId(e.target.value);
-                  setAgentId(""); // a previously picked/typed agent may not apply to the new key
-                }}
-              >
-                {apiKeysQuery.data?.map((k) => (
-                  <MenuItem key={k.id} value={k.id}>
-                    {k.label ?? "(unlabeled)"} {k.ownerType === "TEAM" ? "(Team)" : "(Personal)"}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            {discoveredAgentIds.length > 0 ? (
-              <FormControl fullWidth>
-                <InputLabel id="job-agent-label">Agent</InputLabel>
-                <Select
-                  labelId="job-agent-label"
-                  label="Agent"
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                >
-                  {discoveredAgentIds.map((id) => (
-                    <MenuItem key={id} value={id}>
-                      {id}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            ) : (
-              <TextField
-                label="LibreChat Agent ID"
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                fullWidth
-                helperText={
-                  apiKeyId && agentsQuery.isError
-                    ? "Couldn't auto-discover Agents for this key — enter the ID manually."
-                    : apiKeyId && agentsQuery.isLoading
-                      ? "Looking up available Agents…"
-                      : undefined
-                }
-              />
-            )}
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="Timeout (seconds)"
-                type="number"
-                value={timeoutSeconds}
-                onChange={(e) => setTimeoutSeconds(Number(e.target.value))}
-                fullWidth
-              />
-              <TextField
-                label="Max retries"
-                type="number"
-                value={maxRetries}
-                onChange={(e) => setMaxRetries(Number(e.target.value))}
-                fullWidth
-              />
-            </Stack>
-          </Stack>
+          <JobFormFields
+            values={createForm}
+            onChange={setCreateForm}
+            prompts={promptsQuery.data}
+            apiKeys={apiKeysQuery.data}
+            discoveredAgentIds={discoveredAgentIds}
+            agentsQuery={agentsQuery}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={!name || !promptId || !agentId || !apiKeyId || createJob.isPending}
+            disabled={!createForm.name || !createForm.promptId || !createForm.agentId || !createForm.apiKeyId || createJob.isPending}
             onClick={() => createJob.mutate()}
           >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!editingJob} onClose={() => setEditingJob(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Job</DialogTitle>
+        <DialogContent>
+          <JobFormFields
+            values={editForm}
+            onChange={setEditForm}
+            prompts={promptsQuery.data}
+            apiKeys={apiKeysQuery.data}
+            discoveredAgentIds={discoveredAgentIds}
+            agentsQuery={agentsQuery}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingJob(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editForm.name || !editForm.promptId || !editForm.agentId || !editForm.apiKeyId || updateJob.isPending}
+            onClick={() => updateJob.mutate()}
+          >
+            Save
           </Button>
         </DialogActions>
       </Dialog>
@@ -656,6 +894,15 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "acl"] }),
   });
 
+  const updateAccessLevel = useMutation({
+    mutationFn: ({ aclId, accessLevel: level }: { aclId: string; accessLevel: "READ" | "EDIT" }) =>
+      apiFetch(`/api/projects/${projectId}/acl/${aclId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ accessLevel: level }),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "acl"] }),
+  });
+
   const canGrant =
     granteeType === "ORG" || (granteeType === "USER" && granteeUserId) || (granteeType === "TEAM" && granteeTeamId);
 
@@ -668,14 +915,26 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
           <ListItem
             key={acl.id}
             secondaryAction={
-              <Button size="small" color="error" onClick={() => revoke.mutate(acl.id)}>
-                Revoke
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FormControl size="small" sx={{ minWidth: 90 }}>
+                  <Select
+                    value={acl.accessLevel}
+                    disabled={updateAccessLevel.isPending}
+                    onChange={(e) =>
+                      updateAccessLevel.mutate({ aclId: acl.id, accessLevel: e.target.value as "READ" | "EDIT" })
+                    }
+                  >
+                    <MenuItem value="READ">Read</MenuItem>
+                    <MenuItem value="EDIT">Edit</MenuItem>
+                  </Select>
+                </FormControl>
+                <Button size="small" color="error" onClick={() => revoke.mutate(acl.id)}>
+                  Revoke
+                </Button>
+              </Stack>
             }
           >
-            <ListItemText
-              primary={`${acl.granteeType}${acl.granteeType === "ORG" ? " (everyone)" : ""} — ${acl.accessLevel}`}
-            />
+            <ListItemText primary={`${acl.granteeType}${acl.granteeType === "ORG" ? " (everyone)" : ""}`} />
           </ListItem>
         ))}
         {aclQuery.data?.length === 0 && (

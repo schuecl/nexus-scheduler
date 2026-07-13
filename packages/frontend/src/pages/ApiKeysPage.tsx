@@ -48,6 +48,8 @@ export function ApiKeysPage() {
   const [rawKey, setRawKey] = useState("");
   const [ownerType, setOwnerType] = useState<"USER" | "TEAM">("USER");
   const [ownerTeamId, setOwnerTeamId] = useState("");
+  const [renamingKey, setRenamingKey] = useState<ApiKeySummary | null>(null);
+  const [renameLabel, setRenameLabel] = useState("");
 
   const keysQuery = useQuery({
     queryKey: ["api-keys"],
@@ -79,6 +81,15 @@ export function ApiKeysPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
   });
 
+  const renameKey = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/api-keys/${renamingKey!.id}`, { method: "PATCH", body: JSON.stringify({ label: renameLabel }) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      setRenamingKey(null);
+    },
+  });
+
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
@@ -98,11 +109,22 @@ export function ApiKeysPage() {
             key={key.id}
             divider
             secondaryAction={
-              key.status === "ACTIVE" && (
-                <Button size="small" color="error" onClick={() => revokeKey.mutate(key.id)}>
-                  Revoke
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setRenamingKey(key);
+                    setRenameLabel(key.label ?? "");
+                  }}
+                >
+                  Rename
                 </Button>
-              )
+                {key.status === "ACTIVE" && (
+                  <Button size="small" color="error" onClick={() => revokeKey.mutate(key.id)}>
+                    Revoke
+                  </Button>
+                )}
+              </Stack>
             }
           >
             <ListItemText
@@ -167,6 +189,26 @@ export function ApiKeysPage() {
             disabled={!rawKey || (ownerType === "TEAM" && !ownerTeamId) || createKey.isPending}
             onClick={() => createKey.mutate()}
           >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!renamingKey} onClose={() => setRenamingKey(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Rename API Key</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Label"
+            value={renameLabel}
+            onChange={(e) => setRenameLabel(e.target.value)}
+            autoFocus
+            fullWidth
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenamingKey(null)}>Cancel</Button>
+          <Button variant="contained" disabled={renameKey.isPending} onClick={() => renameKey.mutate()}>
             Save
           </Button>
         </DialogActions>

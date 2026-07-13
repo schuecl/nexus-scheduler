@@ -123,6 +123,62 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
     res.status(201).json({ id: user.id, email: user.email, displayName: user.displayName, role: user.role });
   });
 
+  // Hard delete — blocked (409) if the user owns/created anything a
+  // foreign key still points at (Projects, Jobs, Schedules, Prompt
+  // versions), since Postgres has no cascade path for those and a raw
+  // constraint violation isn't a useful error message. Team memberships
+  // and personal API keys cascade cleanly and don't block this. An
+  // admin wanting to remove access from a user with history should use
+  // the "Active" toggle instead — REQUIREMENTS' audit trail (§7) still
+  // needs actorId/actorEmail to mean something even after the account
+  // is gone, which is exactly why AuditEvent doesn't have a real FK to
+  // User in the first place.
+  router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
+    const admin = req.session.user!;
+
+    if (req.params.id === admin.id) {
+      res.status(400).json({ error: "cannot delete your own account" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) {
+      res.status(404).json({ error: "user not found" });
+      return;
+    }
+
+    const [ownedProjects, jobsCreated, schedulesCreated, promptVersions] = await Promise.all([
+      prisma.project.count({ where: { ownerId: user.id } }),
+      prisma.job.count({ where: { createdById: user.id } }),
+      prisma.schedule.count({ where: { createdById: user.id } }),
+      prisma.promptVersion.count({ where: { createdById: user.id } }),
+    ]);
+    const blockers = ownedProjects + jobsCreated + schedulesCreated + promptVersions;
+    if (blockers > 0) {
+      res.status(409).json({
+        error:
+          "cannot delete — this user owns or created Projects, Jobs, Schedules, or Prompt versions; deactivate the account instead",
+      });
+      return;
+    }
+
+    await prisma.user.delete({ where: { id: user.id } });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: admin.id,
+      actorEmail: admin.email,
+      action: "user.delete",
+      targetType: "user",
+      targetId: user.id,
+      targetName: user.email,
+      result: "SUCCESS",
+    });
+
+    res.status(204).send();
+  });
+
   router.post("/:id/send-password-reset", requireAuth, requireAdmin, async (req, res) => {
     const admin = req.session.user!;
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });

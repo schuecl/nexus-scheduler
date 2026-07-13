@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -98,7 +99,7 @@ export function TeamsPage() {
 
       <Box sx={{ flex: 1 }}>
         {detailQuery.data ? (
-          <TeamDetailPanel team={detailQuery.data} />
+          <TeamDetailPanel team={detailQuery.data} onDeleted={() => setSelectedTeamId(null)} />
         ) : (
           <Typography color="text.secondary">Select a Team to view members.</Typography>
         )}
@@ -140,9 +141,14 @@ export function TeamsPage() {
   );
 }
 
-function TeamDetailPanel({ team }: { team: TeamDetail }) {
+function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () => void }) {
   const queryClient = useQueryClient();
   const [userSearch, setUserSearch] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState(team.name);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  useEffect(() => setEditName(team.name), [team.id, team.name]);
+
   const usersQuery = useQuery({
     queryKey: ["users", userSearch],
     queryFn: () => apiFetch<UserSummary[]>(`/api/users?search=${encodeURIComponent(userSearch)}`),
@@ -164,9 +170,43 @@ function TeamDetailPanel({ team }: { team: TeamDetail }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["teams", team.id] }),
   });
 
+  const updateTeam = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/teams/${team.id}`, { method: "PATCH", body: JSON.stringify({ name: editName }) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
+      void queryClient.invalidateQueries({ queryKey: ["teams", team.id] });
+      setEditOpen(false);
+    },
+  });
+
+  const deleteTeam = useMutation({
+    mutationFn: () => apiFetch(`/api/teams/${team.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
+      onDeleted();
+    },
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
+  });
+
   return (
     <Stack spacing={2}>
-      <Typography variant="h5">{team.name}</Typography>
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+        <Typography variant="h5">{team.name}</Typography>
+        <Stack direction="row" spacing={1}>
+          <Button size="small" onClick={() => setEditOpen(true)}>
+            Rename
+          </Button>
+          <Button size="small" color="error" disabled={deleteTeam.isPending} onClick={() => deleteTeam.mutate()}>
+            Delete
+          </Button>
+        </Stack>
+      </Stack>
+      {deleteError && (
+        <Alert severity="error" onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
       {team.parentTeam && (
         <Typography color="text.secondary">Parent: {team.parentTeam.name}</Typography>
       )}
@@ -205,6 +245,30 @@ function TeamDetailPanel({ team }: { team: TeamDetail }) {
         onChange={(_e, value) => value && addMember.mutate(value.id)}
         renderInput={(params) => <TextField {...params} label="Add member by email" />}
       />
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Rename Team</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="Name"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            autoFocus
+            fullWidth
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editName || updateTeam.isPending}
+            onClick={() => updateTeam.mutate()}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

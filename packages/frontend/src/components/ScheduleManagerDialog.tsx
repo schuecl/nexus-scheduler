@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -27,11 +27,14 @@ interface Schedule {
   id: string;
   type: "ONE_TIME" | "RECURRING";
   runAt: string | null;
+  intervalConfig: Record<string, unknown> | null;
   timezone: string;
   paused: boolean;
   approvalStatus: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED";
   nextFireAt: string | null;
   versionPinMode: "PINNED" | "LATEST";
+  pinnedPromptVersionId: string | null;
+  variableValues: Record<string, string>;
 }
 
 interface PromptVersion {
@@ -59,6 +62,8 @@ export function ScheduleManagerDialog({
 }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const formOpen = creating || !!editingScheduleId;
 
   const [type, setType] = useState<"ONE_TIME" | "RECURRING">("RECURRING");
   const [runAt, setRunAt] = useState("");
@@ -91,8 +96,18 @@ export function ScheduleManagerDialog({
   const effectiveVariables = effectiveVersion?.variables ?? [];
 
   // Reset the value inputs to the newly-effective version's declared
-  // defaults whenever which version is "effective" changes.
+  // defaults whenever which version is "effective" changes — except
+  // right after openEdit() populates variableValues from an existing
+  // schedule's saved overrides, where this same dependency can also
+  // change (pinnedPromptVersionId/versionPinMode are set together with
+  // it) and would otherwise immediately clobber those saved overrides
+  // with fresh defaults before the user sees them.
+  const skipNextVariableResetRef = useRef(false);
   useEffect(() => {
+    if (skipNextVariableResetRef.current) {
+      skipNextVariableResetRef.current = false;
+      return;
+    }
     setVariableValues(
       Object.fromEntries(effectiveVariables.map((v) => [v.name, v.defaultValue ?? ""])),
     );
@@ -129,6 +144,67 @@ export function ScheduleManagerDialog({
     },
   });
 
+  // A schedule's ONE_TIME/RECURRING type is fixed after creation
+  // (updateScheduleSchema deliberately has no `type` field) — editing
+  // reuses the same form as creating, minus the type picker, and
+  // resubmits as PATCH instead of POST.
+  const openEdit = (schedule: Schedule) => {
+    setType(schedule.type);
+    if (schedule.type === "ONE_TIME" && schedule.runAt) {
+      setRunAt(new Date(schedule.runAt).toISOString().slice(0, 16));
+    }
+    const cfg = schedule.intervalConfig as
+      | { kind: IntervalKind; minutes?: number; hours?: number; atMinute?: number; atTime?: string; daysOfWeek?: number[] }
+      | null;
+    if (cfg) {
+      setIntervalKind(cfg.kind);
+      if (cfg.minutes !== undefined) setMinutes(cfg.minutes);
+      if (cfg.hours !== undefined) setHours(cfg.hours);
+      if (cfg.atTime !== undefined) setAtTime(cfg.atTime);
+      if (cfg.daysOfWeek !== undefined) setDaysOfWeek(cfg.daysOfWeek);
+    }
+    setTimezone(schedule.timezone);
+    skipNextVariableResetRef.current = true;
+    setVersionPinMode(schedule.versionPinMode);
+    setPinnedPromptVersionId(schedule.pinnedPromptVersionId ?? "");
+    setVariableValues(schedule.variableValues ?? {});
+    setEditingScheduleId(schedule.id);
+  };
+
+  const updateSchedule = useMutation({
+    mutationFn: () => {
+      const intervalConfig =
+        intervalKind === "every_n_minutes"
+          ? { kind: intervalKind, minutes }
+          : intervalKind === "every_n_hours"
+            ? { kind: intervalKind, hours, atMinute: 0 }
+            : intervalKind === "daily"
+              ? { kind: intervalKind, atTime }
+              : { kind: intervalKind, daysOfWeek, atTime };
+
+      return apiFetch(`/api/schedules/${editingScheduleId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          runAt: type === "ONE_TIME" ? new Date(runAt).toISOString() : undefined,
+          intervalConfig: type === "RECURRING" ? intervalConfig : undefined,
+          timezone,
+          versionPinMode,
+          pinnedPromptVersionId: versionPinMode === "PINNED" ? pinnedPromptVersionId : null,
+          variableValues,
+        }),
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs", jobId, "schedules"] });
+      setEditingScheduleId(null);
+    },
+  });
+
+  const closeForm = () => {
+    setCreating(false);
+    setEditingScheduleId(null);
+  };
+
   const pauseSchedule = useMutation({
     mutationFn: (id: string) => apiFetch(`/api/schedules/${id}/pause`, { method: "POST" }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["jobs", jobId, "schedules"] }),
@@ -164,6 +240,9 @@ export function ScheduleManagerDialog({
                           Pause
                         </Button>
                       ))}
+                    <Button size="small" onClick={() => openEdit(schedule)}>
+                      Edit
+                    </Button>
                     <Button size="small" color="error" onClick={() => deleteSchedule.mutate(schedule.id)}>
                       Delete
                     </Button>
@@ -205,24 +284,31 @@ export function ScheduleManagerDialog({
 
           <Divider />
 
-          {!creating ? (
+          {!formOpen ? (
             <Button onClick={() => setCreating(true)} sx={{ alignSelf: "flex-start" }}>
               New Schedule
             </Button>
           ) : (
             <Stack spacing={2}>
-              <FormControl fullWidth>
-                <InputLabel id="schedule-type-label">Type</InputLabel>
-                <Select
-                  labelId="schedule-type-label"
-                  label="Type"
-                  value={type}
-                  onChange={(e) => setType(e.target.value as typeof type)}
-                >
-                  <MenuItem value="ONE_TIME">One-time</MenuItem>
-                  <MenuItem value="RECURRING">Recurring</MenuItem>
-                </Select>
-              </FormControl>
+              {editingScheduleId ? (
+                <Typography variant="body2" color="text.secondary">
+                  {type === "ONE_TIME" ? "One-time" : "Recurring"} schedule — type can't be changed
+                  after creation; delete and create a new one for that.
+                </Typography>
+              ) : (
+                <FormControl fullWidth>
+                  <InputLabel id="schedule-type-label">Type</InputLabel>
+                  <Select
+                    labelId="schedule-type-label"
+                    label="Type"
+                    value={type}
+                    onChange={(e) => setType(e.target.value as typeof type)}
+                  >
+                    <MenuItem value="ONE_TIME">One-time</MenuItem>
+                    <MenuItem value="RECURRING">Recurring</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
 
               {type === "ONE_TIME" ? (
                 <TextField
@@ -361,21 +447,24 @@ export function ScheduleManagerDialog({
                 </Stack>
               )}
 
-              {createSchedule.isError && <Alert severity="error">Could not create schedule.</Alert>}
+              {(createSchedule.isError || updateSchedule.isError) && (
+                <Alert severity="error">Could not save schedule.</Alert>
+              )}
 
               <Stack direction="row" spacing={1}>
                 <Button
                   variant="contained"
                   disabled={
                     createSchedule.isPending ||
+                    updateSchedule.isPending ||
                     (type === "ONE_TIME" && !runAt) ||
                     (versionPinMode === "PINNED" && !pinnedPromptVersionId)
                   }
-                  onClick={() => createSchedule.mutate()}
+                  onClick={() => (editingScheduleId ? updateSchedule.mutate() : createSchedule.mutate())}
                 >
-                  Create
+                  {editingScheduleId ? "Save" : "Create"}
                 </Button>
-                <Button onClick={() => setCreating(false)}>Cancel</Button>
+                <Button onClick={closeForm}>Cancel</Button>
               </Stack>
             </Stack>
           )}

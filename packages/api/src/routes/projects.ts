@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { createProjectSchema, updateProjectSchema, grantProjectAclSchema } from "@nexus-scheduler/shared";
+import {
+  createProjectSchema,
+  updateProjectSchema,
+  grantProjectAclSchema,
+  updateProjectAclSchema,
+} from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireEditor } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
@@ -159,6 +164,33 @@ export function createProjectsRouter(): Router {
     });
 
     res.status(201).json(acl);
+  });
+
+  router.patch("/:id/acl/:aclId", requireAuth, requireProjectAccess("OWNER"), async (req, res) => {
+    const parsed = updateProjectAclSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+    const acl = await prisma.projectAcl.update({
+      where: { id: req.params.aclId },
+      data: { accessLevel: parsed.data.accessLevel },
+    });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "project.acl.update",
+      targetType: "project",
+      targetId: req.params.id,
+      result: "SUCCESS",
+      details: { aclId: acl.id, accessLevel: acl.accessLevel },
+    });
+
+    res.json(acl);
   });
 
   router.delete("/:id/acl/:aclId", requireAuth, requireProjectAccess("OWNER"), async (req, res) => {

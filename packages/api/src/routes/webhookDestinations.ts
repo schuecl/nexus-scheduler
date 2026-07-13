@@ -17,11 +17,15 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
   const router = Router();
 
   // Any authenticated user can see *which destinations exist* (to pick
-  // from when wiring up a Job's notifications) — only an admin can
-  // create/manage the allow-list itself.
-  router.get("/", requireAuth, async (_req, res) => {
+  // from when wiring up a Job's notifications) — but only active ones,
+  // since a disabled destination shouldn't be attachable to a Job. An
+  // admin managing the allow-list itself needs to see disabled rows too
+  // (otherwise there'd be no way to re-enable or delete one — it would
+  // just vanish from the one screen that manages it).
+  router.get("/", requireAuth, async (req, res) => {
+    const isAdmin = req.session.user!.role === "ADMIN";
     const destinations = await prisma.webhookDestination.findMany({
-      where: { active: true },
+      where: isAdmin ? undefined : { active: true },
       select: { id: true, name: true, url: true, active: true, createdAt: true },
       orderBy: { name: "asc" },
     });
@@ -84,6 +88,28 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
     });
 
     res.json(destination);
+  });
+
+  // Hard delete — job_webhook_destinations cascades, so any Job that had
+  // this destination attached just stops notifying it, same practical
+  // effect as removing it from the allow-list would have anyway.
+  router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
+    const user = req.session.user!;
+    const destination = await prisma.webhookDestination.delete({ where: { id: req.params.id } });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "webhook_destination.delete",
+      targetType: "webhook",
+      targetId: destination.id,
+      targetName: destination.name,
+      result: "SUCCESS",
+    });
+
+    res.status(204).send();
   });
 
   return router;

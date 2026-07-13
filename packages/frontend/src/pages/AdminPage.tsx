@@ -82,6 +82,10 @@ function WebhookDestinationsPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [editingDestination, setEditingDestination] = useState<WebhookDestination | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const destinationsQuery = useQuery({
     queryKey: ["webhook-destinations"],
@@ -105,6 +109,24 @@ function WebhookDestinationsPanel() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["webhook-destinations"] }),
   });
 
+  const updateDestination = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/webhook-destinations/${editingDestination!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: editName, url: editUrl }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["webhook-destinations"] });
+      setEditingDestination(null);
+    },
+  });
+
+  const deleteDestination = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/webhook-destinations/${id}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["webhook-destinations"] }),
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
+  });
+
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -119,19 +141,45 @@ function WebhookDestinationsPanel() {
         a Job's notifications.
       </Typography>
 
+      {deleteError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
+
       <List dense>
         {destinationsQuery.data?.map((destination) => (
           <ListItem
             key={destination.id}
             divider
             secondaryAction={
-              <Button
-                size="small"
-                color={destination.active ? "error" : "primary"}
-                onClick={() => setActive.mutate({ id: destination.id, active: !destination.active })}
-              >
-                {destination.active ? "Disable" : "Enable"}
-              </Button>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setEditingDestination(destination);
+                    setEditName(destination.name);
+                    setEditUrl(destination.url);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="small"
+                  color={destination.active ? "error" : "primary"}
+                  onClick={() => setActive.mutate({ id: destination.id, active: !destination.active })}
+                >
+                  {destination.active ? "Disable" : "Enable"}
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  disabled={deleteDestination.isPending}
+                  onClick={() => deleteDestination.mutate(destination.id)}
+                >
+                  Delete
+                </Button>
+              </Stack>
             }
           >
             <ListItemText
@@ -172,6 +220,26 @@ function WebhookDestinationsPanel() {
             onClick={() => createDestination.mutate()}
           >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!editingDestination} onClose={() => setEditingDestination(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Webhook Destination</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Name" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus fullWidth />
+            <TextField label="URL" value={editUrl} onChange={(e) => setEditUrl(e.target.value)} fullWidth />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingDestination(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editName || !editUrl || updateDestination.isPending}
+            onClick={() => updateDestination.mutate()}
+          >
+            Save
           </Button>
         </DialogActions>
       </Dialog>
@@ -581,6 +649,7 @@ function UserManagementPanel() {
   const [newEmail, setNewEmail] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newRole, setNewRole] = useState<AdminUser["role"]>("VIEW");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ["users", "admin-list"],
@@ -612,6 +681,15 @@ function UserManagementPanel() {
     mutationFn: (id: string) => apiFetch(`/api/users/${id}/send-password-reset`, { method: "POST" }),
   });
 
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/users/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users", "admin-list"] });
+      setDeleteError(null);
+    },
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
+  });
+
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -628,6 +706,11 @@ function UserManagementPanel() {
       {sendReset.isSuccess && (
         <Alert severity="success" sx={{ mb: 1 }}>
           Password reset email sent.
+        </Alert>
+      )}
+      {deleteError && (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
         </Alert>
       )}
 
@@ -672,6 +755,15 @@ function UserManagementPanel() {
                 }
                 label="Active"
               />
+              <Button
+                size="small"
+                color="error"
+                sx={{ ml: 2 }}
+                disabled={isSelf || deleteUser.isPending}
+                onClick={() => deleteUser.mutate(u.id)}
+              >
+                Delete
+              </Button>
             </ListItem>
           );
         })}
@@ -730,12 +822,54 @@ interface CostRate {
 // Internal cost computation rates (§8) — no external billing API exists
 // in an air-gapped deployment, so cost is derived from these + tracked
 // token counts (packages/worker/src/costCalculator.ts).
+interface CostRateFormState {
+  agentId: string;
+  promptRate: string;
+  completionRate: string;
+}
+
+const BLANK_COST_RATE_FORM: CostRateFormState = { agentId: "", promptRate: "", completionRate: "" };
+
+function CostRateFormFields({
+  form,
+  onChange,
+}: {
+  form: CostRateFormState;
+  onChange: (next: CostRateFormState) => void;
+}) {
+  return (
+    <Stack spacing={2} sx={{ mt: 1 }}>
+      <TextField
+        label="Agent ID (optional — blank applies as the global default)"
+        value={form.agentId}
+        onChange={(e) => onChange({ ...form, agentId: e.target.value })}
+        fullWidth
+      />
+      <TextField
+        label="Prompt rate ($ per million tokens)"
+        type="number"
+        value={form.promptRate}
+        onChange={(e) => onChange({ ...form, promptRate: e.target.value })}
+        fullWidth
+      />
+      <TextField
+        label="Completion rate ($ per million tokens)"
+        type="number"
+        value={form.completionRate}
+        onChange={(e) => onChange({ ...form, completionRate: e.target.value })}
+        fullWidth
+      />
+    </Stack>
+  );
+}
+
 function CostRatesPanel() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [agentId, setAgentId] = useState("");
-  const [promptRate, setPromptRate] = useState("");
-  const [completionRate, setCompletionRate] = useState("");
+  const [createForm, setCreateForm] = useState<CostRateFormState>(BLANK_COST_RATE_FORM);
+  const [editingRate, setEditingRate] = useState<CostRate | null>(null);
+  const [editForm, setEditForm] = useState<CostRateFormState>(BLANK_COST_RATE_FORM);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const ratesQuery = useQuery({
     queryKey: ["cost-rates"],
@@ -747,19 +881,48 @@ function CostRatesPanel() {
       apiFetch("/api/cost-rates", {
         method: "POST",
         body: JSON.stringify({
-          agentId: agentId || undefined,
-          promptRatePerMillion: Number(promptRate),
-          completionRatePerMillion: Number(completionRate),
+          agentId: createForm.agentId || undefined,
+          promptRatePerMillion: Number(createForm.promptRate),
+          completionRatePerMillion: Number(createForm.completionRate),
         }),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cost-rates"] });
       setCreateOpen(false);
-      setAgentId("");
-      setPromptRate("");
-      setCompletionRate("");
+      setCreateForm(BLANK_COST_RATE_FORM);
     },
   });
+
+  const updateRate = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/cost-rates/${editingRate!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          agentId: editForm.agentId || null,
+          promptRatePerMillion: Number(editForm.promptRate),
+          completionRatePerMillion: Number(editForm.completionRate),
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cost-rates"] });
+      setEditingRate(null);
+    },
+  });
+
+  const deleteRate = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/cost-rates/${id}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cost-rates"] }),
+    onError: (err: unknown) => setDeleteError(err instanceof Error ? err.message : "delete failed"),
+  });
+
+  const openEdit = (rate: CostRate) => {
+    setEditingRate(rate);
+    setEditForm({
+      agentId: rate.agentId ?? "",
+      promptRate: rate.promptRatePerMillion,
+      completionRate: rate.completionRatePerMillion,
+    });
+  };
 
   return (
     <Box>
@@ -775,9 +938,28 @@ function CostRatesPanel() {
         they ran.
       </Typography>
 
+      {deleteError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
+
       <List dense>
         {ratesQuery.data?.map((rate) => (
-          <ListItem key={rate.id} divider>
+          <ListItem
+            key={rate.id}
+            divider
+            secondaryAction={
+              <Stack direction="row" spacing={1}>
+                <Button size="small" onClick={() => openEdit(rate)}>
+                  Edit
+                </Button>
+                <Button size="small" color="error" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate(rate.id)}>
+                  Delete
+                </Button>
+              </Stack>
+            }
+          >
             <ListItemText
               primary={rate.agentId ?? "(global default)"}
               secondary={`Prompt: $${rate.promptRatePerMillion}/M · Completion: $${rate.completionRatePerMillion}/M · effective ${new Date(rate.effectiveFrom).toLocaleDateString()}`}
@@ -794,37 +976,33 @@ function CostRatesPanel() {
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New Cost Rate</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Agent ID (optional — blank applies as the global default)"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              fullWidth
-            />
-            <TextField
-              label="Prompt rate ($ per million tokens)"
-              type="number"
-              value={promptRate}
-              onChange={(e) => setPromptRate(e.target.value)}
-              fullWidth
-            />
-            <TextField
-              label="Completion rate ($ per million tokens)"
-              type="number"
-              value={completionRate}
-              onChange={(e) => setCompletionRate(e.target.value)}
-              fullWidth
-            />
-          </Stack>
+          <CostRateFormFields form={createForm} onChange={setCreateForm} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={!promptRate || !completionRate || createRate.isPending}
+            disabled={!createForm.promptRate || !createForm.completionRate || createRate.isPending}
             onClick={() => createRate.mutate()}
           >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!editingRate} onClose={() => setEditingRate(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Edit Cost Rate</DialogTitle>
+        <DialogContent>
+          <CostRateFormFields form={editForm} onChange={setEditForm} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingRate(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editForm.promptRate || !editForm.completionRate || updateRate.isPending}
+            onClick={() => updateRate.mutate()}
+          >
+            Save
           </Button>
         </DialogActions>
       </Dialog>

@@ -15,3 +15,11 @@ export const createApiKeySchema = z
     path: ["ownerTeamId"],
   });
 export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
+
+// The raw key material is never re-enterable after creation (it's only
+// ever stored encrypted) — the label is the only field there's anything
+// to edit here.
+export const updateApiKeySchema = z.object({
+  label: z.string().max(100),
+});
+export type UpdateApiKeyInput = z.infer<typeof updateApiKeySchema>;

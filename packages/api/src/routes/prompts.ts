@@ -162,6 +162,16 @@ export function createPromptsRouter(): Router {
 
   router.delete("/:id", requireAuth, requirePromptAccess("EDIT"), async (req, res) => {
     const user = req.session.user!;
+
+    // Job.promptId has no cascade path (a Job without a Prompt makes no
+    // sense) — block with a clear message instead of surfacing a raw FK
+    // constraint error, same pattern as classification labels/teams.
+    const jobCount = await prisma.job.count({ where: { promptId: req.params.id } });
+    if (jobCount > 0) {
+      res.status(409).json({ error: `cannot delete — ${jobCount} Job(s) still use this Prompt` });
+      return;
+    }
+
     const prompt = await prisma.prompt.delete({ where: { id: req.params.id } });
 
     await recordAuditEvent({

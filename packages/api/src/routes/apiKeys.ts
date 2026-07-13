@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createApiKeySchema, encryptSecret, decryptSecret } from "@nexus-scheduler/shared";
+import { createApiKeySchema, updateApiKeySchema, encryptSecret, decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { getEffectiveTeamIds } from "../access.js";
@@ -97,6 +97,45 @@ export function createApiKeysRouter(config: AppConfig): Router {
     });
 
     res.status(201).json(apiKey);
+  });
+
+  router.patch("/:id", requireAuth, async (req, res) => {
+    const parsed = updateApiKeySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    const user = req.session.user!;
+    const key = await prisma.apiKey.findUnique({ where: { id: req.params.id } });
+    if (!key) {
+      res.status(404).json({ error: "key not found" });
+      return;
+    }
+    if (!(await canUseApiKey(user, key))) {
+      res.status(403).json({ error: "not permitted to edit this key" });
+      return;
+    }
+
+    const updated = await prisma.apiKey.update({
+      where: { id: req.params.id },
+      data: { label: parsed.data.label },
+      select: { id: true, label: true, ownerType: true, ownerTeamId: true, status: true, expiresAt: true },
+    });
+
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "apikey.update",
+      targetType: "apikey",
+      targetId: updated.id,
+      targetName: updated.label ?? undefined,
+      result: "SUCCESS",
+      details: { label: updated.label },
+    });
+
+    res.json(updated);
   });
 
   router.delete("/:id", requireAuth, async (req, res) => {

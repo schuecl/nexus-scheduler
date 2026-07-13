@@ -31,3 +31,11 @@ export const grantProjectAclSchema = z
     { message: "granteeUserId/granteeTeamId must match granteeType" },
   );
 export type GrantProjectAclInput = z.infer<typeof grantProjectAclSchema>;
+
+// Changing who a grant applies to is a revoke-and-regrant (a different
+// grantee is really a different grant) — only the access level itself
+// is editable in place.
+export const updateProjectAclSchema = z.object({
+  accessLevel: z.enum(["READ", "EDIT"]),
+});
+export type UpdateProjectAclInput = z.infer<typeof updateProjectAclSchema>;

@@ -12,6 +12,7 @@ export type CreateWebhookDestinationInput = z.infer<typeof createWebhookDestinat
 
 export const updateWebhookDestinationSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  url: z.string().url().optional(),
   active: z.boolean().optional(),
 });
 export type UpdateWebhookDestinationInput = z.infer<typeof updateWebhookDestinationSchema>;

@@ -11,3 +11,11 @@ export const createCostRateSchema = z.object({
   effectiveFrom: z.string().datetime().optional(), // defaults to now server-side
 });
 export type CreateCostRateInput = z.infer<typeof createCostRateSchema>;
+
+export const updateCostRateSchema = z.object({
+  agentId: z.string().min(1).nullable().optional(),
+  promptRatePerMillion: z.coerce.number().nonnegative().optional(),
+  completionRatePerMillion: z.coerce.number().nonnegative().optional(),
+  effectiveFrom: z.string().datetime().optional(),
+});
+export type UpdateCostRateInput = z.infer<typeof updateCostRateSchema>;
