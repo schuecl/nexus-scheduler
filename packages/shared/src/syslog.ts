@@ -1,5 +1,6 @@
 import net from "node:net";
 import dgram from "node:dgram";
+import dns from "node:dns";
 import tls from "node:tls";
 import os from "node:os";
 
@@ -17,6 +18,11 @@ export interface SyslogDestination {
   port: number;
   transport: SyslogTransportKind;
   tls: boolean;
+  // Optional PEM-encoded CA certificate(s) to verify the receiver's TLS
+  // cert against, for receivers using a private CA not in the system
+  // trust store. When omitted, Node's default trust roots are used.
+  // Verification is never disabled — an unverifiable cert still fails.
+  caCert?: string | null;
 }
 
 export interface SyslogAuditFields {
@@ -105,12 +111,40 @@ export async function sendSyslogMessage(destination: SyslogDestination, message:
 
 function sendUdp(destination: SyslogDestination, message: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const socket = dgram.createSocket("udp4");
-    const buf = Buffer.from(message, "utf8");
-    socket.send(buf, destination.port, destination.host, (err) => {
-      socket.close();
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
       if (err) reject(err);
       else resolve();
+    };
+    // The receiver's host may be IPv6 (or an IPv6 literal); a hardcoded udp4
+    // socket rejects those with EINVAL. Resolve *all* addresses and prefer
+    // IPv4: a bare dns.lookup() can return an AAAA record first for dual-stack
+    // names like "localhost", which would send over udp6 and — UDP being
+    // fire-and-forget — silently miss a receiver bound only on IPv4. Fall back
+    // to IPv6 only for IPv6-only hosts. A resolved promise means the datagram
+    // left this host, not that the receiver got it.
+    dns.lookup(destination.host, { all: true }, (lookupErr, addresses) => {
+      if (lookupErr || addresses.length === 0) {
+        finish(lookupErr ?? new Error(`could not resolve syslog host ${destination.host}`));
+        return;
+      }
+      const chosen = addresses.find((a) => a.family === 4) ?? addresses[0];
+      if (!chosen) {
+        finish(new Error(`could not resolve syslog host ${destination.host}`));
+        return;
+      }
+      const socket = dgram.createSocket(chosen.family === 6 ? "udp6" : "udp4");
+      const buf = Buffer.from(message, "utf8");
+      socket.once("error", (err) => {
+        socket.close();
+        finish(err);
+      });
+      socket.send(buf, destination.port, chosen.address, (err) => {
+        socket.close();
+        finish(err ?? undefined);
+      });
     });
   });
 }
@@ -124,7 +158,16 @@ function sendTcp(destination: SyslogDestination, message: string): Promise<void>
     const timeoutMs = 5000;
 
     const socket: net.Socket = destination.tls
-      ? tls.connect({ host: destination.host, port: destination.port })
+      ? tls.connect({
+          host: destination.host,
+          port: destination.port,
+          // SNI — required by receivers that host multiple certs; harmless
+          // otherwise. Only sent for DNS names, not IP literals (per RFC 6066).
+          servername: net.isIP(destination.host) ? undefined : destination.host,
+          // Trust an operator-supplied private CA when provided; otherwise
+          // fall back to Node's default roots. rejectUnauthorized stays on.
+          ...(destination.caCert ? { ca: destination.caCert } : {}),
+        })
       : net.connect({ host: destination.host, port: destination.port });
 
     socket.setTimeout(timeoutMs);

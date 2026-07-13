@@ -27,6 +27,10 @@ export const updateAppSettingsSchema = z.object({
   syslogPort: z.number().int().positive().max(65535).nullable().optional(),
   syslogTransport: z.enum(["TCP", "UDP"]).optional(),
   syslogTls: z.boolean().optional(),
+  // PEM CA bundle to verify the receiver's TLS cert (private-CA SIEMs).
+  // Empty string clears it; null/undefined leaves it untouched here and
+  // is normalized to null at the persistence layer.
+  syslogTlsCaCert: z.string().nullable().optional(),
   // Recurring admin usage-report email (§2.5/§8) — independent of both
   // syslog and SMTP config above (though it's sent over that same SMTP
   // integration).
