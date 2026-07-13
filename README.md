@@ -83,9 +83,9 @@ npm run build       # builds shared -> pdf -> pdf-service -> api -> worker -> fr
 ### Run the full stack with Docker Compose
 
 This brings up Postgres, Redis, Keycloak (for SSO), Mailpit (catches
-outbound email), a local LibreChat instance, and the app itself — a
-complete environment for trying Nexus Scheduler out or developing
-against it.
+outbound email), a local syslog receiver (for testing the audit-event
+mirror), a local LibreChat instance, and the app itself — a complete
+environment for trying Nexus Scheduler out or developing against it.
 
 ```bash
 ./scripts/generate-local-env.sh   # writes .env + docker/librechat/.env — do this once
@@ -103,10 +103,19 @@ Then:
 
 Log in to Nexus Scheduler with "Sign in with password" using
 `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults
-to `admin@nexus-scheduler.local`). From Admin Settings, point SMTP at
-Mailpit (`host: mailpit`, `port: 1025`, no auth/TLS) to test password
-reset and notification emails. Keycloak has no realm pre-provisioned —
-create one manually if you want to test SSO login end to end.
+to `admin@nexus-scheduler.local`). From Admin Settings:
+- Point SMTP at Mailpit (`host: mailpit`, `port: 1025`, no auth/TLS) to
+  test password reset and notification emails.
+- Point syslog at `syslog-test` to test the audit-event mirror —
+  `host: syslog-test`, and `port`/`transport`/`tls` per whichever of its
+  three listeners you want to exercise: `514`/UDP, `601`/TCP, or
+  `6514`/TCP with TLS enabled (upload
+  `docker/generated/syslog-test-certs/ca.pem`, written by
+  `generate-local-env.sh`, as the CA certificate). Delivered messages
+  show up in `docker compose logs -f syslog-test`.
+
+Keycloak has no realm pre-provisioned — create one manually if you want
+to test SSO login end to end.
 
 **Connecting to LibreChat** (this part is LibreChat's own UI flow, not
 scriptable):

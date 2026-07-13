@@ -87,3 +87,31 @@ EOF
   echo "Wrote docker/librechat/.env."
   echo "Set ANTHROPIC_API_KEY in .env (root) to use Claude, or add another provider's key here."
 fi
+
+# Self-signed CA + server cert for the local syslog-test receiver
+# (docker/syslog-test) — lets the syslog audit-event mirror's TLS/
+# private-CA path (REQUIREMENTS §7.1) be exercised locally, the same way
+# a real on-prem SIEM with a private-CA-signed cert would need it. Kept
+# out of git (docker/generated/ is gitignored) since these are private
+# keys, even though they're test-only and never leave localhost.
+CERT_DIR="docker/generated/syslog-test-certs"
+if [ -f "$CERT_DIR/ca.pem" ]; then
+  echo "$CERT_DIR already has certs — leaving them as-is."
+else
+  mkdir -p "$CERT_DIR"
+  openssl genrsa -out "$CERT_DIR/ca-key.pem" 2048 >/dev/null 2>&1
+  openssl req -x509 -new -nodes -key "$CERT_DIR/ca-key.pem" -sha256 -days 3650 \
+    -out "$CERT_DIR/ca.pem" -subj "/CN=Nexus Scheduler Local Test CA" >/dev/null 2>&1
+  openssl genrsa -out "$CERT_DIR/server-key.pem" 2048 >/dev/null 2>&1
+  openssl req -new -key "$CERT_DIR/server-key.pem" -out "$CERT_DIR/server.csr" \
+    -subj "/CN=syslog-test" >/dev/null 2>&1
+  cat > "$CERT_DIR/san.ext" <<EOF
+subjectAltName=DNS:syslog-test,DNS:localhost,IP:127.0.0.1
+EOF
+  openssl x509 -req -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.pem" -CAkey "$CERT_DIR/ca-key.pem" \
+    -CAcreateserial -out "$CERT_DIR/server-cert.pem" -days 3650 -sha256 \
+    -extfile "$CERT_DIR/san.ext" >/dev/null 2>&1
+  rm -f "$CERT_DIR/server.csr" "$CERT_DIR/san.ext" "$CERT_DIR/ca.srl"
+  echo "Generated a local test CA + server cert for syslog-test at $CERT_DIR/."
+  echo "Paste $CERT_DIR/ca.pem's contents into Admin Settings' syslog CA-certificate upload to test TLS locally."
+fi
