@@ -139,6 +139,7 @@ export function createSettingsRouter(config: AppConfig): Router {
           port: settings.syslogPort,
           transport: settings.syslogTransport,
           tls: settings.syslogTls,
+          caCert: settings.syslogTlsCaCert,
         },
         message,
       );

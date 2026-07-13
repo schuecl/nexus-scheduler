@@ -442,6 +442,14 @@ model AppSettings {
   syslogPort                     Int?
   syslogTransport                SyslogTransport @default(TCP)
   syslogTls                      Boolean         @default(false)
+  // Optional PEM-encoded CA certificate(s) used to verify the syslog
+  // receiver's TLS certificate. On-prem SIEMs/rsyslog commonly present a
+  // certificate signed by a private CA that isn't in the system trust
+  // store; without this, tls.connect() rejects the handshake. Leaving it
+  // null falls back to the Node/system default trust roots. We never
+  // disable verification outright — trusting an explicit CA is the safe
+  // way to support private PKIs.
+  syslogTlsCaCert                String?
   // Recurring admin usage-report email (§2.5/§8) — a PDF summary of
   // run counts/success-failure rates/token usage/cost, sent to these
   // recipients on the configured cadence over the same SMTP config

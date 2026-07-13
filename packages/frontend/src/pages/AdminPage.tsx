@@ -265,6 +265,7 @@ interface AdminSettings {
   syslogPort: number | null;
   syslogTransport: "TCP" | "UDP";
   syslogTls: boolean;
+  syslogTlsCaCert: string | null;
   usageReportEnabled: boolean;
   usageReportRecipients: string[];
   usageReportFrequency: "WEEKLY" | "MONTHLY";
@@ -299,6 +300,10 @@ function SystemSettingsPanel() {
   const [syslogPort, setSyslogPort] = useState("");
   const [syslogTransport, setSyslogTransport] = useState<"TCP" | "UDP">("TCP");
   const [syslogTls, setSyslogTls] = useState(false);
+  // PEM contents of an uploaded CA cert. "" is a deliberate "clear it",
+  // distinct from the loaded value; the filename is kept only for display.
+  const [syslogTlsCaCert, setSyslogTlsCaCert] = useState("");
+  const [syslogTlsCaCertName, setSyslogTlsCaCertName] = useState("");
   const [usageReportEnabled, setUsageReportEnabled] = useState(false);
   const [usageReportRecipients, setUsageReportRecipients] = useState(""); // comma-separated in the UI
   const [usageReportFrequency, setUsageReportFrequency] = useState<"WEEKLY" | "MONTHLY">("WEEKLY");
@@ -324,6 +329,8 @@ function SystemSettingsPanel() {
     setSyslogPort(s.syslogPort ? String(s.syslogPort) : "");
     setSyslogTransport(s.syslogTransport);
     setSyslogTls(s.syslogTls);
+    setSyslogTlsCaCert(s.syslogTlsCaCert ?? "");
+    setSyslogTlsCaCertName(s.syslogTlsCaCert ? "current certificate on file" : "");
     setUsageReportEnabled(s.usageReportEnabled);
     setUsageReportRecipients(s.usageReportRecipients.join(", "));
     setUsageReportFrequency(s.usageReportFrequency);
@@ -351,6 +358,9 @@ function SystemSettingsPanel() {
           syslogPort: syslogPort ? Number(syslogPort) : null,
           syslogTransport,
           syslogTls,
+          // Seeded from the DB on load, so re-sending preserves an existing
+          // cert; "" (uploaded-then-cleared, or TLS off) clears it.
+          syslogTlsCaCert: syslogTls ? syslogTlsCaCert || null : null,
           usageReportEnabled,
           usageReportRecipients: usageReportRecipients
             .split(",")
@@ -483,6 +493,49 @@ function SystemSettingsPanel() {
           label="Use TLS (TCP only, RFC 5425)"
           disabled={syslogTransport !== "TCP"}
         />
+        {syslogTls && (
+          <Stack spacing={1}>
+            <Typography variant="body2" color="text.secondary">
+              CA certificate (PEM) — upload only if your syslog receiver uses a private/self-signed CA
+              not in the system trust store. Leave empty to use the default trust roots.
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button variant="outlined" component="label" size="small">
+                Upload CA certificate
+                <input
+                  type="file"
+                  hidden
+                  accept=".pem,.crt,.cer,.ca,application/x-pem-file,application/x-x509-ca-cert,text/plain"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    // Reset the input so re-selecting the same file still fires onChange.
+                    e.target.value = "";
+                    if (!file) return;
+                    const text = await file.text();
+                    setSyslogTlsCaCert(text);
+                    setSyslogTlsCaCertName(file.name);
+                  }}
+                />
+              </Button>
+              {syslogTlsCaCert && (
+                <Button
+                  variant="text"
+                  size="small"
+                  color="error"
+                  onClick={() => {
+                    setSyslogTlsCaCert("");
+                    setSyslogTlsCaCertName("");
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
+              <Typography variant="body2" color="text.secondary">
+                {syslogTlsCaCertName || "no certificate uploaded"}
+              </Typography>
+            </Stack>
+          </Stack>
+        )}
 
         <Divider />
         <Typography variant="subtitle1">Recurring Usage Report</Typography>
@@ -520,7 +573,12 @@ function SystemSettingsPanel() {
         {testEmail.isSuccess && <Alert severity="success">Test email sent — check your inbox.</Alert>}
         {testEmail.isError && <Alert severity="error">Test email failed to send.</Alert>}
         {testSyslog.isSuccess && <Alert severity="success">Test syslog message sent.</Alert>}
-        {testSyslog.isError && <Alert severity="error">Test syslog message failed to send.</Alert>}
+        {testSyslog.isError && (
+          <Alert severity="error">
+            Test syslog message failed to send:{" "}
+            {testSyslog.error instanceof Error ? testSyslog.error.message : "unknown error"}
+          </Alert>
+        )}
         <Stack direction="row" spacing={1}>
           <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate()}>
             Save

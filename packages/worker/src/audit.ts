@@ -75,6 +75,7 @@ async function mirrorToSyslog(event: {
         port: settings.syslogPort,
         transport: settings.syslogTransport,
         tls: settings.syslogTls,
+        caCert: settings.syslogTlsCaCert,
       },
       message,
     );
