@@ -21,6 +21,7 @@ import {
   Typography,
 } from "@mui/material";
 import { apiFetch } from "../api/client";
+import { useConfirm } from "../context/ConfirmContext";
 import type { PromptVariableDraft } from "./VariableEditor";
 
 interface Schedule {
@@ -67,6 +68,7 @@ export function ScheduleManagerDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [creating, setCreating] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const formOpen = creating || !!editingScheduleId;
@@ -249,7 +251,17 @@ export function ScheduleManagerDialog({
                     <Button size="small" onClick={() => openEdit(schedule)}>
                       Edit
                     </Button>
-                    <Button size="small" color="error" onClick={() => deleteSchedule.mutate(schedule.id)}>
+                    <Button
+                      size="small"
+                      color="error"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Delete schedule?",
+                          message: "Delete this schedule? This can't be undone.",
+                        });
+                        if (ok) deleteSchedule.mutate(schedule.id);
+                      }}
+                    >
                       Delete
                     </Button>
                   </Stack>

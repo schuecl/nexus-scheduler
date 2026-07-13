@@ -20,6 +20,7 @@ import {
 } from "@mui/material";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useConfirm } from "../context/ConfirmContext";
 
 interface Team {
   id: string;
@@ -159,6 +160,7 @@ export function TeamsPage() {
 
 function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () => void }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [userSearch, setUserSearch] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState(team.name);
@@ -230,7 +232,18 @@ function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () 
             <Button size="small" onClick={() => setEditOpen(true)}>
               Rename
             </Button>
-            <Button size="small" color="error" disabled={deleteTeam.isPending} onClick={() => deleteTeam.mutate()}>
+            <Button
+              size="small"
+              color="error"
+              disabled={deleteTeam.isPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Delete team?",
+                  message: `Delete "${team.name}"? This can't be undone.`,
+                });
+                if (ok) deleteTeam.mutate();
+              }}
+            >
               Delete
             </Button>
           </Stack>

@@ -20,6 +20,7 @@ import {
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import { apiFetch } from "../api/client";
+import { useConfirm } from "../context/ConfirmContext";
 import { VariableEditor, type PromptVariableDraft } from "./VariableEditor";
 
 interface PromptVersion {
@@ -56,6 +57,7 @@ function invalidateAllPromptLists(queryClient: ReturnType<typeof useQueryClient>
 
 export function PromptDetailDialog({ promptId, onClose }: { promptId: string; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [newVersionContent, setNewVersionContent] = useState("");
   const [newVersionVariables, setNewVersionVariables] = useState<PromptVariableDraft[]>([]);
   const [addingVersion, setAddingVersion] = useState(false);
@@ -157,7 +159,18 @@ export function PromptDetailDialog({ promptId, onClose }: { promptId: string; on
                   <Button size="small" onClick={() => setEditingMeta(true)}>
                     Edit
                   </Button>
-                  <Button size="small" color="error" disabled={deletePrompt.isPending} onClick={() => deletePrompt.mutate()}>
+                  <Button
+                    size="small"
+                    color="error"
+                    disabled={deletePrompt.isPending}
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: "Delete prompt?",
+                        message: `Delete "${prompt.name}" and all its saved versions? This can't be undone.`,
+                      });
+                      if (ok) deletePrompt.mutate();
+                    }}
+                  >
                     Delete
                   </Button>
                 </Stack>

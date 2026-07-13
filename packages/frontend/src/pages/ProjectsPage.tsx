@@ -24,6 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import { apiFetch } from "../api/client";
+import { useConfirm } from "../context/ConfirmContext";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
 import { ScheduleManagerDialog } from "../components/ScheduleManagerDialog";
 import { JobWebhooksDialog } from "../components/JobWebhooksDialog";
@@ -209,6 +210,7 @@ export function ProjectsPage() {
 
 function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDeleted: () => void }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -308,7 +310,18 @@ function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDel
             </Button>
           )}
           {project.effectiveAccess === "OWNER" && (
-            <Button size="small" color="error" disabled={deleteProject.isPending} onClick={() => deleteProject.mutate()}>
+            <Button
+              size="small"
+              color="error"
+              disabled={deleteProject.isPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Delete project?",
+                  message: `Delete "${project.name}" and everything in it — its prompts, jobs, and schedules? This can't be undone.`,
+                });
+                if (ok) deleteProject.mutate();
+              }}
+            >
               Delete
             </Button>
           )}
@@ -714,6 +727,7 @@ const BLANK_JOB_FORM: JobFormValues = {
 
 function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<JobFormValues>(BLANK_JOB_FORM);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -843,7 +857,13 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                       size="small"
                       color="error"
                       disabled={deleteJob.isPending}
-                      onClick={() => deleteJob.mutate(job.id)}
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: "Delete job?",
+                          message: `Delete "${job.name}" and its schedules? This can't be undone.`,
+                        });
+                        if (ok) deleteJob.mutate(job.id);
+                      }}
                     >
                       Delete
                     </Button>
@@ -941,6 +961,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
 // /acl endpoints.
 function ProjectSharingPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [granteeType, setGranteeType] = useState<"USER" | "TEAM" | "ORG">("USER");
   const [granteeUserId, setGranteeUserId] = useState<string | null>(null);
   const [granteeTeamId, setGranteeTeamId] = useState<string | null>(null);
@@ -1015,7 +1036,18 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
                     <MenuItem value="EDIT">Edit</MenuItem>
                   </Select>
                 </FormControl>
-                <Button size="small" color="error" onClick={() => revoke.mutate(acl.id)}>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Revoke access?",
+                      message: `Revoke ${acl.accessLevel} access for this ${acl.granteeType.toLowerCase()}${acl.granteeType === "ORG" ? " (everyone)" : ""}?`,
+                      confirmLabel: "Revoke",
+                    });
+                    if (ok) revoke.mutate(acl.id);
+                  }}
+                >
                   Revoke
                 </Button>
               </Stack>

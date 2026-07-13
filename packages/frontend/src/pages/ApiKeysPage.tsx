@@ -19,6 +19,7 @@ import {
   Typography,
 } from "@mui/material";
 import { apiFetch } from "../api/client";
+import { useConfirm } from "../context/ConfirmContext";
 
 interface ApiKeySummary {
   id: string;
@@ -43,6 +44,7 @@ interface Team {
 // responses beyond what's necessary").
 export function ApiKeysPage() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [rawKey, setRawKey] = useState("");
@@ -120,7 +122,18 @@ export function ApiKeysPage() {
                   Rename
                 </Button>
                 {key.status === "ACTIVE" && (
-                  <Button size="small" color="error" onClick={() => revokeKey.mutate(key.id)}>
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: "Revoke API key?",
+                        message: `Revoke "${key.label ?? "this key"}"? Any Job using it will start failing immediately. This can't be undone.`,
+                        confirmLabel: "Revoke",
+                      });
+                      if (ok) revokeKey.mutate(key.id);
+                    }}
+                  >
                     Revoke
                   </Button>
                 )}

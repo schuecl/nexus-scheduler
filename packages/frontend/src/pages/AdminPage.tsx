@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
+import { useConfirm } from "../context/ConfirmContext";
 import { apiFetch } from "../api/client";
 
 interface ClassificationLabel {
@@ -79,6 +80,7 @@ interface WebhookDestination {
 // never entered here and never shown back.
 function WebhookDestinationsPanel() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -175,7 +177,13 @@ function WebhookDestinationsPanel() {
                   size="small"
                   color="error"
                   disabled={deleteDestination.isPending}
-                  onClick={() => deleteDestination.mutate(destination.id)}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Delete webhook destination?",
+                      message: `Delete "${destination.name}"? Any Job currently sending results to it will stop. This can't be undone.`,
+                    });
+                    if (ok) deleteDestination.mutate(destination.id);
+                  }}
                 >
                   Delete
                 </Button>
@@ -717,6 +725,7 @@ interface AdminUser {
 function UserManagementPanel() {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -876,7 +885,13 @@ function UserManagementPanel() {
                 color="error"
                 sx={{ ml: 2 }}
                 disabled={isSelf || deleteUser.isPending}
-                onClick={() => deleteUser.mutate(u.id)}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "Delete user?",
+                    message: `Delete "${u.displayName ?? u.email}"? This can't be undone.`,
+                  });
+                  if (ok) deleteUser.mutate(u.id);
+                }}
               >
                 Delete
               </Button>
@@ -1014,6 +1029,7 @@ function CostRateFormFields({
 
 function CostRatesPanel() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<CostRateFormState>(BLANK_COST_RATE_FORM);
   const [editingRate, setEditingRate] = useState<CostRate | null>(null);
@@ -1103,7 +1119,18 @@ function CostRatesPanel() {
                 <Button size="small" onClick={() => openEdit(rate)}>
                   Edit
                 </Button>
-                <Button size="small" color="error" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate(rate.id)}>
+                <Button
+                  size="small"
+                  color="error"
+                  disabled={deleteRate.isPending}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Delete cost rate?",
+                      message: `Delete the rate for ${rate.agentId ?? "the global default"} effective ${rate.effectiveFrom}? This can't be undone.`,
+                    });
+                    if (ok) deleteRate.mutate(rate.id);
+                  }}
+                >
                   Delete
                 </Button>
               </Stack>
@@ -1241,6 +1268,7 @@ function ClassificationLabelFormFields({
 
 function ClassificationLabelsPanel() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<ClassificationLabelFormState>(BLANK_LABEL_FORM);
   const [editLabel, setEditLabel] = useState<ClassificationLabel | null>(null);
@@ -1340,7 +1368,13 @@ function ClassificationLabelsPanel() {
                   size="small"
                   color="error"
                   disabled={deleteLabel.isPending}
-                  onClick={() => deleteLabel.mutate(label.id)}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: "Delete classification label?",
+                      message: `Delete "${label.text}"? Projects currently tagged with it will lose that label. This can't be undone.`,
+                    });
+                    if (ok) deleteLabel.mutate(label.id);
+                  }}
                 >
                   Delete
                 </Button>

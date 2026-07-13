@@ -5,6 +5,7 @@ import { buildTheme } from "./theme";
 import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { ColorModeProvider, useColorMode } from "./context/ColorModeContext";
 import { AuthProvider } from "./context/AuthContext";
+import { ConfirmProvider } from "./context/ConfirmContext";
 import { AppLayout } from "./layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
@@ -42,23 +43,25 @@ function ThemedApp() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AuthProvider>
-        <BrowserRouter>
-          <AppLayout>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
-              <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />
-              <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
-              <Route path="/prompts" element={<RequireAuth><PromptLibraryPage /></RequireAuth>} />
-              <Route path="/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
-              <Route path="/api-keys" element={<RequireAuth><ApiKeysPage /></RequireAuth>} />
-              <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
-            </Routes>
-          </AppLayout>
-        </BrowserRouter>
-      </AuthProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <AppLayout>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+                <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />
+                <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
+                <Route path="/prompts" element={<RequireAuth><PromptLibraryPage /></RequireAuth>} />
+                <Route path="/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
+                <Route path="/api-keys" element={<RequireAuth><ApiKeysPage /></RequireAuth>} />
+                <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
+              </Routes>
+            </AppLayout>
+          </BrowserRouter>
+        </AuthProvider>
+      </ConfirmProvider>
     </ThemeProvider>
   );
 }
