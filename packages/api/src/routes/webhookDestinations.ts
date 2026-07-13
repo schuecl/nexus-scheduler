@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@nexus-scheduler/shared/prisma";
 import {
   createWebhookDestinationSchema,
   updateWebhookDestinationSchema,
@@ -9,6 +10,10 @@ import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import { recordAuditEvent } from "../audit.js";
 import type { AppConfig } from "../config.js";
+
+function isNotFoundError(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025";
+}
 
 // The admin-maintained allow-list itself (REQUIREMENTS §2.2/§10) — a Job
 // can only ever attach one of *these* rows, never an arbitrary URL, which
@@ -61,18 +66,28 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
     res.status(201).json(destination);
   });
 
-  router.patch("/:id", requireAuth, requireAdmin, async (req, res) => {
+  router.patch("/:id", requireAuth, requireAdmin, async (req, res, next) => {
     const parsed = updateWebhookDestinationSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.flatten() });
       return;
     }
     const user = req.session.user!;
-    const destination = await prisma.webhookDestination.update({
-      where: { id: req.params.id },
-      data: parsed.data,
-      select: { id: true, name: true, url: true, active: true, createdAt: true },
-    });
+    let destination;
+    try {
+      destination = await prisma.webhookDestination.update({
+        where: { id: req.params.id },
+        data: parsed.data,
+        select: { id: true, name: true, url: true, active: true, createdAt: true },
+      });
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        res.status(404).json({ error: "webhook destination not found" });
+        return;
+      }
+      next(err);
+      return;
+    }
 
     await recordAuditEvent({
       req,
@@ -93,9 +108,19 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
   // Hard delete — job_webhook_destinations cascades, so any Job that had
   // this destination attached just stops notifying it, same practical
   // effect as removing it from the allow-list would have anyway.
-  router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
+  router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
     const user = req.session.user!;
-    const destination = await prisma.webhookDestination.delete({ where: { id: req.params.id } });
+    let destination;
+    try {
+      destination = await prisma.webhookDestination.delete({ where: { id: req.params.id } });
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        res.status(404).json({ error: "webhook destination not found" });
+        return;
+      }
+      next(err);
+      return;
+    }
 
     await recordAuditEvent({
       req,
