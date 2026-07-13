@@ -18,7 +18,20 @@ export function startSchedulerLoop(
 ): NodeJS.Timeout {
   const missedFireToleranceMs = config.SCHEDULER_TICK_MS * 2;
 
+  // Reentrancy guard: setInterval doesn't wait for an async callback to
+  // finish, so a tick that runs long (backlog, slow PG) would otherwise
+  // overlap the next one, both reading the same due schedules. This
+  // only protects a single process; the atomic claim below is what
+  // actually prevents duplicate runs, including across multiple worker
+  // replicas.
+  let tickInProgress = false;
+
   const tick = async () => {
+    if (tickInProgress) {
+      logger.warn("previous scheduler tick still running, skipping this interval");
+      return;
+    }
+    tickInProgress = true;
     try {
       const due = await prisma.schedule.findMany({
         where: {
@@ -33,6 +46,30 @@ export function startSchedulerLoop(
         const now = new Date();
         const overdueMs = schedule.nextFireAt ? now.getTime() - schedule.nextFireAt.getTime() : 0;
         const missed = overdueMs > missedFireToleranceMs;
+
+        // Atomically claim this fire by conditioning the nextFireAt
+        // advance on the exact value just read: if another tick (this
+        // process overlapping itself despite the guard above, or
+        // another worker replica) already claimed this schedule, this
+        // UPDATE matches zero rows and we skip it rather than creating
+        // a second Run for the same fire.
+        const claimData =
+          schedule.type === "ONE_TIME"
+            ? { nextFireAt: null, paused: true }
+            : {
+                nextFireAt: computeNextFireTime(
+                  intervalConfigSchema.parse(schedule.intervalConfig),
+                  schedule.timezone,
+                  schedule.nextFireAt ?? now,
+                ),
+              };
+        const claim = await prisma.schedule.updateMany({
+          where: { id: schedule.id, nextFireAt: schedule.nextFireAt },
+          data: claimData,
+        });
+        if (claim.count === 0) {
+          continue;
+        }
 
         if (missed) {
           await prisma.run.create({
@@ -62,23 +99,11 @@ export function startSchedulerLoop(
             backoff: { type: "exponential", delay: 30_000 },
           });
         }
-
-        if (schedule.type === "ONE_TIME") {
-          await prisma.schedule.update({
-            where: { id: schedule.id },
-            data: { nextFireAt: null, paused: true },
-          });
-        } else {
-          const intervalConfig = intervalConfigSchema.parse(schedule.intervalConfig);
-          const next = computeNextFireTime(intervalConfig, schedule.timezone, schedule.nextFireAt ?? now);
-          await prisma.schedule.update({
-            where: { id: schedule.id },
-            data: { nextFireAt: next },
-          });
-        }
       }
     } catch (err) {
       logger.error({ err }, "scheduler tick failed");
+    } finally {
+      tickInProgress = false;
     }
   };
 
