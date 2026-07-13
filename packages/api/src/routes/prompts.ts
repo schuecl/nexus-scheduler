@@ -126,7 +126,12 @@ export function createPromptsRouter(): Router {
     const [prompt, isFavorite] = await Promise.all([
       prisma.prompt.findUnique({
         where: { id: req.params.id },
-        include: { versions: { orderBy: { versionNumber: "desc" } } },
+        include: {
+          versions: {
+            orderBy: { versionNumber: "desc" },
+            include: { createdBy: { select: { id: true, email: true, displayName: true } } },
+          },
+        },
       }),
       prisma.promptFavorite.findUnique({
         where: { userId_promptId: { userId: user.id, promptId: req.params.id! } },
