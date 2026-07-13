@@ -9,6 +9,16 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters"),
 
+  // The externally-reachable origin this deployment is served at —
+  // used to build absolute links in emails (password reset/set), which
+  // otherwise have no way to know their own public origin. Previously
+  // derived solely from OIDC_REDIRECT_URI, which is unset in a
+  // local-auth-only deployment (exactly the case that needs this link
+  // to work), producing an unopenable host-less URL. Independent of
+  // OIDC on purpose — sourced by however the deployment reaches admins/
+  // users, whether or not OIDC is even configured.
+  APP_BASE_URL: z.string().url().optional(),
+
   // OIDC / Keycloak — REQUIREMENTS.md §4. CAC/PIV auth happens upstream in
   // Keycloak; this app only ever consumes the resulting OIDC token/claims.
   OIDC_ISSUER_URL: z.string().url().optional(),

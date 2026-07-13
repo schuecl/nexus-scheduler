@@ -26,7 +26,18 @@ export async function issuePasswordResetEmail(
     },
   });
 
-  const origin = config.OIDC_REDIRECT_URI ? new URL(config.OIDC_REDIRECT_URI).origin : "";
+  // APP_BASE_URL is the intended source of truth; OIDC_REDIRECT_URI's
+  // origin is only a fallback for deployments that configured OIDC
+  // before APP_BASE_URL existed. Neither being set means this link is
+  // genuinely unopenable — worth a loud warning rather than silently
+  // emailing a host-less URL.
+  const origin = config.APP_BASE_URL ?? (config.OIDC_REDIRECT_URI ? new URL(config.OIDC_REDIRECT_URI).origin : "");
+  if (!origin) {
+    logger.warn(
+      { userId: user.id },
+      "APP_BASE_URL is not configured — the password reset/set link in this email has no host and won't open",
+    );
+  }
   try {
     await sendEmail(
       config,

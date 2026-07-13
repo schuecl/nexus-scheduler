@@ -226,6 +226,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       SESSION_SECRET: ${SESSION_SECRET}
       API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY}
+      APP_BASE_URL: http://localhost:8080
       OIDC_ISSUER_URL: http://keycloak:8080/realms/nexus-scheduler
       OIDC_CLIENT_ID: nexus-scheduler
       OIDC_REDIRECT_URI: http://localhost:8080/auth/callback
