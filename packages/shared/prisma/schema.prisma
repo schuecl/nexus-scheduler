@@ -76,6 +76,7 @@ model Team {
   memberships TeamMembership[]
   apiKeys     ApiKey[]
 
+  @@index([parentTeamId])
   @@map("teams")
 }
 
@@ -122,6 +123,8 @@ model ApiKey {
 
   jobs Job[]
 
+  @@index([ownerUserId])
+  @@index([ownerTeamId])
   @@map("api_keys")
 }
 
@@ -169,6 +172,7 @@ model Project {
   prompts Prompt[]
   jobs    Job[]
 
+  @@index([ownerId])
   @@map("projects")
 }
 
@@ -193,6 +197,9 @@ model ProjectAcl {
   accessLevel   AccessLevel
   createdAt     DateTime    @default(now())
 
+  @@index([projectId])
+  @@index([granteeUserId])
+  @@index([granteeTeamId])
   @@map("project_acls")
 }
 
@@ -210,6 +217,7 @@ model Prompt {
   jobs      Job[]
   favorites PromptFavorite[]
 
+  @@index([projectId])
   @@map("prompts")
 }
 
@@ -279,6 +287,10 @@ model Job {
   runs           Run[]
   webhookLinks   JobWebhookDestination[]
 
+  @@index([projectId])
+  @@index([promptId])
+  @@index([apiKeyId])
+  @@index([createdById])
   @@map("jobs")
 }
 
@@ -319,6 +331,12 @@ model Schedule {
 
   runs Run[]
 
+  // Matches the scheduler's core poll query (packages/worker/src/
+  // scheduler.ts: due schedules where paused = false AND
+  // nextFireAt <= now) — without this, that query is a full table scan
+  // every tick.
+  @@index([paused, nextFireAt])
+  @@index([jobId])
   @@map("schedules")
 }
 
@@ -353,6 +371,8 @@ model Run {
   errorMessage     String?
   createdAt        DateTime    @default(now())
 
+  @@index([jobId])
+  @@index([scheduleId])
   @@map("runs")
 }
 
