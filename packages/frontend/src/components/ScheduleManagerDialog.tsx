@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DateTime } from "luxon";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -55,6 +56,27 @@ const DEFAULT_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 // 30 in this form was never an enforced minimum, just an unvalidated
 // starting value that looked like one.
 const MIN_INTERVAL_MINUTES = 5;
+
+// A <input type="datetime-local"> value is a bare wall-clock string with
+// no timezone of its own — the browser never converts it. This form
+// already has its own IANA "Time zone" field for exactly this reason:
+// "Run at" means wall-clock time *in that zone*, not in whatever zone
+// the browser happens to be in. Previously runAt was round-tripped
+// through new Date(...).toISOString() on both ends, which (a) treats
+// the stored instant as if displaying it in UTC and re-reads the
+// datetime-local value as browser-local, corrupting the fire instant by
+// the browser's UTC offset on every open+resave even with no changes,
+// and (b) always used the browser's zone on save regardless of which
+// zone was actually selected. Both read and write now go through the
+// selected zone consistently, so opening and resaving unchanged is a
+// no-op, and the selected zone is what's actually honored.
+function utcInstantToZonedWallClock(isoInstant: string, zone: string): string {
+  return DateTime.fromISO(isoInstant).setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
+}
+
+function zonedWallClockToUtcIso(wallClock: string, zone: string): string {
+  return DateTime.fromISO(wallClock, { zone }).toUTC().toISO()!;
+}
 
 type IntervalKind = "every_n_minutes" | "every_n_hours" | "daily" | "weekly";
 
@@ -137,7 +159,7 @@ export function ScheduleManagerDialog({
         method: "POST",
         body: JSON.stringify({
           type,
-          runAt: type === "ONE_TIME" ? new Date(runAt).toISOString() : undefined,
+          runAt: type === "ONE_TIME" ? zonedWallClockToUtcIso(runAt, timezone) : undefined,
           intervalConfig: type === "RECURRING" ? intervalConfig : undefined,
           timezone,
           versionPinMode,
@@ -159,7 +181,7 @@ export function ScheduleManagerDialog({
   const openEdit = (schedule: Schedule) => {
     setType(schedule.type);
     if (schedule.type === "ONE_TIME" && schedule.runAt) {
-      setRunAt(new Date(schedule.runAt).toISOString().slice(0, 16));
+      setRunAt(utcInstantToZonedWallClock(schedule.runAt, schedule.timezone));
     }
     const cfg = schedule.intervalConfig as
       | { kind: IntervalKind; minutes?: number; hours?: number; atMinute?: number; atTime?: string; daysOfWeek?: number[] }
@@ -193,7 +215,7 @@ export function ScheduleManagerDialog({
       return apiFetch(`/api/schedules/${editingScheduleId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          runAt: type === "ONE_TIME" ? new Date(runAt).toISOString() : undefined,
+          runAt: type === "ONE_TIME" ? zonedWallClockToUtcIso(runAt, timezone) : undefined,
           intervalConfig: type === "RECURRING" ? intervalConfig : undefined,
           timezone,
           versionPinMode,
