@@ -9,6 +9,7 @@ import { prisma } from "../db.js";
 import { requireAuth, requireEditor } from "../middleware/requireAuth.js";
 import { requireTeamAccess } from "../middleware/requireTeamAccess.js";
 import { recordAuditEvent } from "../audit.js";
+import { getDescendantTeamIds } from "../access.js";
 
 // Teams are local-only, UI-managed groups used purely as a Project ACL
 // sharing target (REQUIREMENTS.md §2.3/§4) — not sourced from Keycloak,
@@ -117,6 +118,13 @@ export function createTeamsRouter(): Router {
     if (parsed.data.parentTeamId === req.params.id) {
       res.status(400).json({ error: "a team cannot be its own parent" });
       return;
+    }
+    if (parsed.data.parentTeamId) {
+      const descendantIds = await getDescendantTeamIds(req.params.id!);
+      if (descendantIds.includes(parsed.data.parentTeamId)) {
+        res.status(400).json({ error: "a team cannot be reparented under one of its own descendants" });
+        return;
+      }
     }
 
     const team = await prisma.team.update({ where: { id: req.params.id }, data: parsed.data });

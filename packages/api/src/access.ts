@@ -1,5 +1,35 @@
 import { prisma } from "./db.js";
 
+// Every descendant of a Team (children, grandchildren, ...) — used to
+// reject reparenting a Team under one of its own descendants, which
+// would otherwise create a parent cycle. Visited-set guarded for the
+// same reason as getTeamMemberUserIds' ancestor walk below: a
+// pre-existing cycle elsewhere in the tree must not turn this into an
+// infinite loop either.
+export async function getDescendantTeamIds(teamId: string): Promise<string[]> {
+  const allTeams = await prisma.team.findMany({ select: { id: true, parentTeamId: true } });
+  const childrenByParent = new Map<string, string[]>();
+  for (const team of allTeams) {
+    if (team.parentTeamId) {
+      const siblings = childrenByParent.get(team.parentTeamId) ?? [];
+      siblings.push(team.id);
+      childrenByParent.set(team.parentTeamId, siblings);
+    }
+  }
+
+  const visited = new Set<string>();
+  const queue = [...(childrenByParent.get(teamId) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    for (const childId of childrenByParent.get(id) ?? []) {
+      queue.push(childId);
+    }
+  }
+  return [...visited];
+}
+
 // Team membership is inherited down the hierarchy (REQUIREMENTS.md §2.3):
 // adding a user to a parent Team makes them an effective member of every
 // descendant Team too. Team trees are expected to stay small, so this
@@ -133,9 +163,15 @@ export async function getTeamMemberUserIds(teamId: string): Promise<string[]> {
   const allTeams = await prisma.team.findMany({ select: { id: true, parentTeamId: true } });
   const parentOf = new Map(allTeams.map((t) => [t.id, t.parentTeamId]));
 
+  // Guarded by a visited set, not just `while (current)` — a Team parent
+  // cycle (A's parent is B, B's parent is A) would otherwise grow this
+  // chain forever, pinning the event loop on every subsequent call for
+  // any Team in the cycle.
+  const visited = new Set([teamId]);
   const ancestorChain = [teamId];
   let current = parentOf.get(teamId);
-  while (current) {
+  while (current && !visited.has(current)) {
+    visited.add(current);
     ancestorChain.push(current);
     current = parentOf.get(current);
   }
