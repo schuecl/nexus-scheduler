@@ -46,6 +46,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import LockResetIcon from "@mui/icons-material/LockReset";
 import ShuffleIcon from "@mui/icons-material/Shuffle";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
+import PolicyIcon from "@mui/icons-material/Policy";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useConfirm } from "../context/ConfirmContext";
@@ -544,6 +545,10 @@ interface AdminSettings {
   usageReportEnabled: boolean;
   usageReportRecipients: string[];
   usageReportFrequency: "WEEKLY" | "MONTHLY";
+  consentBannerEnabled: boolean;
+  consentBannerTitle: string;
+  consentBannerBody: string;
+  consentBannerRequireAcceptReject: boolean;
 }
 
 // Branding (§5) and the system-wide classification banner (§6) — one
@@ -582,6 +587,10 @@ function SystemSettingsPanel() {
   const [usageReportEnabled, setUsageReportEnabled] = useState(false);
   const [usageReportRecipients, setUsageReportRecipients] = useState(""); // comma-separated in the UI
   const [usageReportFrequency, setUsageReportFrequency] = useState<"WEEKLY" | "MONTHLY">("WEEKLY");
+  const [consentBannerEnabled, setConsentBannerEnabled] = useState(false);
+  const [consentBannerTitle, setConsentBannerTitle] = useState("");
+  const [consentBannerBody, setConsentBannerBody] = useState("");
+  const [consentBannerRequireAcceptReject, setConsentBannerRequireAcceptReject] = useState(false);
 
   // Settings arrive asynchronously — seed the form once they load rather
   // than leaving fields stuck empty.
@@ -609,6 +618,10 @@ function SystemSettingsPanel() {
     setUsageReportEnabled(s.usageReportEnabled);
     setUsageReportRecipients(s.usageReportRecipients.join(", "));
     setUsageReportFrequency(s.usageReportFrequency);
+    setConsentBannerEnabled(s.consentBannerEnabled);
+    setConsentBannerTitle(s.consentBannerTitle);
+    setConsentBannerBody(s.consentBannerBody);
+    setConsentBannerRequireAcceptReject(s.consentBannerRequireAcceptReject);
   }, [adminSettingsQuery.data]);
 
   const save = useMutation({
@@ -642,6 +655,10 @@ function SystemSettingsPanel() {
             .map((r) => r.trim())
             .filter(Boolean),
           usageReportFrequency,
+          consentBannerEnabled,
+          consentBannerTitle,
+          consentBannerBody,
+          consentBannerRequireAcceptReject,
         }),
       }),
     onSuccess: () => {
@@ -858,6 +875,51 @@ function SystemSettingsPanel() {
             <MenuItem value="MONTHLY">Monthly</MenuItem>
           </Select>
         </FormControl>
+
+        <Divider />
+        <Typography variant="subtitle1" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <PolicyIcon fontSize="small" /> Consent Banner
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Shown on the login screen before any authentication (§40) — independent of the
+          classification banner above, which is unconditional and shown on every page instead.
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={consentBannerEnabled}
+              onChange={(e) => setConsentBannerEnabled(e.target.checked)}
+            />
+          }
+          label="Enabled"
+        />
+        {consentBannerEnabled && (
+          <>
+            <TextField
+              label="Title"
+              value={consentBannerTitle}
+              onChange={(e) => setConsentBannerTitle(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Body"
+              value={consentBannerBody}
+              onChange={(e) => setConsentBannerBody(e.target.value)}
+              multiline
+              minRows={4}
+              fullWidth
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={consentBannerRequireAcceptReject}
+                  onChange={(e) => setConsentBannerRequireAcceptReject(e.target.checked)}
+                />
+              }
+              label="Require Accept/Reject before showing the sign-in form"
+            />
+          </>
+        )}
 
         {save.isSuccess && <Alert severity="success">Saved.</Alert>}
         {save.isError && (

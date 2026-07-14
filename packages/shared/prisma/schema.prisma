@@ -514,6 +514,22 @@ model AppSettings {
   usageReportRecipients          String[]              @default([])
   usageReportFrequency           UsageReportFrequency  @default(WEEKLY)
   usageReportLastSentAt          DateTime?
+  // Login-screen consent/warning banner (§40) — off by default (unlike
+  // the classification banner above, this has no legitimate "unconfigured
+  // but loud about it" state; a deployment that doesn't need one just
+  // leaves it disabled). Publicly readable (GET /api/settings) since the
+  // login page renders it before any authentication happens.
+  consentBannerEnabled              Boolean  @default(false)
+  consentBannerTitle                String   @default("")
+  consentBannerBody                 String   @default("")
+  // When true, the login form (SSO and local both) is hidden behind an
+  // Accept/Reject gate — Accept reveals it (and is audit-logged, since
+  // the app already has a full audit trail per §7.1 and "who
+  // acknowledged the consent banner" is compliance-relevant); Reject
+  // sends the visitor to a generic "you must accept to proceed" page
+  // with no path back to the login form. When false, the banner is
+  // shown alongside the form with no gating.
+  consentBannerRequireAcceptReject  Boolean  @default(false)
   updatedAt                      DateTime @updatedAt
 
   @@map("app_settings")

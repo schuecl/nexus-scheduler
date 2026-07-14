@@ -16,6 +16,7 @@ import { ApiKeysPage } from "./pages/ApiKeysPage";
 import { AdminPage } from "./pages/AdminPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { ConsentDeclinedPage } from "./pages/ConsentDeclinedPage";
 import { RequireAuth } from "./components/RequireAuth";
 
 const queryClient = new QueryClient();
@@ -50,6 +51,7 @@ function ThemedApp() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/consent-declined" element={<ConsentDeclinedPage />} />
                 <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
                 <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />
                 <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />

@@ -36,6 +36,16 @@ const passwordResetRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "too many requests, please try again later" },
 });
+// Same posture as the other unauthenticated endpoints above — an
+// unauthenticated POST that writes to the audit table is otherwise an
+// easy way to fill it with junk.
+const consentAcceptRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "too many requests, please try again later" },
+});
 
 // Only a same-origin, path-only value is accepted — anything else (an
 // absolute URL, "//evil.com" protocol-relative, "/\evil.com") is rejected
@@ -316,6 +326,25 @@ export function createAuthRouter(config: AppConfig, logger: Logger): Router {
       result: "SUCCESS",
     });
 
+    res.status(204).send();
+  });
+
+  // Records that a not-yet-authenticated visitor clicked "Accept" on the
+  // login-screen consent banner (§40) — no identity exists yet at this
+  // point, so this uses the same "unknown" actor placeholder as a failed
+  // login attempt above. Rejecting the banner is a client-side-only
+  // redirect (ConsentDeclinedPage) and isn't audited — there's no account
+  // action to record, just a visitor who didn't proceed.
+  router.post("/consent-accept", consentAcceptRateLimiter, async (req, res) => {
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: "unknown",
+      actorEmail: "unknown",
+      action: "consent_banner.accept",
+      targetType: "system_setting",
+      result: "SUCCESS",
+    });
     res.status(204).send();
   });
 

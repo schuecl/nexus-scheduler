@@ -29,6 +29,12 @@ const PUBLIC_FIELDS = {
   classificationBannerText: true,
   classificationBannerBgColor: true,
   classificationBannerTextColor: true,
+  // Login-screen consent banner (§40) — like the classification banner
+  // above, must be readable before authentication resolves.
+  consentBannerEnabled: true,
+  consentBannerTitle: true,
+  consentBannerBody: true,
+  consentBannerRequireAcceptReject: true,
 } as const;
 
 // Shared with the PDF report route (§2.5) — reports carry the same

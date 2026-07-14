@@ -39,5 +39,12 @@ export const updateAppSettingsSchema = z.object({
   usageReportEnabled: z.boolean().optional(),
   usageReportRecipients: z.array(z.string().email()).optional(),
   usageReportFrequency: z.enum(["WEEKLY", "MONTHLY"]).optional(),
+  // Login-screen consent/warning banner (§40) — independent of the
+  // classification banner above (that one is unconditional; this one is
+  // opt-in and only shown pre-login).
+  consentBannerEnabled: z.boolean().optional(),
+  consentBannerTitle: z.string().max(200).optional(),
+  consentBannerBody: z.string().max(4000).optional(),
+  consentBannerRequireAcceptReject: z.boolean().optional(),
 });
 export type UpdateAppSettingsInput = z.infer<typeof updateAppSettingsSchema>;

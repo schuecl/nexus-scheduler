@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import {
   Alert,
   Avatar,
@@ -18,6 +18,9 @@ import LockOpenIcon from "@mui/icons-material/LockOpen";
 import SendIcon from "@mui/icons-material/Send";
 import PersonIcon from "@mui/icons-material/Person";
 import LockIcon from "@mui/icons-material/Lock";
+import PolicyIcon from "@mui/icons-material/Policy";
+import CheckIcon from "@mui/icons-material/Check";
+import BlockIcon from "@mui/icons-material/Block";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { apiFetch } from "../api/client";
@@ -30,6 +33,7 @@ import { apiFetch } from "../api/client";
 export function LoginPage() {
   const { user, login, localLogin } = useAuth();
   const { settings } = useSettings();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +41,10 @@ export function LoginPage() {
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
+  // Reset on every mount (no persistence across reloads) — a consent
+  // banner that gates access is expected to be shown every time the
+  // login screen is reached, not acknowledged once and remembered (§40).
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   if (user) {
     return <Navigate to="/" replace />;
@@ -62,8 +70,67 @@ export function LoginPage() {
     setForgotSent(true);
   };
 
+  const handleAcceptConsent = async () => {
+    // Best-effort: a failure to record the audit event shouldn't be the
+    // reason a legitimate user can't reach the login form.
+    await apiFetch("/auth/consent-accept", { method: "POST" }).catch(() => undefined);
+    setConsentAccepted(true);
+  };
+
+  const handleRejectConsent = () => {
+    navigate("/consent-declined", { replace: true });
+  };
+
+  const consentGateActive =
+    settings.consentBannerEnabled && settings.consentBannerRequireAcceptReject && !consentAccepted;
+
+  if (consentGateActive) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
+        <Paper sx={{ p: 4, width: 480 }}>
+          <Stack spacing={3}>
+            <Stack spacing={1} alignItems="center">
+              <PolicyIcon fontSize="large" color="warning" />
+              <Typography variant="h5" textAlign="center">
+                {settings.consentBannerTitle || "Consent Required"}
+              </Typography>
+            </Stack>
+            {settings.consentBannerBody && (
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                {settings.consentBannerBody}
+              </Typography>
+            )}
+            <Stack direction="row" spacing={2} justifyContent="center">
+              <Button variant="outlined" color="error" startIcon={<BlockIcon />} onClick={handleRejectConsent}>
+                Reject
+              </Button>
+              <Button variant="contained" startIcon={<CheckIcon />} onClick={() => void handleAcceptConsent()}>
+                Accept
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mt: 8 }}>
+      {settings.consentBannerEnabled && (
+        <Paper variant="outlined" sx={{ p: 2, width: 400, mb: 2 }}>
+          <Stack spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <PolicyIcon fontSize="small" color="warning" />
+              <Typography variant="subtitle2">{settings.consentBannerTitle || "Notice"}</Typography>
+            </Stack>
+            {settings.consentBannerBody && (
+              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>
+                {settings.consentBannerBody}
+              </Typography>
+            )}
+          </Stack>
+        </Paper>
+      )}
       <Paper sx={{ p: 4, width: 400 }}>
         <Stack spacing={3}>
           <Stack spacing={1} alignItems="center">

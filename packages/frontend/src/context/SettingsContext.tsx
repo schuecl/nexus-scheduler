@@ -9,6 +9,10 @@ export interface AppSettings {
   classificationBannerText: string;
   classificationBannerBgColor: string;
   classificationBannerTextColor: string;
+  consentBannerEnabled: boolean;
+  consentBannerTitle: string;
+  consentBannerBody: string;
+  consentBannerRequireAcceptReject: boolean;
 }
 
 interface SettingsContextValue {
@@ -30,6 +34,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     classificationBannerText: defaultClassificationBanner.text,
     classificationBannerBgColor: defaultClassificationBanner.backgroundColor,
     classificationBannerTextColor: defaultClassificationBanner.textColor,
+    consentBannerEnabled: false,
+    consentBannerTitle: "",
+    consentBannerBody: "",
+    consentBannerRequireAcceptReject: false,
   });
   const [loading, setLoading] = useState(true);
   const [refetchToken, setRefetchToken] = useState(0);
