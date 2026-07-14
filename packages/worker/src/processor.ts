@@ -162,7 +162,7 @@ async function processRun(
       if (toolCallNote) {
         logger.warn(
           { runId, agentId: run.job.agentId, toolCalls: responseChoice?.message.tool_calls },
-          "LibreChat agent response included tool_calls this integration doesn't execute — the run's stored output is a diagnostic note, not the agent's actual answer",
+          "LibreChat agent response left a tool call unresolved — the run's stored output is a diagnostic note, not a real answer from the agent",
         );
       }
       const outputText = [toolCallNote, responseChoice?.message.content].filter(Boolean).join("\n\n");
