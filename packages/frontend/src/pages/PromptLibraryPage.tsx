@@ -4,6 +4,7 @@ import {
   Box,
   Chip,
   FormControlLabel,
+  InputAdornment,
   List,
   ListItem,
   ListItemButton,
@@ -14,6 +15,8 @@ import {
   Typography,
 } from "@mui/material";
 import StarIcon from "@mui/icons-material/Star";
+import SearchIcon from "@mui/icons-material/Search";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import { apiFetch } from "../api/client";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
 
@@ -48,8 +51,8 @@ export function PromptLibraryPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Prompt Library
+      <Typography variant="h4" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <MenuBookOutlinedIcon fontSize="large" /> Prompt Library
       </Typography>
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
@@ -59,6 +62,13 @@ export function PromptLibraryPage() {
           onChange={(e) => setSearch(e.target.value)}
           size="small"
           sx={{ minWidth: 320 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
         />
         <FormControlLabel
           control={<Switch checked={favoritesOnly} onChange={(e) => setFavoritesOnly(e.target.checked)} />}

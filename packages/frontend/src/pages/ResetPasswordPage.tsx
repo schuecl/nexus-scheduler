@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import { Alert, Box, Button, Link as MuiLink, Paper, Stack, TextField, Typography } from "@mui/material";
+import LockResetIcon from "@mui/icons-material/LockReset";
 import { apiFetch } from "../api/client";
 
 // Also how an admin-provisioned local account (no password yet) sets
@@ -39,7 +40,9 @@ export function ResetPasswordPage() {
     <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}>
       <Paper sx={{ p: 4, width: 400 }}>
         <Stack spacing={2}>
-          <Typography variant="h5">Set a new password</Typography>
+          <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <LockResetIcon fontSize="large" /> Set a new password
+          </Typography>
           {!token && <Alert severity="error">No reset token in this link.</Alert>}
           {done ? (
             <>
@@ -66,7 +69,12 @@ export function ResetPasswordPage() {
                 fullWidth
               />
               {error && <Alert severity="error">{error}</Alert>}
-              <Button variant="contained" disabled={!token || !newPassword || submitting} onClick={() => void submit()}>
+              <Button
+                variant="contained"
+                startIcon={<LockResetIcon />}
+                disabled={!token || !newPassword || submitting}
+                onClick={() => void submit()}
+              >
                 Set password
               </Button>
             </>

@@ -13,5 +13,21 @@ export function buildTheme(branding: BrandingConfig, mode: ColorMode) {
       mode,
       primary: { main: branding.primaryColor },
     },
+    shape: { borderRadius: 8 },
+    components: {
+      // Sentence case reads less shouty than MUI's all-caps default and
+      // matches most current dashboard UI conventions — purely a look
+      // change, no behavior difference.
+      MuiButton: {
+        styleOverrides: {
+          root: { textTransform: "none", fontWeight: 600 },
+        },
+      },
+      MuiAppBar: {
+        styleOverrides: {
+          root: { backgroundImage: "none" },
+        },
+      },
+    },
   });
 }

@@ -2,6 +2,14 @@ import type { ReactNode } from "react";
 import { AppBar, Avatar, Box, Button, IconButton, Toolbar, Tooltip, Typography } from "@mui/material";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import LogoutIcon from "@mui/icons-material/Logout";
 import { Link as RouterLink } from "react-router-dom";
 import { ClassificationBanner } from "../components/ClassificationBanner";
 import { useSettings } from "../context/SettingsContext";
@@ -9,13 +17,13 @@ import { useAuth } from "../context/AuthContext";
 import { useColorMode } from "../context/ColorModeContext";
 
 const NAV_LINKS = [
-  { to: "/", label: "Dashboard" },
-  { to: "/projects", label: "Projects" },
-  { to: "/prompts", label: "Prompt Library" },
-  { to: "/schedules", label: "Approvals" },
-  { to: "/teams", label: "Teams" },
-  { to: "/api-keys", label: "API Keys" },
-  { to: "/admin", label: "Admin" },
+  { to: "/", label: "Dashboard", icon: <DashboardOutlinedIcon fontSize="small" /> },
+  { to: "/projects", label: "Projects", icon: <FolderOutlinedIcon fontSize="small" /> },
+  { to: "/prompts", label: "Prompt Library", icon: <MenuBookOutlinedIcon fontSize="small" /> },
+  { to: "/schedules", label: "Approvals", icon: <FactCheckOutlinedIcon fontSize="small" /> },
+  { to: "/teams", label: "Teams", icon: <GroupsOutlinedIcon fontSize="small" /> },
+  { to: "/api-keys", label: "API Keys", icon: <VpnKeyOutlinedIcon fontSize="small" /> },
+  { to: "/admin", label: "Admin", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" /> },
 ];
 
 // Top and bottom classification banner, always visible regardless of
@@ -45,9 +53,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <Typography variant="h6" sx={{ flexGrow: 0 }}>
               {settings.productName}
             </Typography>
-            <Box sx={{ flexGrow: 1, display: "flex", gap: 1 }}>
+            <Box sx={{ flexGrow: 1, display: "flex", gap: 0.5 }}>
               {NAV_LINKS.map((link) => (
-                <Button key={link.to} component={RouterLink} to={link.to} color="inherit">
+                <Button key={link.to} component={RouterLink} to={link.to} color="inherit" startIcon={link.icon}>
                   {link.label}
                 </Button>
               ))}
@@ -60,7 +68,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
               </IconButton>
             </Tooltip>
-            <Button color="inherit" onClick={() => void logout()}>
+            <Button color="inherit" onClick={() => void logout()} startIcon={<LogoutIcon fontSize="small" />}>
               Log out
             </Button>
           </Toolbar>

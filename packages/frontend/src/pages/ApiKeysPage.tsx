@@ -19,6 +19,11 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
+import BlockIcon from "@mui/icons-material/Block";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 
@@ -96,8 +101,10 @@ export function ApiKeysPage() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h4">API Keys</Typography>
-        <Button variant="contained" onClick={() => setCreateOpen(true)}>
+        <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <VpnKeyOutlinedIcon fontSize="large" /> API Keys
+        </Typography>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
           New Key
         </Button>
       </Stack>
@@ -115,6 +122,7 @@ export function ApiKeysPage() {
               <Stack direction="row" spacing={1}>
                 <Button
                   size="small"
+                  startIcon={<EditIcon fontSize="small" />}
                   onClick={() => {
                     setRenamingKey(key);
                     setRenameLabel(key.label ?? "");
@@ -126,12 +134,14 @@ export function ApiKeysPage() {
                   <Button
                     size="small"
                     color="error"
+                    startIcon={<BlockIcon fontSize="small" />}
                     disabled={revokeKey.isPending}
                     onClick={async () => {
                       const ok = await confirm({
                         title: "Revoke API key?",
                         message: `Revoke "${key.label ?? "this key"}"? Any Job using it will start failing immediately. This can't be undone.`,
                         confirmLabel: "Revoke",
+                        icon: <BlockIcon />,
                       });
                       if (ok) revokeKey.mutate(key.id);
                     }}
@@ -211,6 +221,7 @@ export function ApiKeysPage() {
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!rawKey || (ownerType === "TEAM" && !ownerTeamId) || createKey.isPending}
             onClick={() => createKey.mutate()}
           >
@@ -238,7 +249,12 @@ export function ApiKeysPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRenamingKey(null)}>Cancel</Button>
-          <Button variant="contained" disabled={renameKey.isPending} onClick={() => renameKey.mutate()}>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            disabled={renameKey.isPending}
+            onClick={() => renameKey.mutate()}
+          >
             Save
           </Button>
         </DialogActions>

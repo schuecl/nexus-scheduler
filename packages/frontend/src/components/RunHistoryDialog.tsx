@@ -15,14 +15,17 @@ import {
   ListItemText,
   Stack,
   Typography,
-  type ChipProps,
 } from "@mui/material";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import HistoryIcon from "@mui/icons-material/History";
 import { apiFetch } from "../api/client";
+import { RunStatusIcon, RUN_STATUS_COLOR, type RunStatus } from "./RunStatusIcon";
 
 interface Run {
   id: string;
   triggerType: "SCHEDULED" | "MANUAL";
-  status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "CANCELLED" | "SKIPPED";
+  status: RunStatus;
   startedAt: string | null;
   completedAt: string | null;
   promptTokens: number | null;
@@ -32,15 +35,6 @@ interface Run {
   errorMessage: string | null;
   createdAt: string;
 }
-
-const STATUS_COLOR: Record<Run["status"], ChipProps["color"]> = {
-  PENDING: "default",
-  RUNNING: "info",
-  SUCCESS: "success",
-  FAILED: "error",
-  CANCELLED: "warning",
-  SKIPPED: "warning",
-};
 
 // Run history + manual "Run Now" trigger for a Job (REQUIREMENTS §2.1/§8).
 export function RunHistoryDialog({
@@ -70,7 +64,9 @@ export function RunHistoryDialog({
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>Run History</DialogTitle>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <HistoryIcon /> Run History
+      </DialogTitle>
       <DialogContent>
         {runNow.isError && <Alert severity="error" sx={{ mb: 2 }}>Failed to start a run.</Alert>}
         <List dense>
@@ -80,7 +76,12 @@ export function RunHistoryDialog({
                 <ListItemText
                   primary={
                     <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip size="small" label={run.status} color={STATUS_COLOR[run.status]} />
+                      <Chip
+                        size="small"
+                        icon={<RunStatusIcon status={run.status} />}
+                        label={run.status}
+                        color={RUN_STATUS_COLOR[run.status]}
+                      />
                       <Typography variant="body2">{run.triggerType === "MANUAL" ? "Manual" : "Scheduled"}</Typography>
                     </Stack>
                   }
@@ -101,6 +102,7 @@ export function RunHistoryDialog({
                     </Typography>
                     <Button
                       size="small"
+                      startIcon={<PictureAsPdfIcon fontSize="small" />}
                       component="a"
                       href={`/api/runs/${run.id}/pdf`}
                       target="_blank"
@@ -148,7 +150,12 @@ export function RunHistoryDialog({
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
         {canRun && (
-          <Button variant="contained" disabled={runNow.isPending} onClick={() => runNow.mutate()}>
+          <Button
+            variant="contained"
+            startIcon={<PlayArrowIcon />}
+            disabled={runNow.isPending}
+            onClick={() => runNow.mutate()}
+          >
             Run Now
           </Button>
         )}

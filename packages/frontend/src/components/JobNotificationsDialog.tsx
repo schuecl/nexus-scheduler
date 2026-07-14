@@ -12,6 +12,8 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import SaveIcon from "@mui/icons-material/Save";
+import NotificationsIcon from "@mui/icons-material/Notifications";
 import { apiFetch } from "../api/client";
 
 export interface JobNotificationSettings {
@@ -52,7 +54,9 @@ export function JobNotificationsDialog({
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Email Notifications</DialogTitle>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <NotificationsIcon /> Email Notifications
+      </DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Sent to the Job owner's email address when a run finishes.
@@ -95,7 +99,7 @@ export function JobNotificationsDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate()}>
+        <Button variant="contained" startIcon={<SaveIcon />} disabled={save.isPending} onClick={() => save.mutate()}>
           Save
         </Button>
       </DialogActions>

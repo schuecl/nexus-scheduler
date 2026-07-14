@@ -18,6 +18,14 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import RemoveModeratorIcon from "@mui/icons-material/RemoveModerator";
+import PersonRemoveIcon from "@mui/icons-material/PersonRemove";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useConfirm } from "../context/ConfirmContext";
@@ -87,8 +95,10 @@ export function TeamsPage() {
     <Box sx={{ display: "flex", gap: 4 }}>
       <Box sx={{ minWidth: 320 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h4">Teams</Typography>
-          <Button variant="contained" onClick={() => setCreateOpen(true)}>
+          <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <GroupsOutlinedIcon fontSize="large" /> Teams
+          </Typography>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
             New Team
           </Button>
         </Stack>
@@ -152,6 +162,7 @@ export function TeamsPage() {
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={!newTeamName || createTeam.isPending}
             onClick={() => createTeam.mutate()}
           >
@@ -234,12 +245,13 @@ function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () 
         </Stack>
         {team.viewerIsOwner && (
           <Stack direction="row" spacing={1}>
-            <Button size="small" onClick={() => setEditOpen(true)}>
+            <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => setEditOpen(true)}>
               Rename
             </Button>
             <Button
               size="small"
               color="error"
+              startIcon={<DeleteIcon fontSize="small" />}
               disabled={deleteTeam.isPending}
               onClick={async () => {
                 const ok = await confirm({
@@ -286,6 +298,13 @@ function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () 
                 <Stack direction="row" spacing={1}>
                   <Button
                     size="small"
+                    startIcon={
+                      m.isOwner ? (
+                        <RemoveModeratorIcon fontSize="small" />
+                      ) : (
+                        <AdminPanelSettingsIcon fontSize="small" />
+                      )
+                    }
                     disabled={setOwner.isPending}
                     onClick={() => setOwner.mutate({ userId: m.user.id, isOwner: !m.isOwner })}
                   >
@@ -294,6 +313,7 @@ function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () 
                   <Button
                     size="small"
                     color="error"
+                    startIcon={<PersonRemoveIcon fontSize="small" />}
                     disabled={removeMember.isPending}
                     onClick={() => removeMember.mutate(m.user.id)}
                   >
@@ -350,6 +370,7 @@ function TeamDetailPanel({ team, onDeleted }: { team: TeamDetail; onDeleted: () 
           <Button onClick={() => setEditOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!editName || updateTeam.isPending}
             onClick={() => updateTeam.mutate()}
           >

@@ -1,6 +1,23 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Alert, Avatar, Box, Button, Divider, Link as MuiLink, Paper, Stack, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Divider,
+  InputAdornment,
+  Link as MuiLink,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import LoginIcon from "@mui/icons-material/Login";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
+import SendIcon from "@mui/icons-material/Send";
+import PersonIcon from "@mui/icons-material/Person";
+import LockIcon from "@mui/icons-material/Lock";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { apiFetch } from "../api/client";
@@ -61,7 +78,7 @@ export function LoginPage() {
             </Typography>
           </Stack>
 
-          <Button variant="contained" size="large" onClick={login}>
+          <Button variant="contained" size="large" startIcon={<LoginIcon />} onClick={login}>
             Continue with SSO
           </Button>
 
@@ -69,7 +86,19 @@ export function LoginPage() {
 
           {!forgotOpen ? (
             <Stack spacing={2}>
-              <TextField label="Email" value={email} onChange={(e) => setEmail(e.target.value)} fullWidth />
+              <TextField
+                label="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+              />
               <TextField
                 label="Password"
                 type="password"
@@ -77,10 +106,18 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 fullWidth
                 onKeyDown={(e) => e.key === "Enter" && void handleLocalLogin()}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
               />
               {error && <Alert severity="error">{error}</Alert>}
               <Button
                 variant="outlined"
+                startIcon={<LockOpenIcon />}
                 disabled={!email || !password || submitting}
                 onClick={() => void handleLocalLogin()}
               >
@@ -104,7 +141,12 @@ export function LoginPage() {
                     onChange={(e) => setForgotEmail(e.target.value)}
                     fullWidth
                   />
-                  <Button variant="outlined" disabled={!forgotEmail} onClick={() => void handleForgotPassword()}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<SendIcon />}
+                    disabled={!forgotEmail}
+                    onClick={() => void handleForgotPassword()}
+                  >
                     Send reset link
                   </Button>
                 </>

@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import { apiFetch } from "../api/client";
 
 interface PendingSchedule {
@@ -34,7 +37,9 @@ export function SchedulesPage() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">Schedule Approvals</Typography>
+      <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <FactCheckOutlinedIcon fontSize="large" /> Schedule Approvals
+      </Typography>
       <Typography color="text.secondary">
         Schedules attached to a shared Project need a second set of eyes before they run
         unattended. This is everything currently waiting on your approval (or an admin's).
@@ -57,6 +62,7 @@ export function SchedulesPage() {
                 <Button
                   size="small"
                   variant="contained"
+                  startIcon={<CheckCircleOutlineIcon fontSize="small" />}
                   disabled={approve.isPending || reject.isPending}
                   onClick={() => approve.mutate(schedule.id)}
                 >
@@ -65,6 +71,7 @@ export function SchedulesPage() {
                 <Button
                   size="small"
                   color="error"
+                  startIcon={<HighlightOffIcon fontSize="small" />}
                   disabled={approve.isPending || reject.isPending}
                   onClick={() => reject.mutate(schedule.id)}
                 >

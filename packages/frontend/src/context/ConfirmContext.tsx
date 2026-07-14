@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 export interface ConfirmOptions {
   title: string;
@@ -9,6 +11,9 @@ export interface ConfirmOptions {
   // confirm button to the "error" color for that common case rather than
   // making every call site opt in explicitly.
   destructive?: boolean;
+  // Overrides the confirm button's default trash-can icon for a
+  // non-delete confirmation (e.g. rotating a secret, revoking access).
+  icon?: ReactNode;
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -49,7 +54,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       <Dialog open={options !== null} onClose={() => handleClose(false)}>
-        <DialogTitle>{options?.title}</DialogTitle>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          {options?.destructive !== false && <WarningAmberIcon color="error" />}
+          {options?.title}
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>{options?.message}</DialogContentText>
         </DialogContent>
@@ -59,6 +67,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             onClick={() => handleClose(true)}
             color={options?.destructive === false ? "primary" : "error"}
             variant="contained"
+            startIcon={options?.destructive === false ? undefined : (options?.icon ?? <DeleteIcon />)}
             autoFocus
           >
             {options?.confirmLabel ?? "Delete"}

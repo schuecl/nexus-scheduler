@@ -21,6 +21,12 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 import type { PromptVariableDraft } from "./VariableEditor";
@@ -273,6 +279,7 @@ export function ScheduleManagerDialog({
                       (schedule.paused ? (
                         <Button
                           size="small"
+                          startIcon={<PlayArrowIcon fontSize="small" />}
                           disabled={resumeSchedule.isPending}
                           onClick={() => resumeSchedule.mutate(schedule.id)}
                         >
@@ -281,18 +288,20 @@ export function ScheduleManagerDialog({
                       ) : (
                         <Button
                           size="small"
+                          startIcon={<PauseIcon fontSize="small" />}
                           disabled={pauseSchedule.isPending}
                           onClick={() => pauseSchedule.mutate(schedule.id)}
                         >
                           Pause
                         </Button>
                       ))}
-                    <Button size="small" onClick={() => openEdit(schedule)}>
+                    <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => openEdit(schedule)}>
                       Edit
                     </Button>
                     <Button
                       size="small"
                       color="error"
+                      startIcon={<DeleteIcon fontSize="small" />}
                       disabled={deleteSchedule.isPending}
                       onClick={async () => {
                         const ok = await confirm({
@@ -343,7 +352,7 @@ export function ScheduleManagerDialog({
           <Divider />
 
           {!formOpen ? (
-            <Button onClick={() => setCreating(true)} sx={{ alignSelf: "flex-start" }}>
+            <Button startIcon={<AddIcon />} onClick={() => setCreating(true)} sx={{ alignSelf: "flex-start" }}>
               New Schedule
             </Button>
           ) : (
@@ -522,6 +531,7 @@ export function ScheduleManagerDialog({
               <Stack direction="row" spacing={1}>
                 <Button
                   variant="contained"
+                  startIcon={editingScheduleId ? <SaveIcon /> : <AddIcon />}
                   disabled={
                     createSchedule.isPending ||
                     updateSchedule.isPending ||

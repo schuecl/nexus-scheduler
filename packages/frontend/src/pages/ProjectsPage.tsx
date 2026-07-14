@@ -23,6 +23,18 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import HistoryIcon from "@mui/icons-material/History";
+import WebhookIcon from "@mui/icons-material/Webhook";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import ShareIcon from "@mui/icons-material/Share";
+import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
@@ -122,8 +134,10 @@ export function ProjectsPage() {
     <Box sx={{ display: "flex", gap: 4 }}>
       <Box sx={{ minWidth: 360 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography variant="h4">Projects</Typography>
-          <Button variant="contained" onClick={() => setCreateOpen(true)}>
+          <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <FolderOutlinedIcon fontSize="large" /> Projects
+          </Typography>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
             New Project
           </Button>
         </Stack>
@@ -204,7 +218,12 @@ export function ProjectsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!newName || createProject.isPending} onClick={() => createProject.mutate()}>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            disabled={!newName || createProject.isPending}
+            onClick={() => createProject.mutate()}
+          >
             Create
           </Button>
         </DialogActions>
@@ -305,12 +324,12 @@ function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDel
         </Stack>
         <Stack direction="row" spacing={1}>
           {canEdit && (
-            <Button size="small" onClick={() => setEditOpen(true)}>
+            <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => setEditOpen(true)}>
               Edit
             </Button>
           )}
           {project.effectiveAccess === "OWNER" && (
-            <Button size="small" onClick={() => setTransferOpen(true)}>
+            <Button size="small" startIcon={<SwapHorizIcon fontSize="small" />} onClick={() => setTransferOpen(true)}>
               Transfer Ownership
             </Button>
           )}
@@ -318,6 +337,7 @@ function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDel
             <Button
               size="small"
               color="error"
+              startIcon={<DeleteIcon fontSize="small" />}
               disabled={deleteProject.isPending}
               onClick={async () => {
                 const ok = await confirm({
@@ -397,6 +417,7 @@ function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDel
           <Button onClick={() => setEditOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!editName || updateProject.isPending}
             onClick={() => updateProject.mutate()}
           >
@@ -447,6 +468,7 @@ function ProjectDetailPanel({ projectId, onDeleted }: { projectId: string; onDel
           <Button
             variant="contained"
             color="warning"
+            startIcon={<SwapHorizIcon />}
             disabled={!transferUserId || transferOwnership.isPending}
             onClick={() => transferOwnership.mutate()}
           >
@@ -513,7 +535,7 @@ function ProjectPromptsPanel({ projectId, canEdit }: { projectId: string; canEdi
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="subtitle1">Prompts</Typography>
         {canEdit && (
-          <Button size="small" onClick={() => setCreateOpen(true)}>
+          <Button size="small" startIcon={<AddIcon fontSize="small" />} onClick={() => setCreateOpen(true)}>
             New Prompt
           </Button>
         )}
@@ -573,6 +595,7 @@ function ProjectPromptsPanel({ projectId, canEdit }: { projectId: string; canEdi
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={!name || !content || createPrompt.isPending}
             onClick={() => createPrompt.mutate()}
           >
@@ -849,6 +872,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
         {canEdit && (
           <Button
             size="small"
+            startIcon={<AddIcon fontSize="small" />}
             onClick={() => setCreateOpen(true)}
             disabled={promptsQuery.data?.length === 0}
           >
@@ -873,26 +897,27 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
             key={job.id}
             secondaryAction={
               <Stack direction="row" spacing={1}>
-                <Button size="small" onClick={() => setRunsJobId(job.id)}>
+                <Button size="small" startIcon={<HistoryIcon fontSize="small" />} onClick={() => setRunsJobId(job.id)}>
                   Runs
                 </Button>
-                <Button size="small" onClick={() => setWebhooksJobId(job.id)}>
+                <Button size="small" startIcon={<WebhookIcon fontSize="small" />} onClick={() => setWebhooksJobId(job.id)}>
                   Webhooks
                 </Button>
-                <Button size="small" onClick={() => setNotificationsJob(job)}>
+                <Button size="small" startIcon={<NotificationsIcon fontSize="small" />} onClick={() => setNotificationsJob(job)}>
                   Notify
                 </Button>
-                <Button size="small" onClick={() => setScheduleJob(job)}>
+                <Button size="small" startIcon={<ScheduleIcon fontSize="small" />} onClick={() => setScheduleJob(job)}>
                   Schedules
                 </Button>
                 {canEdit && (
                   <>
-                    <Button size="small" onClick={() => openEdit(job)}>
+                    <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => openEdit(job)}>
                       Edit
                     </Button>
                     <Button
                       size="small"
                       color="error"
+                      startIcon={<DeleteIcon fontSize="small" />}
                       disabled={deleteJob.isPending}
                       onClick={async () => {
                         const ok = await confirm({
@@ -938,6 +963,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={
               !createForm.name ||
               !createForm.promptId ||
@@ -975,6 +1001,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
           <Button onClick={() => setEditingJob(null)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={
               !editForm.name ||
               !editForm.promptId ||
@@ -1110,12 +1137,14 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
                 <Button
                   size="small"
                   color="error"
+                  startIcon={<RemoveCircleOutlineIcon fontSize="small" />}
                   disabled={revoke.isPending}
                   onClick={async () => {
                     const ok = await confirm({
                       title: "Revoke access?",
                       message: `Revoke ${acl.accessLevel} access for this ${acl.granteeType.toLowerCase()}${acl.granteeType === "ORG" ? " (everyone)" : ""}?`,
                       confirmLabel: "Revoke",
+                      icon: <RemoveCircleOutlineIcon />,
                     });
                     if (ok) revoke.mutate(acl.id);
                   }}
@@ -1185,7 +1214,12 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
           </Select>
         </FormControl>
 
-        <Button variant="contained" disabled={!canGrant || grant.isPending} onClick={() => grant.mutate()}>
+        <Button
+          variant="contained"
+          startIcon={<ShareIcon />}
+          disabled={!canGrant || grant.isPending}
+          onClick={() => grant.mutate()}
+        >
           Share
         </Button>
       </Stack>

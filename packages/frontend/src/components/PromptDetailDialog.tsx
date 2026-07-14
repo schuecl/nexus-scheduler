@@ -19,6 +19,10 @@ import {
 } from "@mui/material";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import PostAddIcon from "@mui/icons-material/PostAdd";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 import { VariableEditor, type PromptVariableDraft } from "./VariableEditor";
@@ -156,12 +160,13 @@ export function PromptDetailDialog({ promptId, onClose }: { promptId: string; on
               </Stack>
               {canEdit && (
                 <Stack direction="row" spacing={1}>
-                  <Button size="small" onClick={() => setEditingMeta(true)}>
+                  <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => setEditingMeta(true)}>
                     Edit
                   </Button>
                   <Button
                     size="small"
                     color="error"
+                    startIcon={<DeleteIcon fontSize="small" />}
                     disabled={deletePrompt.isPending}
                     onClick={async () => {
                       const ok = await confirm({
@@ -207,6 +212,7 @@ export function PromptDetailDialog({ promptId, onClose }: { promptId: string; on
                   <Stack direction="row" spacing={1}>
                     <Button
                       variant="contained"
+                      startIcon={<SaveIcon />}
                       disabled={!editName || updateMeta.isPending}
                       onClick={() => updateMeta.mutate()}
                     >
@@ -245,6 +251,7 @@ export function PromptDetailDialog({ promptId, onClose }: { promptId: string; on
 
               {canEdit && !addingVersion && (
                 <Button
+                  startIcon={<PostAddIcon fontSize="small" />}
                   onClick={() => {
                     setNewVersionContent(latest?.content ?? "");
                     setNewVersionVariables(latest?.variables ?? []);
@@ -274,6 +281,7 @@ export function PromptDetailDialog({ promptId, onClose }: { promptId: string; on
                   <Stack direction="row" spacing={1}>
                     <Button
                       variant="contained"
+                      startIcon={<SaveIcon />}
                       disabled={!newVersionContent || addVersion.isPending}
                       onClick={() => addVersion.mutate()}
                     >

@@ -24,6 +24,28 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import SendIcon from "@mui/icons-material/Send";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
+import ToggleOnIcon from "@mui/icons-material/ToggleOn";
+import ToggleOffIcon from "@mui/icons-material/ToggleOff";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import PaletteIcon from "@mui/icons-material/Palette";
+import BarChartIcon from "@mui/icons-material/BarChart";
+import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
+import LabelIcon from "@mui/icons-material/Label";
+import PaidIcon from "@mui/icons-material/Paid";
+import WebhookIcon from "@mui/icons-material/Webhook";
+import DescriptionIcon from "@mui/icons-material/Description";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
+import LockResetIcon from "@mui/icons-material/LockReset";
+import ShuffleIcon from "@mui/icons-material/Shuffle";
+import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useConfirm } from "../context/ConfirmContext";
@@ -54,7 +76,9 @@ export function AdminPage() {
 
   return (
     <Stack spacing={4}>
-      <Typography variant="h4">Admin</Typography>
+      <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <AdminPanelSettingsOutlinedIcon fontSize="large" /> Admin
+      </Typography>
 
       <SystemSettingsPanel />
       <Divider />
@@ -194,8 +218,10 @@ function WebhookDestinationsPanel() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="h6">Webhook Destinations</Typography>
-        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <WebhookIcon /> Webhook Destinations
+        </Typography>
+        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
           New Destination
         </Button>
       </Stack>
@@ -241,6 +267,7 @@ function WebhookDestinationsPanel() {
               <Stack direction="row" spacing={1}>
                 <Button
                   size="small"
+                  startIcon={<SendIcon fontSize="small" />}
                   disabled={testDestination.isPending}
                   onClick={() => {
                     setTestedDestinationName(destination.name);
@@ -251,12 +278,14 @@ function WebhookDestinationsPanel() {
                 </Button>
                 <Button
                   size="small"
+                  startIcon={<AutorenewIcon fontSize="small" />}
                   disabled={rotateSecret.isPending}
                   onClick={async () => {
                     const ok = await confirm({
                       title: "Rotate signing secret?",
                       message: `The current secret for "${destination.name}" stops validating signatures immediately — any receiver verifying them will need the new one.`,
                       confirmLabel: "Rotate",
+                      icon: <AutorenewIcon />,
                     });
                     if (ok) rotateSecret.mutate(destination.id);
                   }}
@@ -265,6 +294,7 @@ function WebhookDestinationsPanel() {
                 </Button>
                 <Button
                   size="small"
+                  startIcon={<EditIcon fontSize="small" />}
                   onClick={() => {
                     setEditingDestination(destination);
                     setEditName(destination.name);
@@ -280,6 +310,7 @@ function WebhookDestinationsPanel() {
                 <Button
                   size="small"
                   color={destination.active ? "error" : "primary"}
+                  startIcon={destination.active ? <ToggleOffIcon fontSize="small" /> : <ToggleOnIcon fontSize="small" />}
                   disabled={setActive.isPending}
                   onClick={() => setActive.mutate({ id: destination.id, active: !destination.active })}
                 >
@@ -288,6 +319,7 @@ function WebhookDestinationsPanel() {
                 <Button
                   size="small"
                   color="error"
+                  startIcon={<DeleteIcon fontSize="small" />}
                   disabled={deleteDestination.isPending}
                   onClick={async () => {
                     const ok = await confirm({
@@ -354,6 +386,7 @@ function WebhookDestinationsPanel() {
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={!name || !url || createDestination.isPending}
             onClick={() => createDestination.mutate()}
           >
@@ -392,6 +425,7 @@ function WebhookDestinationsPanel() {
           <Button onClick={() => setEditingDestination(null)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!editName || !editUrl || updateDestination.isPending}
             onClick={() => updateDestination.mutate()}
           >
@@ -420,6 +454,7 @@ function WebhookDestinationsPanel() {
         </DialogContent>
         <DialogActions>
           <Button
+            startIcon={<ContentCopyIcon />}
             onClick={() => {
               if (revealedSecret) void navigator.clipboard.writeText(revealedSecret.secret);
             }}
@@ -640,8 +675,8 @@ function SystemSettingsPanel() {
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
-        Branding &amp; Classification Banner
+      <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <PaletteIcon /> Branding &amp; Classification Banner
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         The banner below is the single, static banner shown at the top and bottom of every page —
@@ -754,7 +789,7 @@ function SystemSettingsPanel() {
               not in the system trust store. Leave empty to use the default trust roots.
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Button variant="outlined" component="label" size="small">
+              <Button variant="outlined" component="label" size="small" startIcon={<UploadFileIcon fontSize="small" />}>
                 Upload CA certificate
                 <input
                   type="file"
@@ -776,6 +811,7 @@ function SystemSettingsPanel() {
                   variant="text"
                   size="small"
                   color="error"
+                  startIcon={<DeleteIcon fontSize="small" />}
                   onClick={() => {
                     setSyslogTlsCaCert("");
                     setSyslogTlsCaCertName("");
@@ -837,13 +873,23 @@ function SystemSettingsPanel() {
           </Alert>
         )}
         <Stack direction="row" spacing={1}>
-          <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate()}>
+          <Button variant="contained" startIcon={<SaveIcon />} disabled={save.isPending} onClick={() => save.mutate()}>
             Save
           </Button>
-          <Button variant="outlined" disabled={testEmail.isPending} onClick={() => testEmail.mutate()}>
+          <Button
+            variant="outlined"
+            startIcon={<MailOutlineIcon />}
+            disabled={testEmail.isPending}
+            onClick={() => testEmail.mutate()}
+          >
             Send test email
           </Button>
-          <Button variant="outlined" disabled={testSyslog.isPending} onClick={() => testSyslog.mutate()}>
+          <Button
+            variant="outlined"
+            startIcon={<SendIcon />}
+            disabled={testSyslog.isPending}
+            onClick={() => testSyslog.mutate()}
+          >
             Send test syslog message
           </Button>
         </Stack>
@@ -887,8 +933,8 @@ function UsageReportPanel() {
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
-        Usage Report
+      <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <BarChartIcon /> Usage Report
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Org-wide run counts, success/failure rate, token usage, and cost for a date range —
@@ -913,6 +959,7 @@ function UsageReportPanel() {
         />
         <Button
           variant="outlined"
+          startIcon={<DescriptionIcon />}
           component="a"
           href={`/api/admin/usage-report/csv?from=${from}&to=${to}`}
         >
@@ -920,6 +967,7 @@ function UsageReportPanel() {
         </Button>
         <Button
           variant="outlined"
+          startIcon={<PictureAsPdfIcon />}
           component="a"
           href={`/api/admin/usage-report/pdf?from=${from}&to=${to}`}
         >
@@ -1035,8 +1083,10 @@ function UserManagementPanel() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="h6">Users</Typography>
-        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <PeopleAltIcon /> Users
+        </Typography>
+        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
           New Local User
         </Button>
       </Stack>
@@ -1085,7 +1135,13 @@ function UserManagementPanel() {
                 secondary={u.email}
               />
               {u.authSource === "LOCAL" && (
-                <Button size="small" sx={{ mr: 1 }} disabled={sendReset.isPending} onClick={() => sendReset.mutate(u.id)}>
+                <Button
+                  size="small"
+                  sx={{ mr: 1 }}
+                  startIcon={<MailOutlineIcon fontSize="small" />}
+                  disabled={sendReset.isPending}
+                  onClick={() => sendReset.mutate(u.id)}
+                >
                   Send password reset
                 </Button>
               )}
@@ -1093,6 +1149,7 @@ function UserManagementPanel() {
                 <Button
                   size="small"
                   sx={{ mr: 2 }}
+                  startIcon={<LockResetIcon fontSize="small" />}
                   onClick={() => {
                     setSetPasswordUser(u);
                     setNewPassword(generatePassword());
@@ -1126,6 +1183,7 @@ function UserManagementPanel() {
                 size="small"
                 color="error"
                 sx={{ ml: 2 }}
+                startIcon={<DeleteIcon fontSize="small" />}
                 disabled={isSelf || deleteUser.isPending}
                 onClick={async () => {
                   const ok = await confirm({
@@ -1180,7 +1238,12 @@ function UserManagementPanel() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={!newEmail || createUser.isPending} onClick={() => createUser.mutate()}>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            disabled={!newEmail || createUser.isPending}
+            onClick={() => createUser.mutate()}
+          >
             Create
           </Button>
         </DialogActions>
@@ -1202,7 +1265,12 @@ function UserManagementPanel() {
               fullWidth
               helperText="At least 12 characters"
             />
-            <Button size="small" onClick={() => setNewPassword(generatePassword())} sx={{ alignSelf: "flex-start" }}>
+            <Button
+              size="small"
+              startIcon={<ShuffleIcon fontSize="small" />}
+              onClick={() => setNewPassword(generatePassword())}
+              sx={{ alignSelf: "flex-start" }}
+            >
               Generate random password
             </Button>
             {setPassword.isError && (
@@ -1216,6 +1284,7 @@ function UserManagementPanel() {
           <Button onClick={() => setSetPasswordUser(null)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<LockResetIcon />}
             disabled={newPassword.length < 12 || setPassword.isPending}
             onClick={() => setPassword.mutate()}
           >
@@ -1344,8 +1413,10 @@ function CostRatesPanel() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="h6">Cost Rates</Typography>
-        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <PaidIcon /> Cost Rates
+        </Typography>
+        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
           New Rate
         </Button>
       </Stack>
@@ -1368,12 +1439,13 @@ function CostRatesPanel() {
             divider
             secondaryAction={
               <Stack direction="row" spacing={1}>
-                <Button size="small" onClick={() => openEdit(rate)}>
+                <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => openEdit(rate)}>
                   Edit
                 </Button>
                 <Button
                   size="small"
                   color="error"
+                  startIcon={<DeleteIcon fontSize="small" />}
                   disabled={deleteRate.isPending}
                   onClick={async () => {
                     const ok = await confirm({
@@ -1415,6 +1487,7 @@ function CostRatesPanel() {
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={!createForm.promptRate || !createForm.completionRate || createRate.isPending}
             onClick={() => createRate.mutate()}
           >
@@ -1437,6 +1510,7 @@ function CostRatesPanel() {
           <Button onClick={() => setEditingRate(null)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!editForm.promptRate || !editForm.completionRate || updateRate.isPending}
             onClick={() => updateRate.mutate()}
           >
@@ -1606,8 +1680,10 @@ function ClassificationLabelsPanel() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="h6">Classification Taxonomy</Typography>
-        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+        <Typography variant="h6" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <LabelIcon /> Classification Taxonomy
+        </Typography>
+        <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
           New Label
         </Button>
       </Stack>
@@ -1629,12 +1705,13 @@ function ClassificationLabelsPanel() {
             divider
             secondaryAction={
               <Stack direction="row" spacing={1}>
-                <Button size="small" onClick={() => openEdit(label)}>
+                <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => openEdit(label)}>
                   Edit
                 </Button>
                 <Button
                   size="small"
                   color="error"
+                  startIcon={<DeleteIcon fontSize="small" />}
                   disabled={deleteLabel.isPending}
                   onClick={async () => {
                     const ok = await confirm({
@@ -1687,6 +1764,7 @@ function ClassificationLabelsPanel() {
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<AddIcon />}
             disabled={!createForm.text || createLabel.isPending}
             onClick={() => createLabel.mutate()}
           >
@@ -1709,6 +1787,7 @@ function ClassificationLabelsPanel() {
           <Button onClick={() => setEditLabel(null)}>Cancel</Button>
           <Button
             variant="contained"
+            startIcon={<SaveIcon />}
             disabled={!editForm.text || updateLabel.isPending}
             onClick={() => updateLabel.mutate()}
           >

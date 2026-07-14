@@ -12,6 +12,8 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import SaveIcon from "@mui/icons-material/Save";
+import WebhookIcon from "@mui/icons-material/Webhook";
 import { apiFetch } from "../api/client";
 
 interface WebhookDestination {
@@ -69,7 +71,9 @@ export function JobWebhooksDialog({ jobId, onClose }: { jobId: string; onClose: 
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Webhook Notifications</DialogTitle>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <WebhookIcon /> Webhook Notifications
+      </DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Every run of this Job (success or failure) will POST its result to the checked
@@ -99,7 +103,7 @@ export function JobWebhooksDialog({ jobId, onClose }: { jobId: string; onClose: 
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate()}>
+        <Button variant="contained" startIcon={<SaveIcon />} disabled={save.isPending} onClick={() => save.mutate()}>
           Save
         </Button>
       </DialogActions>
