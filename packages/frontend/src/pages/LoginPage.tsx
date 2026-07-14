@@ -116,7 +116,7 @@ export function LoginPage() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", mt: 8 }}>
-      {settings.consentBannerEnabled && (
+      {settings.consentBannerEnabled && !consentAccepted && (
         <Paper variant="outlined" sx={{ p: 2, width: 400, mb: 2 }}>
           <Stack spacing={1}>
             <Stack direction="row" spacing={1} alignItems="center">
