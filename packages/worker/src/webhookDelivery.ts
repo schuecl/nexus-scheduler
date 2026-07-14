@@ -104,6 +104,7 @@ async function deliverOne(
         targetType: "webhook",
         targetId: destination.id,
         targetName: destination.name,
+        category: "governance",
         result: "SUCCESS",
         correlationId: runId,
       });
@@ -126,6 +127,7 @@ async function deliverOne(
     targetType: "webhook",
     targetId: destination.id,
     targetName: destination.name,
+    category: "governance",
     result: "FAILURE",
     errorMessage: lastError,
     correlationId: runId,

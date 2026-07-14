@@ -138,6 +138,7 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
       targetType: "user",
       targetId: user.id,
       targetName: user.email,
+      category: "admin",
       result: "SUCCESS",
       details: { authSource: "LOCAL", role: user.role },
     });
@@ -205,6 +206,7 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
       targetType: "user",
       targetId: user.id,
       targetName: user.email,
+      category: "admin",
       result: "SUCCESS",
     });
 
@@ -230,6 +232,7 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
       targetType: "user",
       targetId: user.id,
       targetName: user.email,
+      category: "admin",
       result: "SUCCESS",
     });
 
@@ -270,6 +273,7 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
       targetType: "user",
       targetId: user.id,
       targetName: user.email,
+      category: "admin",
       result: "SUCCESS",
     });
 

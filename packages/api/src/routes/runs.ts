@@ -57,6 +57,7 @@ export function createJobRunsRouter(queue: Queue<RunJobData>): Router {
       targetType: "job",
       targetId: job.id,
       targetName: job.name,
+      category: "lifecycle",
       result: "SUCCESS",
       details: { runId: run.id },
     });
@@ -136,6 +137,8 @@ export function createRunsRouter(config: AppConfig): Router {
       action: "run.pdf_download",
       targetType: "run",
       targetId: run.id,
+      targetName: run.job.name,
+      category: "data_access",
       result: "SUCCESS",
     });
 

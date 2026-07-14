@@ -4,7 +4,7 @@ import { z } from "zod";
 import { updateAppSettingsSchema, encryptSecret, buildRfc5424Message, sendSyslogMessage } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 import { sendEmail, SmtpNotConfiguredError } from "../email.js";
 import type { AppConfig } from "../config.js";
 
@@ -80,10 +80,11 @@ export function createSettingsRouter(config: AppConfig): Router {
       return;
     }
     const user = req.session.user!;
-    const { smtpPassword, ...rest } = parsed.data;
+    const { smtpPassword, syslogTlsCaCert, ...rest } = parsed.data;
 
     const data = {
       ...rest,
+      ...(syslogTlsCaCert !== undefined ? { syslogTlsCaCert } : {}),
       ...(smtpPassword !== undefined
         ? {
             smtpEncryptedPassword:
@@ -92,11 +93,26 @@ export function createSettingsRouter(config: AppConfig): Router {
         : {}),
     };
 
+    const existing = await getOrCreateSettings();
     const settings = await prisma.appSettings.upsert({
       where: { id: SETTINGS_ID },
       create: { id: SETTINGS_ID, ...data },
       update: data,
     });
+
+    // Before->after diff (§41) over every plain field the request
+    // touched. smtpPassword and syslogTlsCaCert are excluded from the
+    // generic diff and represented as changed-flags instead — the
+    // password is a secret that must never appear even as a "from"
+    // value, and the CA cert is a multi-KB PEM blob with no audit value
+    // in seeing byte-for-byte.
+    const changes = diffChangedFields(existing, settings, Object.keys(rest) as (keyof typeof existing)[]) ?? {};
+    if (smtpPassword !== undefined) {
+      changes.smtpPasswordChanged = { from: !!existing.smtpEncryptedPassword, to: !!settings.smtpEncryptedPassword };
+    }
+    if (syslogTlsCaCert !== undefined) {
+      changes.syslogTlsCaCertChanged = { from: !!existing.syslogTlsCaCert, to: !!settings.syslogTlsCaCert };
+    }
 
     await recordAuditEvent({
       req,
@@ -106,9 +122,9 @@ export function createSettingsRouter(config: AppConfig): Router {
       action: "system_settings.update",
       targetType: "system_setting",
       targetId: String(SETTINGS_ID),
+      category: "admin",
+      changes: Object.keys(changes).length > 0 ? changes : undefined,
       result: "SUCCESS",
-      // Never audit the raw password — record only that it changed.
-      details: { ...rest, smtpPasswordChanged: smtpPassword !== undefined },
     });
 
     const { smtpEncryptedPassword, ...publicSettings } = settings;

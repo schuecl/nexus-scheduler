@@ -2,8 +2,18 @@ import { z } from "zod";
 
 // Event classification (§41) for SIEM alerting/severity — a plain string
 // union rather than a Prisma enum (see schema.prisma's AuditEvent.category
-// comment) so a new category never needs a migration.
-export const AUDIT_CATEGORIES = ["authn", "authz_change", "admin", "data_access", "lifecycle"] as const;
+// comment) so a new category never needs a migration. Mirrors
+// REQUIREMENTS.md §7's action-category taxonomy: "governance" covers its
+// schedule approval/rejection and webhook-delivery/classification-change
+// examples, which don't fit cleanly under authz_change/admin/lifecycle.
+export const AUDIT_CATEGORIES = [
+  "authn",
+  "authz_change",
+  "admin",
+  "data_access",
+  "lifecycle",
+  "governance",
+] as const;
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
 
 // Mirrors the audit event schema proposed in REQUIREMENTS.md §7.1.

@@ -92,8 +92,14 @@ export function startUsageReportLoop(config: WorkerConfig, logger: Logger): Node
         actorEmail: "system:scheduler",
         action: "usage_report.send_email",
         targetType: "system_setting",
+        // Singleton AppSettings row id (§41) — same target this action's
+        // config lives on, matching system_settings.update's own
+        // targetId convention (see packages/api/src/routes/settings.ts).
+        targetId: "1",
+        targetName: `usage report ${periodStart.toISOString().slice(0, 10)} to ${now.toISOString().slice(0, 10)}`,
+        category: "admin",
         result: "SUCCESS",
-        details: { recipients: settings.usageReportRecipients, periodStart, periodEnd: now },
+        details: { recipients: settings.usageReportRecipients },
       });
     } catch (err) {
       if (err instanceof SmtpNotConfiguredError) {
@@ -107,6 +113,8 @@ export function startUsageReportLoop(config: WorkerConfig, logger: Logger): Node
         actorEmail: "system:scheduler",
         action: "usage_report.send_email",
         targetType: "system_setting",
+        targetId: "1",
+        category: "admin",
         result: "FAILURE",
         errorMessage: err instanceof Error ? err.message : "unknown error",
       });

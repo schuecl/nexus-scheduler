@@ -8,7 +8,7 @@ import {
 import { prisma } from "../db.js";
 import { requireAuth, requireEditor } from "../middleware/requireAuth.js";
 import { requireTeamAccess } from "../middleware/requireTeamAccess.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 import { getDescendantTeamIds } from "../access.js";
 
 // Teams are local-only, UI-managed groups used purely as a Project ACL
@@ -101,6 +101,7 @@ export function createTeamsRouter(): Router {
       targetType: "team",
       targetId: team.id,
       targetName: team.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -127,6 +128,7 @@ export function createTeamsRouter(): Router {
       }
     }
 
+    const existing = await prisma.team.findUniqueOrThrow({ where: { id: req.params.id } });
     const team = await prisma.team.update({ where: { id: req.params.id }, data: parsed.data });
 
     await recordAuditEvent({
@@ -138,6 +140,8 @@ export function createTeamsRouter(): Router {
       targetType: "team",
       targetId: team.id,
       targetName: team.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, team, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
     });
 
@@ -168,6 +172,7 @@ export function createTeamsRouter(): Router {
       targetType: "team",
       targetId: team.id,
       targetName: team.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 

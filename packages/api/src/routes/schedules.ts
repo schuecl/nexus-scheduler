@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { requireJobAccess } from "../middleware/requireJobAccess.js";
 import { requireScheduleAccess } from "../middleware/requireScheduleAccess.js";
 import { getAccessibleProjectIds, getEligibleApprovers } from "../access.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 
 // Fields whose change re-triggers approval on an already-approved shared
 // schedule (REQUIREMENTS.md §2.4: "target agent, prompt/prompt version,
@@ -53,8 +53,12 @@ export function createJobSchedulesRouter(): Router {
     const user = req.session.user!;
     const jobId = req.params.jobId!;
 
+    // Fetched unconditionally (rather than only inside the
+    // pinnedPromptVersionId branch, as before) since the audit event
+    // below needs the Job's name as the schedule's targetName (§41) —
+    // Schedule itself has no name field, only its parent Job does.
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (parsed.data.pinnedPromptVersionId) {
-      const job = await prisma.job.findUnique({ where: { id: jobId } });
       const version = await prisma.promptVersion.findUnique({
         where: { id: parsed.data.pinnedPromptVersionId },
       });
@@ -97,6 +101,8 @@ export function createJobSchedulesRouter(): Router {
       action: "schedule.create",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      category: "lifecycle",
       result: "SUCCESS",
       details: { approvalStatus: schedule.approvalStatus },
     });
@@ -159,8 +165,11 @@ export function createSchedulesRouter(): Router {
     // this a user with EDIT on the schedule could pin any PromptVersion
     // UUID in the system, including one from a Project they can't access,
     // and read its content back via the run output once it fires.
+    // Fetched unconditionally so the audit event below has the parent
+    // Job's name as this schedule's targetName (§41) — Schedule itself
+    // has no name field.
+    const job = await prisma.job.findUnique({ where: { id: existing.jobId } });
     if (parsed.data.pinnedPromptVersionId) {
-      const job = await prisma.job.findUnique({ where: { id: existing.jobId } });
       const version = await prisma.promptVersion.findUnique({
         where: { id: parsed.data.pinnedPromptVersionId },
       });
@@ -202,8 +211,11 @@ export function createSchedulesRouter(): Router {
       action: "schedule.update",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, schedule, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: { ...parsed.data, reapprovalTriggered: mustReapprove },
+      details: { reapprovalTriggered: mustReapprove },
     });
 
     res.json(schedule);
@@ -212,6 +224,7 @@ export function createSchedulesRouter(): Router {
   router.delete("/:id", requireAuth, requireScheduleAccess("EDIT"), async (req, res) => {
     const user = req.session.user!;
     const schedule = await prisma.schedule.delete({ where: { id: req.params.id } });
+    const job = await prisma.job.findUnique({ where: { id: schedule.jobId }, select: { name: true } });
 
     await recordAuditEvent({
       req,
@@ -221,6 +234,8 @@ export function createSchedulesRouter(): Router {
       action: "schedule.delete",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -230,6 +245,7 @@ export function createSchedulesRouter(): Router {
   router.post("/:id/pause", requireAuth, requireScheduleAccess("EDIT"), async (req, res) => {
     const user = req.session.user!;
     const schedule = await prisma.schedule.update({ where: { id: req.params.id }, data: { paused: true } });
+    const job = await prisma.job.findUnique({ where: { id: schedule.jobId }, select: { name: true } });
 
     await recordAuditEvent({
       req,
@@ -239,6 +255,8 @@ export function createSchedulesRouter(): Router {
       action: "schedule.pause",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -267,6 +285,7 @@ export function createSchedulesRouter(): Router {
       where: { id: req.params.id },
       data: { paused: false, nextFireAt },
     });
+    const job = await prisma.job.findUnique({ where: { id: schedule.jobId }, select: { name: true } });
 
     await recordAuditEvent({
       req,
@@ -276,6 +295,8 @@ export function createSchedulesRouter(): Router {
       action: "schedule.resume",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -314,6 +335,10 @@ export function createSchedulesRouter(): Router {
       where: { id: req.params.id },
       data: { approvalStatus: "APPROVED", nextFireAt },
     });
+    const [job, submitter] = await Promise.all([
+      prisma.job.findUnique({ where: { id: schedule.jobId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: existing.createdById }, select: { email: true } }),
+    ]);
 
     await recordAuditEvent({
       req,
@@ -323,6 +348,14 @@ export function createSchedulesRouter(): Router {
       action: "schedule.approve",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      // The submitter (whoever created/requested this schedule) is the
+      // affected second principal for an approval (§41) — distinct from
+      // the approver, who is the actor.
+      subjectType: "user",
+      subjectId: existing.createdById,
+      subjectName: submitter?.email,
+      category: "governance",
       result: "SUCCESS",
     });
 
@@ -354,6 +387,10 @@ export function createSchedulesRouter(): Router {
       where: { id: req.params.id },
       data: { approvalStatus: "REJECTED" },
     });
+    const [job, submitter] = await Promise.all([
+      prisma.job.findUnique({ where: { id: schedule.jobId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: existing.createdById }, select: { email: true } }),
+    ]);
 
     await recordAuditEvent({
       req,
@@ -363,6 +400,11 @@ export function createSchedulesRouter(): Router {
       action: "schedule.reject",
       targetType: "schedule",
       targetId: schedule.id,
+      targetName: job?.name,
+      subjectType: "user",
+      subjectId: existing.createdById,
+      subjectName: submitter?.email,
+      category: "governance",
       result: "SUCCESS",
     });
 

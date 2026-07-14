@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
 import { requireJobAccess } from "../middleware/requireJobAccess.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 import { canUseApiKey } from "./apiKeys.js";
 
 // Mounted at /api/projects/:projectId/jobs (mergeParams) — same access
@@ -60,6 +60,7 @@ export function createProjectJobsRouter(): Router {
       targetType: "job",
       targetId: job.id,
       targetName: job.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -103,6 +104,7 @@ export function createJobsRouter(): Router {
       }
     }
 
+    const existing = await prisma.job.findUniqueOrThrow({ where: { id: req.params.id } });
     const job = await prisma.job.update({ where: { id: req.params.id }, data: parsed.data });
 
     await recordAuditEvent({
@@ -114,8 +116,9 @@ export function createJobsRouter(): Router {
       targetType: "job",
       targetId: job.id,
       targetName: job.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, job, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(job);
@@ -134,6 +137,7 @@ export function createJobsRouter(): Router {
       targetType: "job",
       targetId: job.id,
       targetName: job.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -170,6 +174,13 @@ export function createJobsRouter(): Router {
       }
     }
 
+    const [job, existingLinks] = await Promise.all([
+      prisma.job.findUnique({ where: { id: jobId }, select: { name: true } }),
+      prisma.jobWebhookDestination.findMany({ where: { jobId }, select: { webhookDestinationId: true } }),
+    ]);
+    const before = existingLinks.map((l) => l.webhookDestinationId).sort();
+    const after = [...parsed.data.webhookDestinationIds].sort();
+
     await prisma.$transaction([
       prisma.jobWebhookDestination.deleteMany({ where: { jobId } }),
       prisma.jobWebhookDestination.createMany({
@@ -185,8 +196,13 @@ export function createJobsRouter(): Router {
       action: "job.webhooks.update",
       targetType: "job",
       targetId: jobId,
+      targetName: job?.name,
+      category: "lifecycle",
+      changes:
+        JSON.stringify(before) !== JSON.stringify(after)
+          ? { webhookDestinationIds: { from: before, to: after } }
+          : undefined,
       result: "SUCCESS",
-      details: { webhookDestinationIds: parsed.data.webhookDestinationIds },
     });
 
     res.status(204).send();
@@ -203,6 +219,7 @@ export function createJobsRouter(): Router {
     }
     const user = req.session.user!;
 
+    const existing = await prisma.job.findUniqueOrThrow({ where: { id: req.params.id } });
     const job = await prisma.job.update({ where: { id: req.params.id }, data: parsed.data });
 
     await recordAuditEvent({
@@ -214,8 +231,9 @@ export function createJobsRouter(): Router {
       targetType: "job",
       targetId: job.id,
       targetName: job.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, job, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(job);

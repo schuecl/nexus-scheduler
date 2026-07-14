@@ -10,7 +10,7 @@ import { prisma } from "../db.js";
 import { requireAuth, requireEditor } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
 import { listAccessibleProjects } from "../access.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 
 // Resolves a project ACL's grantee to a human-readable audit subject
 // (§41) — update/revoke only have the raw granteeUserId/granteeTeamId
@@ -87,6 +87,7 @@ export function createProjectsRouter(): Router {
       targetType: "project",
       targetId: project.id,
       targetName: project.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -101,6 +102,7 @@ export function createProjectsRouter(): Router {
     }
     const user = req.session.user!;
 
+    const existing = await prisma.project.findUniqueOrThrow({ where: { id: req.params.id } });
     const project = await prisma.project.update({ where: { id: req.params.id }, data: parsed.data });
 
     await recordAuditEvent({
@@ -112,8 +114,9 @@ export function createProjectsRouter(): Router {
       targetType: "project",
       targetId: project.id,
       targetName: project.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, project, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(project);
@@ -132,6 +135,7 @@ export function createProjectsRouter(): Router {
       targetType: "project",
       targetId: project.id,
       targetName: project.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -179,8 +183,12 @@ export function createProjectsRouter(): Router {
       targetType: "project",
       targetId: project.id,
       targetName: project.name,
+      subjectType: "user",
+      subjectId: newOwner.id,
+      subjectName: newOwner.email,
+      category: "authz_change",
+      changes: { ownerId: { from: previous.ownerId, to: newOwner.id } },
       result: "SUCCESS",
-      details: { previousOwnerId: previous.ownerId, newOwnerId: newOwner.id, newOwnerEmail: newOwner.email },
     });
 
     res.json(project);

@@ -68,7 +68,7 @@ export interface SyslogAuditFields {
 // privilege escalation or ACL grant is a materially different event
 // from a benign read, and syslog severity is the one signal a SIEM can
 // filter/alert on without parsing STRUCTURED-DATA.
-const NOTICE_WORTHY_CATEGORIES = new Set(["authz_change", "admin"]);
+const NOTICE_WORTHY_CATEGORIES = new Set(["authz_change", "admin", "governance"]);
 
 function severityFor(result: string, category: string | null | undefined): number {
   if (result === "FAILURE") return 4; // warning

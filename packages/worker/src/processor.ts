@@ -207,6 +207,8 @@ async function processRun(
         action: "run.complete",
         targetType: "run",
         targetId: runId,
+        targetName: run.job.name,
+        category: "lifecycle",
         result: "SUCCESS",
         correlationId: runId,
       });
@@ -229,6 +231,8 @@ async function processRun(
           action: "run.complete",
           targetType: "run",
           targetId: runId,
+          targetName: run.job.name,
+          category: "lifecycle",
           result: "FAILURE",
           errorMessage,
           correlationId: runId,

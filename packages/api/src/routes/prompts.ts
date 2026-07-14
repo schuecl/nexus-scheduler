@@ -11,7 +11,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { requireProjectAccess } from "../middleware/requireProjectAccess.js";
 import { requirePromptAccess } from "../middleware/requirePromptAccess.js";
 import { getAccessibleProjectIds } from "../access.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 
 function isUniqueConflict(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
@@ -117,6 +117,7 @@ export function createProjectPromptsRouter(): Router {
       targetType: "prompt",
       targetId: prompt.id,
       targetName: prompt.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -200,6 +201,7 @@ export function createPromptsRouter(): Router {
       return;
     }
     const user = req.session.user!;
+    const existing = await prisma.prompt.findUniqueOrThrow({ where: { id: req.params.id } });
     const prompt = await prisma.prompt.update({ where: { id: req.params.id }, data: parsed.data });
 
     await recordAuditEvent({
@@ -211,8 +213,9 @@ export function createPromptsRouter(): Router {
       targetType: "prompt",
       targetId: prompt.id,
       targetName: prompt.name,
+      category: "lifecycle",
+      changes: diffChangedFields(existing, prompt, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(prompt);
@@ -241,6 +244,7 @@ export function createPromptsRouter(): Router {
       targetType: "prompt",
       targetId: prompt.id,
       targetName: prompt.name,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 
@@ -282,7 +286,10 @@ export function createPromptsRouter(): Router {
       next(err);
       return;
     }
-    await prisma.prompt.update({ where: { id: req.params.id }, data: { updatedAt: new Date() } });
+    const prompt = await prisma.prompt.update({
+      where: { id: req.params.id },
+      data: { updatedAt: new Date() },
+    });
 
     await recordAuditEvent({
       req,
@@ -292,6 +299,8 @@ export function createPromptsRouter(): Router {
       action: "prompt.version.create",
       targetType: "prompt",
       targetId: req.params.id,
+      targetName: prompt.name,
+      category: "lifecycle",
       result: "SUCCESS",
       details: { versionNumber: version.versionNumber },
     });

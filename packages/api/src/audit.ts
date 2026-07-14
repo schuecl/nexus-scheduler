@@ -6,6 +6,31 @@ import { prisma } from "./db.js";
 
 type AuditChanges = Record<string, { from: unknown; to: unknown }>;
 
+// Shared before->after diff for *.update handlers (§41) — only compares
+// `keys` (typically Object.keys(parsed.data), i.e. the fields the
+// request actually touched) so untouched fields never show up as noise.
+// Dates are normalized to ISO strings first so e.g. a Prisma Date and
+// its request-body ISO-string counterpart compare equal when unchanged.
+// Never pass a secret-bearing key in — the caller is responsible for
+// redacting those to a changed-flag boolean before diffing (as
+// settings.ts already does for the SMTP password).
+export function diffChangedFields<T extends Record<string, unknown>>(
+  before: T,
+  after: T,
+  keys: (keyof T)[],
+): AuditChanges | undefined {
+  const changes: AuditChanges = {};
+  for (const key of keys) {
+    const normalize = (value: unknown) => (value instanceof Date ? value.toISOString() : value);
+    const from = normalize(before[key]);
+    const to = normalize(after[key]);
+    if (JSON.stringify(from) !== JSON.stringify(to)) {
+      changes[key as string] = { from, to };
+    }
+  }
+  return Object.keys(changes).length > 0 ? changes : undefined;
+}
+
 interface RecordAuditEventInput {
   req?: Request;
   actorType: "USER" | "SERVICE";

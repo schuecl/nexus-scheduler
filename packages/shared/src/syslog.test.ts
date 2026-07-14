@@ -47,9 +47,11 @@ describe("buildRfc5424Message", () => {
   it("bumps SUCCESS severity to 5 (notice) for security-sensitive categories", () => {
     const authzMsg = buildRfc5424Message({ ...baseFields, result: "SUCCESS", category: "authz_change" });
     const adminMsg = buildRfc5424Message({ ...baseFields, result: "SUCCESS", category: "admin" });
+    const governanceMsg = buildRfc5424Message({ ...baseFields, result: "SUCCESS", category: "governance" });
     // facility 16 * 8 = 128; +5 = 133
     expect(authzMsg.startsWith("<133>1 ")).toBe(true);
     expect(adminMsg.startsWith("<133>1 ")).toBe(true);
+    expect(governanceMsg.startsWith("<133>1 ")).toBe(true);
   });
 
   it("leaves non-sensitive categories and FAILUREs of any category at their normal severity", () => {

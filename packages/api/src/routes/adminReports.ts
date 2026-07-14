@@ -104,8 +104,13 @@ export function createAdminReportsRouter(config: AppConfig): Router {
       actorEmail: user.email,
       action: "usage_report.export",
       targetType: "system_setting",
+      // Singleton AppSettings row id (§41), matching
+      // system_settings.update's own targetId convention.
+      targetId: "1",
+      targetName: `usage report ${from.toISOString().slice(0, 10)} to ${to.toISOString().slice(0, 10)}`,
+      category: "data_access",
       result: "SUCCESS",
-      details: { format: "csv", from: from.toISOString(), to: to.toISOString(), rowCount: runs.length },
+      details: { format: "csv", rowCount: runs.length },
     });
 
     res.setHeader("Content-Type", "text/csv");
@@ -143,8 +148,11 @@ export function createAdminReportsRouter(config: AppConfig): Router {
       actorEmail: user.email,
       action: "usage_report.export",
       targetType: "system_setting",
+      targetId: "1",
+      targetName: `usage report ${from.toISOString().slice(0, 10)} to ${to.toISOString().slice(0, 10)}`,
+      category: "data_access",
       result: "SUCCESS",
-      details: { format: "pdf", from: from.toISOString(), to: to.toISOString() },
+      details: { format: "pdf" },
     });
 
     res.setHeader("Content-Type", "application/pdf");

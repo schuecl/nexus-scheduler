@@ -13,7 +13,7 @@ import {
 } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 import type { AppConfig } from "../config.js";
 
 const LIST_SELECT = {
@@ -90,6 +90,7 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       targetType: "webhook",
       targetId: destination.id,
       targetName: destination.name,
+      category: "admin",
       result: "SUCCESS",
     });
 
@@ -103,6 +104,11 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       return;
     }
     const user = req.session.user!;
+    const existing = await prisma.webhookDestination.findUnique({ where: { id: req.params.id }, select: LIST_SELECT });
+    if (!existing) {
+      res.status(404).json({ error: "webhook destination not found" });
+      return;
+    }
     const { headers, ...rest } = parsed.data;
     let destination;
     try {
@@ -133,8 +139,9 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       targetType: "webhook",
       targetId: destination.id,
       targetName: destination.name,
+      category: "admin",
+      changes: diffChangedFields(existing, destination, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(destination);
@@ -172,6 +179,7 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       targetType: "webhook",
       targetId: destination.id,
       targetName: destination.name,
+      category: "admin",
       result: "SUCCESS",
     });
 
@@ -226,6 +234,7 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
         targetType: "webhook",
         targetId: destination.id,
         targetName: destination.name,
+        category: "admin",
         result: "SUCCESS",
       });
       res.status(204).send();
@@ -240,6 +249,7 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
         targetType: "webhook",
         targetId: destination.id,
         targetName: destination.name,
+        category: "admin",
         result: "FAILURE",
         errorMessage,
       });
@@ -273,6 +283,7 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       targetType: "webhook",
       targetId: destination.id,
       targetName: destination.name,
+      category: "admin",
       result: "SUCCESS",
     });
 

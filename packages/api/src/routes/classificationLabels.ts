@@ -4,7 +4,7 @@ import { Prisma } from "@nexus-scheduler/shared/prisma";
 import { cssColorSchema } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 
 function isNotFoundError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025";
@@ -110,6 +110,7 @@ export function createClassificationLabelsRouter(): Router {
       targetType: "classification_label",
       targetId: label.id,
       targetName: label.text,
+      category: "admin",
       result: "SUCCESS",
     });
 
@@ -123,6 +124,11 @@ export function createClassificationLabelsRouter(): Router {
       return;
     }
     const user = req.session.user!;
+    const existing = await prisma.classificationLabel.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      res.status(404).json({ error: "classification label not found" });
+      return;
+    }
 
     let label;
     try {
@@ -156,8 +162,9 @@ export function createClassificationLabelsRouter(): Router {
       targetType: "classification_label",
       targetId: label.id,
       targetName: label.text,
+      category: "admin",
+      changes: diffChangedFields(existing, label, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(label);
@@ -195,6 +202,7 @@ export function createClassificationLabelsRouter(): Router {
       targetType: "classification_label",
       targetId: label.id,
       targetName: label.text,
+      category: "admin",
       result: "SUCCESS",
     });
 

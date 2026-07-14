@@ -3,7 +3,7 @@ import { createApiKeySchema, updateApiKeySchema, encryptSecret, decryptSecret } 
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { getEffectiveTeamIds } from "../access.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 import { listLibreChatAgents } from "../librechatDiscovery.js";
 import type { AppConfig } from "../config.js";
 
@@ -92,6 +92,7 @@ export function createApiKeysRouter(config: AppConfig): Router {
       targetType: "apikey",
       targetId: apiKey.id,
       targetName: apiKey.label ?? undefined,
+      category: "lifecycle",
       result: "SUCCESS",
       details: { ownerType: apiKey.ownerType },
     });
@@ -131,8 +132,9 @@ export function createApiKeysRouter(config: AppConfig): Router {
       targetType: "apikey",
       targetId: updated.id,
       targetName: updated.label ?? undefined,
+      category: "lifecycle",
+      changes: diffChangedFields(key, updated, ["label"]),
       result: "SUCCESS",
-      details: { label: updated.label },
     });
 
     res.json(updated);
@@ -162,6 +164,7 @@ export function createApiKeysRouter(config: AppConfig): Router {
       targetType: "apikey",
       targetId: key.id,
       targetName: key.label ?? undefined,
+      category: "lifecycle",
       result: "SUCCESS",
     });
 

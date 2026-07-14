@@ -3,7 +3,7 @@ import { Prisma } from "@nexus-scheduler/shared/prisma";
 import { createCostRateSchema, updateCostRateSchema } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
-import { recordAuditEvent } from "../audit.js";
+import { recordAuditEvent, diffChangedFields } from "../audit.js";
 
 function isNotFoundError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025";
@@ -60,6 +60,7 @@ export function createCostRatesRouter(): Router {
       targetType: "cost_rate",
       targetId: rate.id,
       targetName: rate.agentId ?? "(global default)",
+      category: "admin",
       result: "SUCCESS",
       details: { promptRatePerMillion: parsed.data.promptRatePerMillion, completionRatePerMillion: parsed.data.completionRatePerMillion },
     });
@@ -74,6 +75,11 @@ export function createCostRatesRouter(): Router {
       return;
     }
     const user = req.session.user!;
+    const existing = await prisma.costRate.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      res.status(404).json({ error: "cost rate not found" });
+      return;
+    }
 
     let rate;
     try {
@@ -106,8 +112,9 @@ export function createCostRatesRouter(): Router {
       targetType: "cost_rate",
       targetId: rate.id,
       targetName: rate.agentId ?? "(global default)",
+      category: "admin",
+      changes: diffChangedFields(existing, rate, Object.keys(parsed.data) as (keyof typeof existing)[]),
       result: "SUCCESS",
-      details: parsed.data,
     });
 
     res.json(rate);
@@ -139,6 +146,7 @@ export function createCostRatesRouter(): Router {
       targetType: "cost_rate",
       targetId: rate.id,
       targetName: rate.agentId ?? "(global default)",
+      category: "admin",
       result: "SUCCESS",
     });
 

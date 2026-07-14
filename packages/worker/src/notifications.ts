@@ -90,6 +90,8 @@ export async function sendRunNotificationEmail(
       action: "run.notify_email",
       targetType: "run",
       targetId: run.id,
+      targetName: job.name,
+      category: "lifecycle",
       result: "SUCCESS",
       correlationId: run.id,
     });
@@ -106,6 +108,8 @@ export async function sendRunNotificationEmail(
       action: "run.notify_email",
       targetType: "run",
       targetId: runId,
+      targetName: job.name,
+      category: "lifecycle",
       result: "FAILURE",
       errorMessage: err instanceof Error ? err.message : "unknown error",
       correlationId: runId,
