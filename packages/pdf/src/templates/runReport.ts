@@ -1,4 +1,5 @@
 import { escapeHtml } from "../escapeHtml.js";
+import { renderMarkdownToSafeHtml } from "../markdown.js";
 import { buildBannerTemplate, type ClassificationBannerInfo } from "./banner.js";
 import { renderHtmlToPdf } from "../renderer.js";
 
@@ -44,7 +45,11 @@ function formatDate(iso: string | null): string {
 // server-generated (IDs, timestamps, status enums) or admin/user text
 // that must be HTML-escaped before interpolation — output and
 // errorMessage in particular come from the LibreChat agent and are
-// treated as fully untrusted.
+// treated as fully untrusted. output is rendered as markdown (models
+// like to format their answers with it) via renderMarkdownToSafeHtml,
+// which sanitizes the result instead of escaping it outright;
+// errorMessage stays plain-escaped text since it's a system-generated
+// string, not model output.
 export function buildRunReportHtml(data: RunReportData): string {
   const classificationBadge = data.classification
     ? `<div style="display:inline-block;margin-bottom:16px;padding:4px 10px;border-radius:3px;font-weight:700;font-size:11px;background-color:${escapeHtml(
@@ -64,6 +69,15 @@ export function buildRunReportHtml(data: RunReportData): string {
       pre { white-space: pre-wrap; word-break: break-word; background: #f5f5f5; border-radius: 4px; padding: 12px; font-size: 11px; }
       .error { background: #fdecea; border: 1px solid #f5c6cb; color: #611a15; border-radius: 4px; padding: 12px; white-space: pre-wrap; word-break: break-word; }
       .section-title { font-size: 13px; font-weight: 700; margin: 20px 0 8px 0; }
+      .markdown-body { font-size: 12px; }
+      .markdown-body > *:first-child { margin-top: 0; }
+      .markdown-body > *:last-child { margin-bottom: 0; }
+      .markdown-body pre { margin: 8px 0; }
+      .markdown-body pre code { background: none; padding: 0; }
+      .markdown-body code { background: #f5f5f5; border-radius: 3px; padding: 1px 4px; font-size: 11px; }
+      .markdown-body table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+      .markdown-body th, .markdown-body td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; }
+      .markdown-body blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #ddd; color: #555; }
     </style>
   </head>
   <body>
@@ -89,7 +103,11 @@ export function buildRunReportHtml(data: RunReportData): string {
         ? `<div class="section-title">Error</div><div class="error">${escapeHtml(data.errorMessage)}</div>`
         : ""
     }
-    ${data.output ? `<div class="section-title">Output</div><pre>${escapeHtml(data.output)}</pre>` : ""}
+    ${
+      data.output
+        ? `<div class="section-title">Output</div><div class="markdown-body">${renderMarkdownToSafeHtml(data.output)}</div>`
+        : ""
+    }
   </body>
 </html>`;
 }

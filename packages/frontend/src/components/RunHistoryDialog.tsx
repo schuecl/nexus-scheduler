@@ -19,6 +19,8 @@ import {
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import HistoryIcon from "@mui/icons-material/History";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { apiFetch } from "../api/client";
 import { RunStatusIcon, RUN_STATUS_COLOR, type RunStatus } from "./RunStatusIcon";
 
@@ -123,19 +125,47 @@ export function RunHistoryDialog({
                   )}
                   {run.output && (
                     <Box
-                      component="pre"
                       sx={{
                         mt: 1,
                         p: 1.5,
                         bgcolor: "action.hover",
                         borderRadius: 1,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
                         maxHeight: 300,
                         overflow: "auto",
+                        fontSize: "0.875rem",
+                        "& > :first-of-type": { mt: 0 },
+                        "& > :last-child": { mb: 0 },
+                        "& p": { my: 1 },
+                        "& pre": {
+                          bgcolor: "background.paper",
+                          borderRadius: 1,
+                          p: 1,
+                          overflow: "auto",
+                        },
+                        "& code": {
+                          fontFamily: "monospace",
+                          bgcolor: "background.paper",
+                          borderRadius: 0.5,
+                          px: 0.5,
+                        },
+                        "& pre code": { bgcolor: "transparent", p: 0 },
+                        "& table": { borderCollapse: "collapse" },
+                        "& th, & td": {
+                          border: "1px solid",
+                          borderColor: "divider",
+                          px: 1,
+                          py: 0.5,
+                        },
+                        "& blockquote": {
+                          borderLeft: "3px solid",
+                          borderColor: "divider",
+                          m: 0,
+                          pl: 1.5,
+                          color: "text.secondary",
+                        },
                       }}
                     >
-                      {run.output}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.output}</ReactMarkdown>
                     </Box>
                   )}
                 </Box>
