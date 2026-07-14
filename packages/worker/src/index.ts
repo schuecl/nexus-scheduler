@@ -29,12 +29,14 @@ async function main() {
   logger.info("nexus-scheduler worker started");
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    process.on(signal, async () => {
-      logger.info({ signal }, "shutting down worker");
-      clearInterval(usageReportInterval);
-      await runWorker.close();
-      await queue.close();
-      process.exit(0);
+    process.on(signal, () => {
+      void (async () => {
+        logger.info({ signal }, "shutting down worker");
+        clearInterval(usageReportInterval);
+        await runWorker.close();
+        await queue.close();
+        process.exit(0);
+      })();
     });
   }
 }

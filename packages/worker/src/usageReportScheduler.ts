@@ -121,7 +121,7 @@ export function startUsageReportLoop(config: WorkerConfig, logger: Logger): Node
     }
   };
 
-  const interval = setInterval(tick, checkIntervalMs);
+  const interval = setInterval(() => void tick(), checkIntervalMs);
   void tick();
   return interval;
 }

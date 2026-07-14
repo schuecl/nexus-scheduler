@@ -17,13 +17,17 @@
   },
   "scripts": {
     "build": "npm run build --workspace=packages/shared && npm run build --workspace=packages/pdf && npm run build --workspace=packages/pdf-service && npm run build --workspace=packages/api && npm run build --workspace=packages/worker && npm run build --workspace=packages/frontend",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "prisma:generate": "npm run prisma:generate --workspace=packages/shared",
     "prisma:migrate": "npm run prisma:migrate --workspace=packages/shared"
   },
   "devDependencies": {
-    "typescript": "^5.6.3"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-security": "^3.0.1",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.64.0"
   }
 }

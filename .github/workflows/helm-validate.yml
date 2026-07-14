@@ -1,0 +1,46 @@
+name: Helm Validate
+
+# Lints the chart and validates the rendered manifests against the
+# Kubernetes API schemas, so a chart change that produces invalid YAML is
+# caught in CI rather than at deploy time.
+
+on:
+  pull_request:
+    paths:
+      - "helm/**"
+      - ".github/workflows/helm-validate.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "helm/**"
+
+permissions:
+  contents: read
+
+jobs:
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: helm lint
+        run: helm lint helm/nexus-scheduler
+
+      - name: helm template (render manifests)
+        run: helm template release helm/nexus-scheduler > rendered.yaml
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate rendered manifests
+        # -ignore-missing-schemas tolerates CRDs / vendored-subchart kinds not
+        # in the upstream schema set; core kinds are still strictly validated.
+        run: kubeconform -strict -ignore-missing-schemas -summary rendered.yaml

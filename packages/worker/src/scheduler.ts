@@ -133,7 +133,7 @@ export function startSchedulerLoop(
     }
   };
 
-  const interval = setInterval(tick, config.SCHEDULER_TICK_MS);
+  const interval = setInterval(() => void tick(), config.SCHEDULER_TICK_MS);
   void tick(); // run once immediately at startup rather than waiting a full tick
   return interval;
 }
