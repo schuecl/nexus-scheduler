@@ -4,8 +4,8 @@ description: >-
   Web application for scheduling agentic AI tasks against LibreChat's
   Agents API. See REQUIREMENTS.md and ARCHITECTURE.md in the repo root.
 type: application
-version: 0.1.5
-appVersion: "0.1.5"
+version: 0.1.7
+appVersion: "0.1.7"
 
 # PostgreSQL/Redis are optional subcharts (REQUIREMENTS §9.1: "optionally
 # including... as a subchart/dependency, or bring-your-own"). These are

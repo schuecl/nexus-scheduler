@@ -10,6 +10,30 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-14
+
+### Added
+
+- The Helm chart is now packaged and published as an OCI artifact
+  (`ghcr.io/<owner>/charts/nexus-scheduler`) on every release, with the
+  `.tgz` attached to the GitHub Release too (#82).
+- Contextual empty-state guidance and prerequisite hints across the
+  Prompts, Jobs, Schedules, Runs, and API Keys create/list flows,
+  including disabled-button tooltips naming the specific missing
+  prerequisite (#83).
+- Prompt version history is now viewable, comparable, and restorable:
+  expand any past version to see its content, compare two versions
+  with a line-level content diff and a variables diff, or restore an
+  old version as a new one (#85).
+
+### Fixed
+
+- The release workflow's `helm package` step now derives the chart's
+  version from the release tag instead of trusting `Chart.yaml`'s
+  committed state, fixing a failure mode where a tag pushed without
+  running `scripts/release.mjs` first packaged the chart under the
+  wrong version and broke the publish step (#86).
+
 ## [0.1.5] - 2026-07-14
 
 ### Added
