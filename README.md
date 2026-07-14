@@ -1,5 +1,10 @@
 # Nexus Scheduler
 
+[![CI](https://github.com/schuecl/nexus-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/schuecl/nexus-scheduler/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/schuecl/nexus-scheduler/pulls)
+
 Nexus Scheduler is a web application for scheduling and managing agentic
 AI tasks against a [LibreChat](https://www.librechat.ai/) Agents API
 deployment. Point it at a saved prompt and a LibreChat Agent, decide
@@ -275,3 +280,13 @@ direct verification against a real Postgres/Redis/API stack. Some
 production-hardening items — e.g. swapping placeholder base container
 images for a hardened equivalent, and a full `helm lint`/`helm install`
 pass in a real cluster — are tracked as follow-ups rather than done.
+
+## Security
+
+To report a vulnerability, please follow the process in
+[SECURITY.md](./SECURITY.md) — use GitHub's private vulnerability
+reporting rather than a public issue.
+
+## License
+
+Licensed under the Apache License, Version 2.0 — see [LICENSE](./LICENSE).
