@@ -35,6 +35,14 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   const runsQueue = createRunsQueue(parseRedisConnectionOptions(config.REDIS_URL));
   const metrics = createMetrics();
 
+  // Exposed via app-locals so a caller that boots the app directly
+  // without app.listen() (integration tests via supertest) can close
+  // these real Redis/BullMQ connections in teardown — createApp() has
+  // no shutdown hook of its own, since index.ts's only caller never
+  // needs one (process exit closes them for free).
+  app.set("redisClient", redisClient);
+  app.set("runsQueue", runsQueue);
+
   // This app always sits behind exactly one reverse proxy (nginx —
   // docker-compose's own instance locally, the target environment's
   // pre-existing one in production; REQUIREMENTS §9.1) which terminates
