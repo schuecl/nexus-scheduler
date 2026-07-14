@@ -21,7 +21,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "prisma:generate": "npm run prisma:generate --workspace=packages/shared",
-    "prisma:migrate": "npm run prisma:migrate --workspace=packages/shared"
+    "prisma:migrate": "npm run prisma:migrate --workspace=packages/shared",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
