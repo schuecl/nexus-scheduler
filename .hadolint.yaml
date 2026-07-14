@@ -1,0 +1,14 @@
+# Hadolint configuration for the four service Dockerfiles.
+ignored:
+  # DL3008 — "pin versions in apt-get install". Deliberately not pinned:
+  # the base images are rebuilt to pick up OS security patches, and
+  # pinning apt package versions would freeze those out. Standard
+  # exception for this rule.
+  - DL3008
+  # DL3059 — "multiple consecutive RUN instructions". Stylistic; the
+  # separate RUN layers here are intentional for readability and caching.
+  - DL3059
+
+# Fail the build on genuine warnings/errors (everything except the two
+# rules ignored above), not just errors — so this stays a real gate.
+failure-threshold: warning
