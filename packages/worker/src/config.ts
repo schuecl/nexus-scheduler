@@ -40,6 +40,7 @@ export type WorkerConfig = z.infer<typeof envSchema>;
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
+    // eslint-disable-next-line no-console
     console.error("Invalid environment configuration:", parsed.error.flatten().fieldErrors);
     process.exit(1);
   }

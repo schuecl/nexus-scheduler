@@ -9,7 +9,7 @@ import { startHealthServer } from "./health.js";
 import { createMetrics } from "./metrics.js";
 import { startUsageReportLoop } from "./usageReportScheduler.js";
 
-function main() {
+async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
 
@@ -30,23 +30,19 @@ function main() {
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {
-      logger.info({ signal }, "shutting down worker");
-      clearInterval(usageReportInterval);
       void (async () => {
+        logger.info({ signal }, "shutting down worker");
+        clearInterval(usageReportInterval);
         await runWorker.close();
         await queue.close();
         process.exit(0);
-      })().catch((err: unknown) => {
-        logger.error({ err }, "error during shutdown");
-        process.exit(1);
-      });
+      })();
     });
   }
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
+  // eslint-disable-next-line no-console
   console.error("fatal startup error", err);
   process.exit(1);
-}
+});
