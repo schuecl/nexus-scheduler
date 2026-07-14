@@ -1,0 +1,46 @@
+name: Dockerfile Lint
+
+# Lints the four service Dockerfiles with hadolint so best-practice and
+# correctness issues are caught in CI. Configuration (ignored rules,
+# failure threshold) lives in .hadolint.yaml at the repo root.
+#
+# The Trivy image/dependency CVE scan from issue #49 is intentionally NOT
+# included here — that's a heavier security scan tracked separately (#46).
+
+on:
+  pull_request:
+    paths:
+      - "packages/*/Dockerfile"
+      - "docker/syslog-test/Dockerfile"
+      - ".hadolint.yaml"
+      - ".github/workflows/dockerfile-lint.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "packages/*/Dockerfile"
+      - "docker/syslog-test/Dockerfile"
+      - ".hadolint.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - packages/api/Dockerfile
+          - packages/worker/Dockerfile
+          - packages/frontend/Dockerfile
+          - packages/pdf-service/Dockerfile
+          - docker/syslog-test/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          config: .hadolint.yaml
+          failure-threshold: warning
