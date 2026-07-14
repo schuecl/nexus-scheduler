@@ -51,6 +51,18 @@ async function resetDb() {
 beforeEach(resetDb);
 afterAll(async () => {
   await resetDb();
+  // createApp exposes its Redis client and BullMQ queue via app-locals
+  // (app.set) precisely so tests can close them; otherwise those sockets
+  // and reconnect timers outlive the suite and leave Vitest waiting on /
+  // force-closing workers. try/finally so the Redis handle is released
+  // even if the queue close rejects (e.g. a flush timeout).
+  const runsQueue = app.get("runsQueue") as { close: () => Promise<void> } | undefined;
+  const redisClient = app.get("redisClient") as { disconnect: () => void } | undefined;
+  try {
+    if (runsQueue) await runsQueue.close();
+  } finally {
+    redisClient?.disconnect();
+  }
   await prisma.$disconnect();
 });
 
