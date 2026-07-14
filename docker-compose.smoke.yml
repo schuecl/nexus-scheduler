@@ -1,0 +1,120 @@
+# Minimal stack for the CI health smoke test (issue #53). Brings up only
+# the core path — Postgres, Redis, the one-shot migrate, and the three
+# app services — with their real Dockerfiles, then relies on each
+# service's /healthz becoming healthy (via `docker compose up --wait`).
+#
+# Deliberately excludes the heavy optional dependencies in
+# docker-compose.yml (Keycloak, LibreChat, Ollama, Mongo, nginx): OIDC is
+# omitted so the api uses local-auth and never needs an identity provider,
+# and nothing here reaches LibreChat. The secrets below are throwaway
+# fixed values for CI only — never real credentials.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus
+      POSTGRES_DB: nexus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+      target: build
+    command: ["npm", "run", "prisma:push", "--workspace=packages/shared"]
+    environment:
+      DATABASE_URL: postgresql://nexus:nexus@postgres:5432/nexus
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pdf-service:
+    build:
+      context: .
+      dockerfile: packages/pdf-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      PDF_SERVICE_SHARED_SECRET: smoke-pdf-shared-secret
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4100/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://nexus:nexus@postgres:5432/nexus
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: smoke-session-secret-0000000000000000
+      API_KEY_ENCRYPTION_KEY: smoke-encryption-key-00000000000000000
+      PDF_SERVICE_URL: http://pdf-service:4100
+      PDF_SERVICE_SHARED_SECRET: smoke-pdf-shared-secret
+      # OIDC_* intentionally unset -> api skips OIDC and uses local auth.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      pdf-service:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile
+    environment:
+      NODE_ENV: production
+      HEALTH_PORT: 3001
+      DATABASE_URL: postgresql://nexus:nexus@postgres:5432/nexus
+      REDIS_URL: redis://redis:6379
+      API_KEY_ENCRYPTION_KEY: smoke-encryption-key-00000000000000000
+      PDF_SERVICE_URL: http://pdf-service:4100
+      PDF_SERVICE_SHARED_SECRET: smoke-pdf-shared-secret
+      # Required by the worker config (unlike the api, where it's optional).
+      # The worker never actually reaches LibreChat during a health smoke —
+      # no jobs run — so a dummy URL that just satisfies the URL check is fine.
+      LIBRECHAT_BASE_URL: http://librechat.invalid
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      pdf-service:
+        condition: service_healthy
+    ports:
+      - "3001:3001"

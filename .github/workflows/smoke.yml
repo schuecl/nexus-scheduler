@@ -1,0 +1,51 @@
+name: Smoke Test
+
+# Brings up the core stack (Postgres, Redis, migrate, pdf-service, api,
+# worker) from their real Dockerfiles and asserts every service's health
+# endpoint comes up green after migrations. Catches env/wiring/migration
+# regressions that unit tests can't (issue #53).
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: docker-compose health smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the core stack
+        # --wait blocks until every service with a healthcheck is healthy
+        # and the one-shot `migrate` has completed successfully; it exits
+        # non-zero if any service is unhealthy or migrate fails, which is
+        # the smoke assertion.
+        run: |
+          docker compose -f docker-compose.smoke.yml up -d --build --wait --wait-timeout 300
+
+      - name: Assert health endpoints over the published ports
+        run: |
+          set -euo pipefail
+          echo "api  /healthz:"; curl -fsS http://localhost:3000/healthz
+          echo "api  /readyz:";  curl -fsS http://localhost:3000/readyz
+          echo "worker /healthz:"; curl -fsS http://localhost:3001/healthz
+          echo "All health endpoints returned success."
+
+      - name: Dump container status and logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.smoke.yml ps
+          docker compose -f docker-compose.smoke.yml logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.smoke.yml down -v
