@@ -35,6 +35,22 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   const runsQueue = createRunsQueue(parseRedisConnectionOptions(config.REDIS_URL));
   const metrics = createMetrics();
 
+  // This app owns a Redis session client and a BullMQ queue, both of
+  // which hold live sockets and reconnect timers. Expose a teardown so
+  // callers that construct a throwaway app — integration tests, or a
+  // graceful shutdown path — can close them instead of leaking handles
+  // (which otherwise keeps Vitest workers alive/force-closed).
+  app.locals.closeResources = async (): Promise<void> => {
+    // try/finally so the Redis handle is always released even if the queue
+    // close rejects (e.g. a connection timeout during flush) — otherwise
+    // the session client would leak.
+    try {
+      await runsQueue.close();
+    } finally {
+      redisClient.disconnect();
+    }
+  };
+
   // This app always sits behind exactly one reverse proxy (nginx —
   // docker-compose's own instance locally, the target environment's
   // pre-existing one in production; REQUIREMENTS §9.1) which terminates

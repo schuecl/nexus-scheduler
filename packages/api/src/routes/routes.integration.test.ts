@@ -51,6 +51,11 @@ async function resetDb() {
 beforeEach(resetDb);
 afterAll(async () => {
   await resetDb();
+  // Close the Redis session client and BullMQ queue the app opened, so
+  // no sockets/reconnect timers outlive the suite (would otherwise leave
+  // Vitest waiting on / force-closing workers).
+  const closeResources = app.locals.closeResources as (() => Promise<void>) | undefined;
+  if (closeResources) await closeResources();
   await prisma.$disconnect();
 });
 
