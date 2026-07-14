@@ -1,0 +1,14 @@
+# Overlay for the Playwright E2E smoke test (issue #48) — layered on top
+# of the health-smoke stack:
+#
+#   docker compose -f docker-compose.smoke.yml -f docker-compose.e2e.yml up
+#
+# The only difference from the health smoke: the built-in admin account
+# is enabled so the E2E test can log in through the real local-auth flow.
+# Throwaway fixed values for CI only — never real credentials (and ≥12
+# chars, per the api's BOOTSTRAP_ADMIN_PASSWORD minimum).
+services:
+  api:
+    environment:
+      BOOTSTRAP_ADMIN_EMAIL: admin@nexus-scheduler.local
+      BOOTSTRAP_ADMIN_PASSWORD: e2e-admin-password-123

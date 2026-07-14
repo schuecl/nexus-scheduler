@@ -17,6 +17,10 @@ packages/shared/prisma/generated/
 packages/frontend/dist/
 packages/frontend/.vite/
 
+# Playwright E2E artifacts
+packages/e2e/playwright-report/
+packages/e2e/test-results/
+
 # Local secrets generated for docker-compose
 docker/generated/
 docker/librechat/.env

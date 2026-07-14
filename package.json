@@ -10,7 +10,8 @@
     "packages/pdf-service",
     "packages/api",
     "packages/worker",
-    "packages/frontend"
+    "packages/frontend",
+    "packages/e2e"
   ],
   "engines": {
     "node": ">=20",

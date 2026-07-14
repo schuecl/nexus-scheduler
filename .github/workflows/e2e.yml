@@ -1,0 +1,72 @@
+name: E2E Smoke
+
+# Playwright smoke over the critical path (issue #48): login → create
+# project → prompt → job → schedule → trigger/view a run. The backend
+# is the same containerized stack as the health smoke (plus a bootstrap
+# admin, via the docker-compose.e2e.yml overlay); the BUILT frontend is
+# served by `vite preview`, whose proxy forwards /api/ and /auth/ to
+# the api container.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: playwright smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the frontend (and its workspace deps)
+        run: |
+          npm run prisma:generate
+          npm run build --workspace=packages/shared
+          npm run build --workspace=packages/frontend
+
+      - name: Start the backend stack
+        run: >
+          docker compose
+          -f docker-compose.smoke.yml
+          -f docker-compose.e2e.yml
+          up -d --build --wait --wait-timeout 300
+
+      - name: Run the E2E smoke
+        run: npm run test:e2e --workspace=packages/e2e
+
+      - name: Upload Playwright traces/screenshots/report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-artifacts
+          path: |
+            packages/e2e/playwright-report
+            packages/e2e/test-results
+          if-no-files-found: ignore
+
+      - name: Dump stack logs
+        if: failure()
+        run: >
+          docker compose
+          -f docker-compose.smoke.yml
+          -f docker-compose.e2e.yml
+          logs --tail 300

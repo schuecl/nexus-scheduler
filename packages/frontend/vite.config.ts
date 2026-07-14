@@ -25,8 +25,18 @@ export default defineConfig({
       // SPA — every real REST call is under /api/... or /auth/...
       // with something after the slash, so requiring it here
       // disambiguates the two without needing a regex.
-      "/api/": "http://localhost:3000",
-      "/auth/": "http://localhost:3000",
+      //
+      // X-Forwarded-Proto emulates the TLS-terminating nginx hop the
+      // api always sits behind (app.ts sets `trust proxy`/`proxy:
+      // true` and a Secure session cookie in production). Without it,
+      // a production-mode api behind this proxy never persists the
+      // session cookie. Browsers treat localhost as a trustworthy
+      // origin, so the Secure cookie still round-trips over plain
+      // http here — this is what lets the Playwright E2E smoke drive
+      // the real production cookie path. Harmless in dev, where the
+      // api runs with secure: false anyway.
+      "/api/": { target: "http://localhost:3000", headers: { "X-Forwarded-Proto": "https" } },
+      "/auth/": { target: "http://localhost:3000", headers: { "X-Forwarded-Proto": "https" } },
     },
   },
   build: {
