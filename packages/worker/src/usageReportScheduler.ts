@@ -81,7 +81,7 @@ export function startUsageReportLoop(config: WorkerConfig, logger: Logger): Node
         settings.usageReportRecipients.join(","),
         `[${settings.productName}] Usage Report — ${periodStart.toLocaleDateString()} to ${now.toLocaleDateString()}`,
         "See the attached PDF for this period's run counts, success/failure rates, token usage, and cost.",
-        [attachment],
+        { attachments: [attachment] },
       );
 
       await prisma.appSettings.update({ where: { id: 1 }, data: { usageReportLastSentAt: now } });

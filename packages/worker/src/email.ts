@@ -22,12 +22,20 @@ export interface EmailAttachment {
 // exist because the API and Worker are separate deployable processes
 // with their own Prisma clients; there's no shared "server" package
 // today for either to depend on without pulling in the other's runtime.
+export interface SendEmailOptions {
+  // Rendered alongside `text` as a multipart/alternative body — used for
+  // a custom Markdown notification template (§61) rendered to safe HTML;
+  // omitted, most email clients just show `text`.
+  html?: string;
+  attachments?: EmailAttachment[];
+}
+
 export async function sendEmail(
   config: WorkerConfig,
   to: string,
   subject: string,
   text: string,
-  attachments?: EmailAttachment[],
+  options: SendEmailOptions = {},
 ): Promise<void> {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 } });
   if (!settings?.smtpHost || !settings.smtpPort || !settings.smtpFromAddress) {
@@ -54,6 +62,7 @@ export async function sendEmail(
     to,
     subject,
     text,
-    attachments,
+    html: options.html,
+    attachments: options.attachments,
   });
 }

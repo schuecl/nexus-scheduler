@@ -34,6 +34,18 @@ export const setJobNotificationsSchema = z.object({
   attachPdfToEmail: z.boolean(),
   // Extra recipients alongside the Job owner (§58) — capped at 10.
   ccRecipients: z.array(z.string().email()).max(10),
+  // Optional custom subject/body (§61) — null/undefined falls back to
+  // the default text. No newlines in the subject (header-injection
+  // defense in depth, on top of nodemailer's own protections).
+  emailSubjectTemplate: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((s) => !/[\r\n]/.test(s), "subject cannot contain line breaks")
+    .nullable()
+    .optional(),
+  emailBodyTemplate: z.string().trim().min(1).max(5000).nullable().optional(),
 });
 export type SetJobNotificationsInput = z.infer<typeof setJobNotificationsSchema>;
 

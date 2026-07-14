@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@nexus-scheduler/pdf": "*",
     "@nexus-scheduler/shared": "*",
     "bullmq": "^5.21.2",
     "dotenv": "^16.4.5",

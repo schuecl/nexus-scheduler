@@ -1,7 +1,9 @@
 import { requestRunReportPdf } from "@nexus-scheduler/shared";
+import { renderMarkdownToSafeHtml } from "@nexus-scheduler/pdf";
 import { prisma } from "./db.js";
 import { recordAuditEvent } from "./audit.js";
 import { sendEmail, SmtpNotConfiguredError, type EmailAttachment } from "./email.js";
+import { renderNotificationTemplate } from "./notificationTemplate.js";
 import type { Logger } from "./logger.js";
 import type { WorkerConfig } from "./config.js";
 
@@ -65,7 +67,7 @@ export async function sendRunNotificationEmail(
       attachments = [{ filename: `run-${run.id}.pdf`, content: pdf, contentType: "application/pdf" }];
     }
 
-    const subject = `[Nexus Scheduler] ${job.name} — ${run.status}`;
+    const defaultSubject = `[Nexus Scheduler] ${job.name} — ${run.status}`;
     const bodyLines = [
       `Job: ${job.name}`,
       `Status: ${run.status}`,
@@ -81,8 +83,36 @@ export async function sendRunNotificationEmail(
       bodyLines.push("", "Output:", run.output);
     }
 
+    // Custom subject/body (§61) — a "pretty" report aimed at a specific
+    // audience (e.g. a leader) rather than the generic default above.
+    // {{placeholder}} substitution first, then the (possibly templated)
+    // body is treated as Markdown and rendered to a safe HTML part
+    // alongside the plain-text one, same rendering path already trusted
+    // for run output (§39) and PDF reports.
+    const templateContext = {
+      jobName: job.name,
+      status: run.status,
+      runId: run.id,
+      startedAt: run.startedAt?.toISOString() ?? null,
+      completedAt: run.completedAt?.toISOString() ?? null,
+      output: run.output,
+      errorMessage: run.errorMessage,
+      ownerEmail: job.createdBy.email,
+      ownerFullName:
+        job.createdBy.displayName ||
+        [job.createdBy.givenName, job.createdBy.familyName].filter(Boolean).join(" ") ||
+        job.createdBy.email,
+    };
+    const subject = job.emailSubjectTemplate
+      ? renderNotificationTemplate(job.emailSubjectTemplate, templateContext)
+      : defaultSubject;
+    const text = job.emailBodyTemplate
+      ? renderNotificationTemplate(job.emailBodyTemplate, templateContext)
+      : bodyLines.join("\n");
+    const html = job.emailBodyTemplate ? renderMarkdownToSafeHtml(text) : undefined;
+
     const recipients = [job.createdBy.email, ...job.ccRecipients].join(", ");
-    await sendEmail(config, recipients, subject, bodyLines.join("\n"), attachments);
+    await sendEmail(config, recipients, subject, text, { html, attachments });
 
     await recordAuditEvent({
       actorType: "SERVICE",

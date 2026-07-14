@@ -288,6 +288,13 @@ model Job {
   // Extra recipients (§58) alongside the Job owner — capped at 10,
   // enforced in setJobNotificationsSchema below.
   ccRecipients           String[]        @default([])
+  // Optional custom subject/body (§61) — null means fall back to the
+  // default "[Nexus Scheduler] <job> — <status>" text. Body supports
+  // {{placeholder}} substitution (renderNotificationTemplate) and is
+  // rendered as Markdown, the same as run output (§39), so a "leader
+  // report" can look intentional rather than like a generic system alert.
+  emailSubjectTemplate   String?
+  emailBodyTemplate      String?
   createdById            String
   createdBy              User            @relation(fields: [createdById], references: [id])
   createdAt              DateTime        @default(now())

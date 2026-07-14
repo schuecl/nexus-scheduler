@@ -623,6 +623,8 @@ interface Job {
   notifyOnFailure: boolean;
   attachPdfToEmail: boolean;
   ccRecipients: string[];
+  emailSubjectTemplate: string | null;
+  emailBodyTemplate: string | null;
 }
 
 interface ApiKeyOption {
@@ -1044,6 +1046,8 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
             notifyOnFailure: notificationsJob.notifyOnFailure,
             attachPdfToEmail: notificationsJob.attachPdfToEmail,
             ccRecipients: notificationsJob.ccRecipients,
+            emailSubjectTemplate: notificationsJob.emailSubjectTemplate,
+            emailBodyTemplate: notificationsJob.emailBodyTemplate,
           }}
           onClose={() => setNotificationsJob(null)}
         />

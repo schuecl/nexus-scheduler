@@ -113,7 +113,11 @@ LibreChat exposes an **Agents API** (beta) that is OpenAI-compatible:
 - Email notification (via SMTP) is optionally sent to the job owner on
   completion and/or failure, per-job configurable. Up to 10 additional
   recipient email addresses can be configured per job to CC on the same
-  notification.
+  notification. The subject and body can also be customized per job with
+  `{{placeholder}}` substitution (job name, status, run id, timestamps,
+  output/error, owner) — the body is rendered as Markdown, so a report
+  aimed at a specific audience (e.g. a leader's daily summary) can look
+  intentional rather than a generic system alert.
 - Job output can also be delivered as a formatted **PDF report** (email
   attachment or on-demand download) — see §2.5.
 - **Outbound webhook delivery**: a job can optionally be configured to

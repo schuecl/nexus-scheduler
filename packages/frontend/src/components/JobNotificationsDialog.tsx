@@ -22,10 +22,17 @@ export interface JobNotificationSettings {
   notifyOnFailure: boolean;
   attachPdfToEmail: boolean;
   ccRecipients: string[];
+  emailSubjectTemplate: string | null;
+  emailBodyTemplate: string | null;
 }
 
 const MAX_CC_RECIPIENTS = 10;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_SUBJECT_LENGTH = 200;
+const MAX_BODY_LENGTH = 5000;
+const TEMPLATE_PLACEHOLDERS =
+  "{{job_name}}, {{status}}, {{run_id}}, {{started_at}}, {{completed_at}}, {{output}}, " +
+  "{{error_message}}, {{owner_email}}, {{owner_full_name}}, {{date}}, {{datetime}}";
 
 function parseCcRecipients(text: string): string[] {
   return text
@@ -50,6 +57,8 @@ export function JobNotificationsDialog({
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState<JobNotificationSettings>(initial);
   const [ccRecipientsText, setCcRecipientsText] = useState(initial.ccRecipients.join(", "));
+  const [subjectText, setSubjectText] = useState(initial.emailSubjectTemplate ?? "");
+  const [bodyText, setBodyText] = useState(initial.emailBodyTemplate ?? "");
 
   const ccRecipients = parseCcRecipients(ccRecipientsText);
   const invalidCcRecipients = ccRecipients.filter((r) => !EMAIL_RE.test(r));
@@ -60,11 +69,27 @@ export function JobNotificationsDialog({
       ? `Not a valid email address: ${invalidCcRecipients.join(", ")}`
       : null;
 
+  const subjectError =
+    subjectText.length > MAX_SUBJECT_LENGTH
+      ? `Subject must be ${MAX_SUBJECT_LENGTH} characters or fewer.`
+      : /[\r\n]/.test(subjectText)
+        ? "Subject cannot contain line breaks."
+        : null;
+  const bodyError =
+    bodyText.length > MAX_BODY_LENGTH ? `Body must be ${MAX_BODY_LENGTH} characters or fewer.` : null;
+
+  const hasError = ccRecipientsError !== null || subjectError !== null || bodyError !== null;
+
   const save = useMutation({
     mutationFn: () =>
       apiFetch(`/api/jobs/${jobId}/notifications`, {
         method: "PUT",
-        body: JSON.stringify({ ...settings, ccRecipients }),
+        body: JSON.stringify({
+          ...settings,
+          ccRecipients,
+          emailSubjectTemplate: subjectText.trim() || null,
+          emailBodyTemplate: bodyText.trim() || null,
+        }),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -121,6 +146,30 @@ export function JobNotificationsDialog({
             helperText={ccRecipientsError ?? `Up to ${MAX_CC_RECIPIENTS} additional recipients.`}
             fullWidth
           />
+          <Typography variant="subtitle2" sx={{ mt: 1 }}>
+            Custom message (optional)
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Leave blank to use the default subject/body. Available placeholders: {TEMPLATE_PLACEHOLDERS}.
+          </Typography>
+          <TextField
+            label="Custom subject"
+            value={subjectText}
+            onChange={(e) => setSubjectText(e.target.value)}
+            error={subjectError !== null}
+            helperText={subjectError ?? `${subjectText.length}/${MAX_SUBJECT_LENGTH}`}
+            fullWidth
+          />
+          <TextField
+            label="Custom body (Markdown supported)"
+            value={bodyText}
+            onChange={(e) => setBodyText(e.target.value)}
+            error={bodyError !== null}
+            helperText={bodyError ?? `${bodyText.length}/${MAX_BODY_LENGTH}`}
+            multiline
+            minRows={4}
+            fullWidth
+          />
         </Stack>
         {save.isError && (
           <Alert severity="error" sx={{ mt: 2 }}>
@@ -133,7 +182,7 @@ export function JobNotificationsDialog({
         <Button
           variant="contained"
           startIcon={<SaveIcon />}
-          disabled={save.isPending || ccRecipientsError !== null}
+          disabled={save.isPending || hasError}
           onClick={() => save.mutate()}
         >
           Save
