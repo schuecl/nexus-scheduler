@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -42,5 +43,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["src/test/setup.ts"],
+    // Tests import describe/it/expect explicitly (matching the other
+    // packages' style); globals is only here so React Testing Library's
+    // automatic per-test cleanup can register its afterEach hook.
+    globals: true,
   },
 });

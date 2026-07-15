@@ -642,7 +642,7 @@ interface ApiKeyOption {
   ownerType: "USER" | "TEAM";
 }
 
-interface JobFormValues {
+export interface JobFormValues {
   name: string;
   promptId: string;
   agentId: string;
@@ -778,7 +778,7 @@ function JobFormFields({
 // maxRetries but not a value the user actually chose, and clearing
 // timeoutSeconds the same way used to slip a Job through with a 0-second
 // timeout since neither field was included in any submit-disabled check.
-function isValidJobTiming(values: Pick<JobFormValues, "timeoutSeconds" | "maxRetries">): {
+export function isValidJobTiming(values: Pick<JobFormValues, "timeoutSeconds" | "maxRetries">): {
   timeoutSecondsValid: boolean;
   maxRetriesValid: boolean;
 } {
@@ -792,7 +792,7 @@ function isValidJobTiming(values: Pick<JobFormValues, "timeoutSeconds" | "maxRet
 // Surfaces *why* the Create/Save button is disabled instead of leaving
 // it silently greyed out — checked in the same order a user fills the
 // form in, so the message always points at the next thing to fix.
-function missingJobPrerequisite(values: JobFormValues): string | null {
+export function missingJobPrerequisite(values: JobFormValues): string | null {
   if (!values.name) return "Name the Job.";
   if (!values.promptId) return "Choose a Prompt.";
   if (!values.apiKeyId) return "Select an API key — Jobs need one to call an Agent.";
