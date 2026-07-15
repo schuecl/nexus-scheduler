@@ -51,5 +51,20 @@ export default defineConfig({
     // packages' style); globals is only here so React Testing Library's
     // automatic per-test cleanup can register its afterEach hook.
     globals: true,
+    coverage: {
+      provider: "v8",
+      include: ["src/**"],
+      reporter: ["text", "json-summary"],
+      // Modest floor a few points under today's numbers (9% lines, 75%
+      // branches, 37% functions — issue #52): the big page components
+      // are still untested, so the line floor is low; ratchet these up
+      // as coverage grows, never down.
+      thresholds: {
+        lines: 8,
+        functions: 30,
+        branches: 65,
+        statements: 8,
+      },
+    },
   },
 });
