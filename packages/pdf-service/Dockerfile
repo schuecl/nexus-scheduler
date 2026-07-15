@@ -82,6 +82,15 @@ COPY --from=build /app/packages/pdf-service/dist packages/pdf-service/dist
 RUN npx --prefix packages/pdf playwright install --with-deps chromium \
     && chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH"
 
+# npx above is the last thing in this image that needs npm — the app
+# itself only ever runs `node dist/index.js` directly (see CMD below).
+# The bundled npm CLI's own dependencies (cross-spawn, glob, minimatch,
+# sigstore, tar) are a recurring source of CRITICAL/HIGH CVEs unrelated
+# to anything this image actually does (issue #91), so it's removed
+# entirely now that it's served its purpose, rather than patched
+# version-by-version.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 USER nexus
 EXPOSE 4100
 CMD ["node", "packages/pdf-service/dist/index.js"]

@@ -50,6 +50,13 @@ ENV NODE_ENV=production
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system nexus && useradd --system --gid nexus --home-dir /app nexus
+# This image only ever runs `node dist/index.js` directly (see CMD
+# below) — npm/npx are never invoked at runtime, only during the build
+# stage above. The bundled npm CLI's own dependencies (cross-spawn,
+# glob, minimatch, sigstore, tar) are a recurring source of CRITICAL/
+# HIGH CVEs unrelated to anything this image actually does (issue
+# #91), so it's removed entirely rather than patched version-by-version.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/package.json package.json
