@@ -22,6 +22,9 @@ explicitly configured rather than fetched at install time.
 
 ## Features
 
+- **Dashboard** — a landing overview scoped to the Projects you can see:
+  run counts by status, an overall success rate, the 10 most recent
+  runs, and the next 10 upcoming schedule fires.
 - **Scheduling** — one-time or recurring (interval-based, timezone-aware)
   schedules for any Job, with pause/resume and prompt-version pinning.
 - **Prompt Library** — prompts are versioned (every edit creates a new
@@ -54,7 +57,8 @@ explicitly configured rather than fetched at install time.
   authenticity.
 - **SSO** — OIDC login (tested against Keycloak) with role mapping from
   IdP client roles, plus a local break-glass admin account that always
-  works independent of SSO availability.
+  works independent of SSO availability, with its own self-service
+  "forgot password" email flow.
 - **Branding & classification** — configurable product name, logo
   (doubles as the favicon), accent color, dark mode, and an optional
   persistent classification banner with admin-managed labels.
@@ -69,6 +73,10 @@ explicitly configured rather than fetched at install time.
   and an optional RFC 5424 syslog mirror for SIEM integration.
 - **Admin console** — user/role management, classification taxonomy,
   cost rates, and the webhook destination allow-list.
+- **Built-in Knowledge Base** — a searchable, offline (bundled, no
+  external content service) help center covering every module and
+  common troubleshooting, linked contextually from empty states
+  throughout the app.
 
 ## Tech stack
 
@@ -79,6 +87,7 @@ explicitly configured rather than fetched at install time.
 | `packages/worker` | BullMQ-based scheduler/worker — fires due schedules, calls LibreChat, retries |
 | `packages/pdf` / `packages/pdf-service` | Playwright-based HTML→PDF rendering, run as an isolated internal service |
 | `packages/frontend` | React + Vite + MUI single-page app |
+| `packages/e2e` | Playwright end-to-end smoke test over the critical path (login → schedule → run) |
 
 TypeScript everywhere, in an npm workspaces monorepo. PostgreSQL is the
 system of record; Redis backs the job queue and concurrency limiting.
@@ -275,11 +284,17 @@ npm run prisma:migrate --workspace=packages/shared    # create a migration
 
 Actively developed. Core scheduling, approvals, sharing, reporting, and
 admin functionality are implemented and exercised via automated
-typechecking/builds and, for security- and correctness-sensitive paths,
-direct verification against a real Postgres/Redis/API stack. Some
-production-hardening items — e.g. swapping placeholder base container
-images for a hardened equivalent, and a full `helm lint`/`helm install`
-pass in a real cluster — are tracked as follow-ups rather than done.
+typechecking/builds, a Playwright end-to-end smoke test over the
+critical path, and, for security- and correctness-sensitive paths,
+direct verification against a real Postgres/Redis/API stack. Every
+service image is scanned with Trivy and gates CI on fixable
+CRITICAL/HIGH findings; `helm lint`/`helm template` + manifest schema
+validation run on every chart change. Some production-hardening items
+remain follow-ups rather than done — notably swapping `node:20-slim`/
+`nginx-unprivileged` for an Iron Bank equivalent and applying the DISA
+STIG baseline (see the `TODO` comments at the top of each
+`packages/*/Dockerfile`), and a full `helm install` pass against a real
+cluster.
 
 ## Contributing
 

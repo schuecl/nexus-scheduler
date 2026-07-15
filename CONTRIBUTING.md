@@ -156,8 +156,13 @@ Make your changes on a [branch in Git](https://git-scm.com/book/en/v2/Git-Branch
 [pull request](https://github.com/schuecl/nexus-scheduler/pulls) (PR)
 on GitHub. Your pull request will go through automated checks using
 [GitHub Actions](https://github.com/features/actions) — build, lint,
-tests, dependency audit, CodeQL, secret scanning, and container/Helm
-validation.
+tests (with coverage thresholds), dependency audit, CodeQL, secret
+scanning, a Docker Compose health smoke test, an end-to-end Playwright
+smoke test, Dockerfile linting, Trivy container CVE scanning, and Helm
+chart validation. These only run for changes that touch the relevant
+area (e.g. Dockerfile linting and Trivy only run when a Dockerfile,
+`.dockerignore`, or the lockfile changes) — see each workflow's `on:`
+block in `.github/workflows/` for the exact triggers.
 
 If this is your first code contribution, include your DCO sign-off in
 [CONTRIBUTORS.md](CONTRIBUTORS.md) as part of the same PR (see
