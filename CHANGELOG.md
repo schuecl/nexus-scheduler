@@ -10,6 +10,17 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+### Security
+
+- Hardened the api, worker, pdf-service, and frontend runtime images:
+  pruned devDependencies out of the copied `node_modules`, upgraded
+  Debian/Alpine base packages at build time, and removed the unused
+  bundled npm CLI (a recurring source of CRITICAL/HIGH CVEs unrelated
+  to anything these images actually run) from the three Node runtime
+  images. All four images now scan clean of fixable CRITICAL/HIGH
+  findings, and the Trivy CI scan gates on regressions instead of
+  running informationally (#91).
+
 ## [0.1.7] - 2026-07-14
 
 ### Added

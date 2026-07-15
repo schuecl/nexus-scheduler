@@ -7,12 +7,11 @@ name: Trivy Scan
 # runtime, Playwright's bundled browser deps in pdf-service) are only
 # visible in the built image.
 #
-# Rollout: informational (exit-code 0) for now — the current images
-# already carry fixable CRITICAL/HIGH findings (outdated base images,
-# and devDependencies shipped in the runtime layer), tracked as an
-# image-hardening follow-up. Once those are cleared, flip exit-code
-# to "1" so the scan gates on CRITICAL/HIGH with a fix available
-# (ignore-unfixed keeps unpatched-upstream CVEs from blocking PRs).
+# Gating (exit-code 1): all four images scan clean of fixable
+# CRITICAL/HIGH findings as of issue #91 (base image upgrades, pruned
+# devDependencies, and removal of the unused bundled npm CLI from
+# runtime images) — ignore-unfixed keeps unpatched-upstream CVEs from
+# blocking PRs, so this only fails on regressions with a fix available.
 #
 # Building four images is CI's slowest job, so it only runs when
 # something that changes image contents changes (Dockerfiles,
@@ -71,7 +70,7 @@ jobs:
         with:
           image-ref: nexus-scheduler-${{ matrix.service }}:scan
           format: table
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
