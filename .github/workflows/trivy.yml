@@ -1,0 +1,77 @@
+name: Trivy Scan
+
+# Builds each service image from its real Dockerfile and scans it with
+# Trivy for OS-package and npm CVEs (issue #49). This is the image-level
+# complement to CI's `npm audit` job, which only sees npm advisories in
+# the dependency tree — base-image CVEs (Debian/Alpine packages, Node
+# runtime, Playwright's bundled browser deps in pdf-service) are only
+# visible in the built image.
+#
+# Rollout: informational (exit-code 0) for now — the current images
+# already carry fixable CRITICAL/HIGH findings (outdated base images,
+# and devDependencies shipped in the runtime layer), tracked as an
+# image-hardening follow-up. Once those are cleared, flip exit-code
+# to "1" so the scan gates on CRITICAL/HIGH with a fix available
+# (ignore-unfixed keeps unpatched-upstream CVEs from blocking PRs).
+#
+# Building four images is CI's slowest job, so it only runs when
+# something that changes image contents changes (Dockerfiles,
+# .dockerignore, the dependency lockfile, or this workflow) — plus a
+# weekly schedule so new CVEs in otherwise-unchanged images still
+# surface, and a manual trigger.
+
+on:
+  pull_request:
+    paths:
+      - "packages/*/Dockerfile"
+      - ".dockerignore"
+      - "package-lock.json"
+      - ".github/workflows/trivy.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "packages/*/Dockerfile"
+      - ".dockerignore"
+      - "package-lock.json"
+      - ".github/workflows/trivy.yml"
+  schedule:
+    # Mondays 06:17 UTC — odd minute to avoid the top-of-hour rush.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: trivy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    name: trivy (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same service list and Dockerfile layout as the release
+        # workflow, so what gets scanned is what gets published.
+        service: [api, worker, frontend, pdf-service]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: >
+          docker build
+          -f packages/${{ matrix.service }}/Dockerfile
+          -t nexus-scheduler-${{ matrix.service }}:scan
+          .
+
+      - name: Scan image for CVEs
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: nexus-scheduler-${{ matrix.service }}:scan
+          format: table
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
