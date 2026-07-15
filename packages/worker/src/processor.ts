@@ -168,18 +168,24 @@ async function processRun(
       const outputText = [toolCallNote, responseChoice?.message.content].filter(Boolean).join("\n\n");
       const tokenUsage = extractTokenUsage(response.usage);
       if (!tokenUsage) {
-        // Two distinct cases collapsed into one null return by design
+        // Three distinct cases collapsed into one null return by design
         // (extractTokenUsage), but they need different log messages: no
-        // usage object at all (REQUIREMENTS §14 flags this as an
-        // unconfirmed assumption — never actually verified against a
-        // live LibreChat deployment) vs. one present but not matching
-        // either known provider shape. Either way this is the only
-        // signal an operator has to root-cause "token usage always
-        // shows zero" from real production traffic.
+        // usage object at all, one in an unrecognized shape, or the
+        // all-zero sentinel — verified live against LibreChat v0.8.7
+        // (issue #38), whose Agents API returns well-formed zeros
+        // because it doesn't meter headless API-key calls. Either way
+        // this is the only signal an operator has to root-cause "token
+        // usage always shows zero" from real production traffic.
+        const allZero =
+          response.usage !== undefined &&
+          (response.usage.prompt_tokens === 0 || response.usage.input_tokens === 0) &&
+          (response.usage.completion_tokens === 0 || response.usage.output_tokens === 0);
         logger.warn(
           { runId, agentId: run.job.agentId, hasUsageField: response.usage !== undefined, usage: response.usage },
           response.usage
-            ? "LibreChat returned a usage object in an unrecognized shape — token counts not recorded for this run"
+            ? allZero
+              ? "LibreChat returned an all-zero usage object — its Agents API doesn't meter this call (LibreChat limitation, issue #38); token counts not recorded for this run"
+              : "LibreChat returned a usage object in an unrecognized shape — token counts not recorded for this run"
             : "LibreChat response had no usage object at all — token counts not recorded for this run",
         );
       }

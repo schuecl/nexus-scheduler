@@ -90,15 +90,29 @@ export function extractTokenUsage(
   if (!usage) {
     return null;
   }
+  let extracted: { promptTokens: number; completionTokens: number } | null = null;
   if (typeof usage.prompt_tokens === "number" && typeof usage.completion_tokens === "number") {
-    return { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens };
+    extracted = { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens };
+  } else if (typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
+    // Anthropic's native Messages API shape — plausible if LibreChat
+    // passes a Claude provider's usage through unnormalized.
+    extracted = { promptTokens: usage.input_tokens, completionTokens: usage.output_tokens };
   }
-  // Anthropic's native Messages API shape — plausible if LibreChat
-  // passes a Claude provider's usage through unnormalized.
-  if (typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
-    return { promptTokens: usage.input_tokens, completionTokens: usage.output_tokens };
+  if (!extracted) {
+    return null;
   }
-  return null;
+  // Verified live against LibreChat v0.8.7 (issue #38): its Agents API
+  // returns a well-formed usage object of literal zeros — it doesn't
+  // meter headless API-key calls at all (no message/transaction records
+  // either). A real run can never consume zero prompt tokens (the
+  // prompt is never empty), so all-zero is an "unmetered" sentinel, not
+  // a measurement — treat it as no data rather than persisting zeros
+  // that read as a genuine count. A legitimate zero on just one side
+  // (e.g. an empty completion) is still kept.
+  if (extracted.promptTokens === 0 && extracted.completionTokens === 0) {
+    return null;
+  }
+  return extracted;
 }
 
 // Surfaces a *genuinely* unresolved tool call rather than silently

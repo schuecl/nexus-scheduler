@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeUnexecutedToolCall } from "./librechatClient.js";
+import { describeUnexecutedToolCall, extractTokenUsage } from "./librechatClient.js";
 
 describe("describeUnexecutedToolCall", () => {
   it("returns null when there are no tool calls", () => {
@@ -62,5 +62,46 @@ describe("describeUnexecutedToolCall", () => {
       "tool_calls",
     );
     expect(note).toMatch(/calculator, web_search/);
+  });
+});
+
+describe("extractTokenUsage", () => {
+  it("returns null when usage is absent", () => {
+    expect(extractTokenUsage(undefined)).toBeNull();
+  });
+
+  it("maps the OpenAI shape", () => {
+    expect(extractTokenUsage({ prompt_tokens: 120, completion_tokens: 45, total_tokens: 165 })).toEqual({
+      promptTokens: 120,
+      completionTokens: 45,
+    });
+  });
+
+  it("maps the Anthropic shape", () => {
+    expect(extractTokenUsage({ input_tokens: 30, output_tokens: 7 })).toEqual({
+      promptTokens: 30,
+      completionTokens: 7,
+    });
+  });
+
+  it("returns null for an unrecognized shape", () => {
+    expect(extractTokenUsage({ total_tokens: 165 })).toBeNull();
+  });
+
+  // Regression for issue #38, verified live against LibreChat v0.8.7:
+  // its Agents API returns a well-formed, all-zero usage object because
+  // it doesn't meter headless API-key calls. All-zero is an "unmetered"
+  // sentinel, not a measurement — persisting it as real zeros is what
+  // made every run and report show 0 tokens.
+  it("treats an all-zero usage object as no data (LibreChat unmetered sentinel)", () => {
+    expect(extractTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 })).toBeNull();
+    expect(extractTokenUsage({ input_tokens: 0, output_tokens: 0 })).toBeNull();
+  });
+
+  it("keeps a legitimate zero on one side only", () => {
+    expect(extractTokenUsage({ prompt_tokens: 120, completion_tokens: 0, total_tokens: 120 })).toEqual({
+      promptTokens: 120,
+      completionTokens: 0,
+    });
   });
 });
