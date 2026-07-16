@@ -10,6 +10,8 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-07-16
+
 ### Added
 
 - The dev Compose stack now runs LiteLLM as the model gateway between
