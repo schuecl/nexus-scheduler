@@ -9,15 +9,41 @@ import type {
 // isolated behind this adapter so an upstream breaking change is a
 // one-file fix, not a scavenger hunt (REQUIREMENTS.md §2.1).
 
+// Why a failed call failed, in the few buckets an operator actually acts on:
+// a timeout means the job budget is too small or the model too slow, a
+// rate_limit means back off, an upstream_error means LibreChat/the provider is
+// unhealthy, and a client_error means our own request or key is wrong. The
+// `transient` flag drives *retry* and deliberately collapses all of these into
+// yes/no; it cannot answer "why are runs failing", which is a different question.
+export type LibreChatErrorKind =
+  | "timeout"
+  | "rate_limit"
+  | "upstream_error"
+  | "client_error"
+  | "network_error";
+
 export class LibreChatError extends Error {
   constructor(
     message: string,
     public readonly status: number,
     public readonly transient: boolean,
+    // Defaulted so existing constructions keep compiling; every throw site in
+    // this file passes it explicitly.
+    public readonly kind: LibreChatErrorKind = "network_error",
   ) {
     super(message);
     this.name = "LibreChatError";
   }
+}
+
+function kindFromStatus(status: number): LibreChatErrorKind {
+  if (status === 429) {
+    return "rate_limit";
+  }
+  if (status >= 500) {
+    return "upstream_error";
+  }
+  return "client_error";
 }
 
 export interface LibreChatClientOptions {
@@ -58,6 +84,7 @@ export async function callAgent(
         `LibreChat request failed with status ${response.status}`,
         response.status,
         transient,
+        kindFromStatus(response.status),
       );
     }
 
@@ -67,10 +94,17 @@ export async function callAgent(
       throw err;
     }
     // Network errors / aborts are treated as transient (§2.1 retry policy).
+    // A timeout arrives here as a generic AbortError, indistinguishable from a
+    // connection failure by message alone — but the only thing that aborts this
+    // signal is our own timeout above, so the signal itself is the reliable
+    // witness. Without this, "the model is too slow for the job budget" and
+    // "LibreChat is unreachable" are the same datapoint, and they call for
+    // opposite responses.
     throw new LibreChatError(
       err instanceof Error ? err.message : "unknown LibreChat request error",
       0,
       true,
+      controller.signal.aborted ? "timeout" : "network_error",
     );
   } finally {
     clearTimeout(timeout);

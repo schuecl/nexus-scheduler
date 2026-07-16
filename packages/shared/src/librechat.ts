@@ -67,4 +67,11 @@ export interface LibreChatChatCompletionResponse {
     finish_reason: string;
   }>;
   usage?: LibreChatUsage; // presence to be confirmed against the live deployment, REQUIREMENTS §14
+  // The model that actually served the request. Requests are made with
+  // `model: agentId` — the Agent, not a model — and LibreChat resolves which
+  // model that Agent runs. So this response field is the only place the app
+  // ever learns what actually answered, which makes it the only usable label
+  // for per-model metrics. Optional because it is not guaranteed by every
+  // deployment/provider; callers must tolerate its absence rather than assume.
+  model?: string;
 }

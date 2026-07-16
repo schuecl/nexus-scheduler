@@ -18,10 +18,57 @@ export function createMetrics(queue: Queue<RunJobData>) {
     registers: [register],
   });
 
+  // Labelled by the model that actually served the call (from the response —
+  // requests carry `model: agentId`, so the request side cannot answer this)
+  // and by outcome. Unlabelled, this histogram can say "model calls are slow"
+  // but never "which model", which is the question that leads to an action
+  // when several models serve different jobs.
+  //
+  // `model` is deliberately the only identifier here: it is bounded by the
+  // models deployed. agentId/jobId/userId are user-created and unbounded — as
+  // labels they would fan out one series per agent forever (see #108 for the
+  // same mistake made in the API's route label).
+  //
+  // Buckets follow the job budget, not OpenTelemetry's GenAI convention. That
+  // convention tops out at 81.92s, which suits interactive chat; here
+  // DEFAULT_JOB_TIMEOUT_SECONDS is 600, so its buckets would dump every
+  // agent run of consequence into +Inf and flatten the p95 exactly where the
+  // timeout question is decided. The previous 300s ceiling had the same flaw
+  // at half the scale: a run at 400s and a run at 599s were indistinguishable,
+  // yet only one is nearly dead. The two buckets past the timeout exist to
+  // show *how far* past it calls are landing.
   const librechatCallDuration = new Histogram({
     name: "nexus_scheduler_librechat_call_duration_seconds",
-    help: "Duration of calls to LibreChat's Agents API",
-    buckets: [0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+    help: "Duration of calls to LibreChat's Agents API, by serving model and outcome",
+    labelNames: ["model", "outcome"] as const,
+    buckets: [0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 900],
+    registers: [register],
+  });
+
+  // LibreChatError is raised and retried but never counted, so timeouts,
+  // rate limits and upstream failures are invisible — they surface only as a
+  // generic run failure, long after the useful signal is gone.
+  const librechatErrorsTotal = new Counter({
+    name: "nexus_scheduler_librechat_errors_total",
+    help: "LibreChat Agents API call failures, by kind and serving model",
+    labelNames: ["kind", "model"] as const,
+    registers: [register],
+  });
+
+  // processor.ts already computes these per run and writes them to Postgres;
+  // they were simply never exposed. Answering "what is this costing" via SQL
+  // against the runs table means it cannot be alerted on or trended.
+  const runTokensTotal = new Counter({
+    name: "nexus_scheduler_run_tokens_total",
+    help: "Tokens consumed by runs, by serving model and token type",
+    labelNames: ["model", "type"] as const,
+    registers: [register],
+  });
+
+  const runCostTotal = new Counter({
+    name: "nexus_scheduler_run_cost_total",
+    help: "Computed cost of runs, by serving model",
+    labelNames: ["model"] as const,
     registers: [register],
   });
 
@@ -61,7 +108,15 @@ export function createMetrics(queue: Queue<RunJobData>) {
     },
   });
 
-  return { register, runsTotal, librechatCallDuration, queueDepth };
+  return {
+    register,
+    runsTotal,
+    librechatCallDuration,
+    librechatErrorsTotal,
+    runTokensTotal,
+    runCostTotal,
+    queueDepth,
+  };
 }
 
 export type Metrics = ReturnType<typeof createMetrics>;
