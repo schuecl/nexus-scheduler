@@ -21,6 +21,16 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   findings, and the Trivy CI scan gates on regressions instead of
   running informationally (#91).
 
+### Fixed
+
+- The `nexus_scheduler_http_request_duration_seconds` metric's `route`
+  label used the resolved mount path instead of its pattern for any
+  router mounted with a param in its own mount path (`/api/projects/
+  :projectId/jobs` and three others), so every project/job ever created
+  permanently added a new, never-retired time series. Unmatched (404)
+  requests had the same problem via the raw request path. Both now
+  label with the bounded pattern / a constant instead (#108).
+
 ## [0.1.7] - 2026-07-14
 
 ### Added
