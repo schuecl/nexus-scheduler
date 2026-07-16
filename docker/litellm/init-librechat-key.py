@@ -29,8 +29,20 @@ def call(path, payload=None):
 
 
 try:
-    call("/key/info?key=" + LIBRECHAT_KEY)
-    print("librechat virtual key already exists — nothing to do")
+    resp = json.load(call("/key/info?key=" + LIBRECHAT_KEY))
+    # A key provisioned before key_type existed here is default-type —
+    # it can reach LiteLLM's management routes, which the master-key
+    # separation exists to prevent. Migrate it in place rather than
+    # treating it as compliant.
+    routes = (resp.get("info") or {}).get("allowed_routes") or []
+    if routes == ["llm_api_routes"]:
+        print("librechat virtual key already exists (llm_api-only) — nothing to do")
+        sys.exit(0)
+    call(
+        "/key/update",
+        {"key": LIBRECHAT_KEY, "allowed_routes": ["llm_api_routes"]},
+    )
+    print("librechat virtual key existed with management access — restricted to llm_api routes")
     sys.exit(0)
 except urllib.error.HTTPError as e:
     # LiteLLM answers 4xx for an unknown key; anything else is a real
