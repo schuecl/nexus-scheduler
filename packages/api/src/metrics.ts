@@ -1,5 +1,6 @@
-import { Registry, collectDefaultMetrics, Histogram } from "prom-client";
+import { Registry, collectDefaultMetrics, Histogram, Gauge } from "prom-client";
 import type { NextFunction, Request, Response } from "express";
+import { prisma } from "./db.js";
 
 // Prometheus-compatible /metrics for platform operators (REQUIREMENTS
 // §10/§11) — distinct from the user-facing Postgres audit trail/syslog
@@ -18,6 +19,66 @@ export function createMetrics() {
     help: "Duration of HTTP requests handled by the API",
     labelNames: ["method", "route", "status_code"] as const,
     registers: [register],
+  });
+
+  // Inventory gauges — how much is *defined*, as opposed to the
+  // worker's how much is *running*. Recomputed on scrape via collect()
+  // (a handful of indexed COUNTs per scrape interval), so operators can
+  // see jobs/schedules/keys at a glance and alert on drift (e.g.
+  // schedules paused after an incident and never resumed).
+  new Gauge({
+    name: "nexus_scheduler_jobs",
+    help: "Jobs currently defined",
+    registers: [register],
+    async collect() {
+      this.set(await prisma.job.count());
+    },
+  });
+
+  new Gauge({
+    name: "nexus_scheduler_schedules",
+    help: "Schedules currently defined, by type and paused state",
+    labelNames: ["type", "paused"] as const,
+    registers: [register],
+    async collect() {
+      const rows = await prisma.schedule.groupBy({ by: ["type", "paused"], _count: { _all: true } });
+      this.reset();
+      for (const row of rows) {
+        this.set({ type: row.type, paused: String(row.paused) }, row._count._all);
+      }
+    },
+  });
+
+  new Gauge({
+    name: "nexus_scheduler_api_keys",
+    help: "LibreChat API keys stored, by status",
+    labelNames: ["status"] as const,
+    registers: [register],
+    async collect() {
+      const rows = await prisma.apiKey.groupBy({ by: ["status"], _count: { _all: true } });
+      this.reset();
+      for (const row of rows) {
+        this.set({ status: row.status }, row._count._all);
+      }
+    },
+  });
+
+  new Gauge({
+    name: "nexus_scheduler_projects",
+    help: "Projects currently defined",
+    registers: [register],
+    async collect() {
+      this.set(await prisma.project.count());
+    },
+  });
+
+  new Gauge({
+    name: "nexus_scheduler_prompts",
+    help: "Prompts currently defined",
+    registers: [register],
+    async collect() {
+      this.set(await prisma.prompt.count());
+    },
   });
 
   return { register, httpRequestDuration };
