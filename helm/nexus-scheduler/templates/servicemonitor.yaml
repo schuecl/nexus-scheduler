@@ -52,6 +52,18 @@ spec:
       path: /metrics
       interval: {{ $.Values.observability.serviceMonitor.interval }}
       scrapeTimeout: {{ $.Values.observability.serviceMonitor.scrapeTimeout }}
+      # The Operator derives `service` from the Kubernetes Service name, so
+      # these targets would arrive as service="<release>-api" while the
+      # dashboards — and the Compose collector they were written against —
+      # use the bare component name. Every Node/process panel filters on it
+      # (`nodejs_eventloop_lag_p99_seconds{service="api"}` and friends), so
+      # without this the runtime rows are blank in Kubernetes while the
+      # metrics are demonstrably being scraped: the worst kind of empty
+      # panel, because nothing is broken. Pinning it here keeps one set of
+      # dashboards honest in both places.
+      relabelings:
+        - targetLabel: service
+          replacement: {{ $c.name }}
       {{- with $.Values.observability.serviceMonitor.metricRelabelings }}
       metricRelabelings:
         {{- toYaml . | nindent 8 }}
