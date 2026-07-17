@@ -223,8 +223,8 @@ securityContext:
 # or Grafana. A cluster that runs this app almost certainly already runs a
 # monitoring stack, and an app chart bringing its own would duplicate storage,
 # compete for scrape ownership, and make this chart responsible for upgrading
-# four components it does not own. docker-compose.observability.yml exists for
-# local development, where none of that is true.
+# four components it does not own. The repo's compose observability overlay
+# (issue #103) exists for local development, where none of that is true.
 observability:
   serviceMonitor:
     # Off by default: a ServiceMonitor needs the Prometheus Operator's CRD, and

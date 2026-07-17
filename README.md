@@ -287,10 +287,10 @@ helm install nexus-scheduler helm/nexus-scheduler -f my-values.yaml
   [#118](https://github.com/schuecl/nexus-scheduler/issues/118). The
   Compose stack is unaffected: it has no NetworkPolicy, so all three are
   scraped locally.
-  The Grafana dashboards in `observability/grafana/dashboards/` are
-  plain JSON and can be imported or mounted as ConfigMaps for the
-  Grafana sidecar; they are not shipped in the chart, so they cannot
-  drift from the copies used by the Compose stack.
+  Ready-made Grafana dashboards for these metrics ship with the
+  observability stack ([#103](https://github.com/schuecl/nexus-scheduler/issues/103))
+  as plain JSON, importable or mountable as ConfigMaps for the Grafana
+  sidecar; they are deliberately not part of this chart.
 
 ### Container images
 
