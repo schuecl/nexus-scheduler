@@ -210,61 +210,6 @@ dashboard and to attach budgets/rate limits to the LibreChat key.
 
 </details>
 
-### Observability stack (optional)
-
-The app ships Prometheus metrics; this brings up somewhere to put them —
-Grafana with dashboards, backed by Mimir (metrics) and Loki (logs),
-collected by a single Alloy agent. Entirely optional: the app runs
-without it, and the stack is a separate Compose file precisely so it can
-be left off.
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
-# Grafana -> http://localhost:3300   (anonymous admin, dev only)
-```
-
-To turn it off again, just drop the second `-f` — nothing in
-`docker-compose.yml` depends on it.
-
-Eleven dashboards are provisioned automatically, covering the app
-(overview, API, worker, PDF service), the models (per-model latency,
-tokens, errors, spend, and local-vs-hosted savings), the infrastructure
-(Postgres, Redis, containers, host), the logs, and the collector itself.
-That last one matters more than it sounds: if the collector stops
-shipping, every other dashboard goes flat and looks exactly like a
-healthy, idle system — this is the only place that tells the two apart.
-
-Two small exporters fill gaps the upstream components leave. LiteLLM's
-OSS proxy has no `/metrics` endpoint (Prometheus export is an enterprise
-feature), so `litellm-exporter` turns its spend log into the counters the
-cost dashboard needs. And cAdvisor cannot read the cgroup tree on Docker
-Desktop's VM, so `container-stats-exporter` sources the same per-container
-numbers from the Engine API instead — it sits behind a Compose profile, so
-on Docker Desktop add `--profile docker-desktop` to the command above or
-the container panels stay empty:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml \
-  --profile docker-desktop up -d
-```
-
-Everything runs locally — no cloud, no external endpoints. Ports 3000
-and 3001 belong to the api and worker, so Grafana takes 3300.
-
-For Kubernetes, do **not** use this file — see the Helm notes under
-[Deployment](#kubernetes-helm): a real cluster already has a monitoring
-stack, and the app only needs to be scraped by it.
-
-### Running a single package against the Compose infra
-
-```bash
-npm run dev --workspace=packages/api      # or packages/worker, packages/frontend
-```
-
-Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
-(`5432`/`6379`) via a local `.env` in that package, or export them in
-your shell.
-
 ## Configuration
 
 Nexus Scheduler is configured primarily through environment variables
