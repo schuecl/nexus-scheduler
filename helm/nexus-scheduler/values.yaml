@@ -213,9 +213,11 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
-# Observability. The api, worker and pdf-service expose Prometheus metrics
-# (the frontend is an nginx serving static assets and has none); this section
-# is about who collects them.
+# Observability. The api, worker and pdf-service all expose Prometheus metrics
+# (the frontend is an nginx serving static assets and has none), but only the
+# api and worker can be collected in Kubernetes — pdf-service is unreachable by
+# design, see serviceMonitor below. This section is about who does the
+# collecting.
 #
 # Note what is deliberately absent: this chart does not ship Alloy, Mimir, Loki
 # or Grafana. A cluster that runs this app almost certainly already runs a
@@ -230,9 +232,9 @@ observability:
     # statement that the CRD is installed.
     #
     # Pick ONE discovery path. Without the Operator, the pod annotations already
-    # on the api, worker and pdf-service deployments (prometheus.io/scrape)
-    # cover the classic annotation-based scrape config and nothing here is
-    # needed. Enabling this *as well* as an annotation-based Prometheus means
+    # on the api and worker deployments (prometheus.io/scrape) cover the classic
+    # annotation-based scrape config and nothing here is needed. Neither path
+    # reaches pdf-service — see below. Enabling this *as well* as an annotation-based Prometheus means
     # both scrape the same pods: the series differ only by `job`, so nothing
     # errors — the graphs just quietly double wherever a query sums across
     # jobs. The chart cannot detect the annotation path (it lives in

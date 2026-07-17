@@ -331,8 +331,18 @@ helm install nexus-scheduler helm/nexus-scheduler -f my-values.yaml
     — set `observability.serviceMonitor.labels` (commonly `release:
     kube-prometheus-stack`) or the objects are silently ignored, which
     looks identical to the app not exposing metrics at all.
-  - **Annotation-based scraping**: nothing to enable — the api, worker
-    and pdf-service pods already carry `prometheus.io/scrape`.
+  - **Annotation-based scraping**: nothing to enable — the api and worker
+    pods already carry `prometheus.io/scrape`.
+  Either way, **pdf-service is not scrapeable in Kubernetes** and its
+  dashboard will be empty there. That is a deliberate consequence of the
+  isolation it is under, not a Prometheus misconfiguration: its `/metrics`
+  and its `POST /render/*` endpoints are the same listener on the same
+  port, and its NetworkPolicy admits only the api and worker, so nothing
+  can collect the metrics without also exposing the renderer. Making them
+  collectable needs a dedicated metrics port — tracked upstream in
+  [#118](https://github.com/schuecl/nexus-scheduler/issues/118). The
+  Compose stack is unaffected: it has no NetworkPolicy, so all three are
+  scraped locally.
   The Grafana dashboards in `observability/grafana/dashboards/` are
   plain JSON and can be imported or mounted as ConfigMaps for the
   Grafana sidecar; they are not shipped in the chart, so they cannot
