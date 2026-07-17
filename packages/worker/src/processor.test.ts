@@ -348,6 +348,25 @@ describe("processRun (via createRunProcessor)", () => {
       expect(outcome).toBe("completed");
       const updated = await prisma.run.findUniqueOrThrow({ where: { id: run.id } });
       expect(updated.status).toBe("CANCELLED");
+
+      // A cancellation is not an API failure: LibreChat behaved correctly and a
+      // user chose to stop. Counting it would page whoever alerts on the error
+      // rate every time someone cancels. Only the in-flight path can reach the
+      // error counter — a run cancelled while still queued throws before the
+      // call is ever timed — so this is the case that has to assert it.
+      const errorSamples = (await metrics.librechatErrorsTotal.get()).values;
+      expect(errorSamples.filter((s) => s.labels.kind === "cancelled")).toHaveLength(0);
+
+      // ...but the call itself did happen and did take time, so it stays in the
+      // latency histogram, distinguishable from success by `outcome`. Dropping
+      // it would hide real latency.
+      const callSamples = (await metrics.librechatCallDuration.get()).values;
+      expect(callSamples.some((s) => s.labels.outcome === "cancelled")).toBe(true);
+
+      // And the run itself is still counted — cancellations are not going
+      // unmeasured, they are just not being measured as errors.
+      const runSamples = (await metrics.runsTotal.get()).values;
+      expect(runSamples.find((s) => s.labels.status === "cancelled")?.value).toBe(1);
     } finally {
       await stopSubscriber();
     }

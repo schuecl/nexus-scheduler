@@ -269,7 +269,18 @@ async function processRun(
           // model with no traffic.
           const kind = err instanceof LibreChatError ? err.kind : "network_error";
           stopLibrechatTimer({ model: UNKNOWN_MODEL, outcome: kind });
-          metrics.librechatErrorsTotal.inc({ kind, model: UNKNOWN_MODEL });
+          // A cancellation is not a failure of the API — LibreChat did nothing
+          // wrong, a user chose to stop. Counting it here would page whoever
+          // alerts on the error rate every time someone cancels a run, and put
+          // a deliberate human action next to timeouts and outages, which call
+          // for the opposite response. It stays on the histogram above:
+          // the call really happened and really took time, `outcome` already
+          // tells it apart from success, and runs_total{status="cancelled"}
+          // counts the runs themselves — so nothing goes unmeasured, it just
+          // stops being measured as the wrong thing.
+          if (kind !== "cancelled") {
+            metrics.librechatErrorsTotal.inc({ kind, model: UNKNOWN_MODEL });
+          }
           throw err;
         }
       } finally {
