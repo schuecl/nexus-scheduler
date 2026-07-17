@@ -213,8 +213,9 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
-# Observability. The app exposes Prometheus metrics on every service; this
-# section is about who collects them.
+# Observability. The api, worker and pdf-service expose Prometheus metrics
+# (the frontend is an nginx serving static assets and has none); this section
+# is about who collects them.
 #
 # Note what is deliberately absent: this chart does not ship Alloy, Mimir, Loki
 # or Grafana. A cluster that runs this app almost certainly already runs a
@@ -228,13 +229,18 @@ observability:
     # applying one to a cluster without it fails outright. Enabling this is a
     # statement that the CRD is installed.
     #
-    # Without the Operator, the pod annotations already on the api, worker and
-    # pdf-service deployments (prometheus.io/scrape) cover the classic
-    # annotation-based scrape config — nothing here is required for that path.
+    # Pick ONE discovery path. Without the Operator, the pod annotations already
+    # on the api, worker and pdf-service deployments (prometheus.io/scrape)
+    # cover the classic annotation-based scrape config and nothing here is
+    # needed. Enabling this *as well* as an annotation-based Prometheus means
+    # both scrape the same pods: the series differ only by `job`, so nothing
+    # errors — the graphs just quietly double wherever a query sums across
+    # jobs. The chart cannot detect the annotation path (it lives in
+    # Prometheus's own config), so this is the operator's call to make.
     enabled: false
-    # Matches the app's own scrape interval in the compose stack. The queue_depth
-    # gauge queries Redis on every scrape, so this is not free — halving it
-    # doubles that load for little extra resolution.
+    # Matches the app's own scrape interval in the compose stack. The
+    # queue_depth gauge queries Redis on every scrape, so this is not free —
+    # halving it doubles that load for little extra resolution.
     interval: 15s
     scrapeTimeout: 10s
     # Extra labels on the ServiceMonitor itself. Most Prometheus Operator
@@ -242,12 +248,32 @@ observability:
     # is the common one) and will silently ignore this object without it —
     # which looks exactly like the app not exposing metrics.
     labels: {}
-    # Applied at ingestion, before storage. See #108: the `route` label on
-    # nexus_scheduler_http_request_duration_seconds currently contains raw ids
-    # for routers mounted with a param, which is unbounded cardinality. Until
-    # that is fixed upstream, a cluster can defend itself here, e.g.:
-    #   - sourceLabels: [route]
-    #     regex: '(/api/(projects|jobs)/)[0-9a-f-]{36}(/.*)'
-    #     targetLabel: route
-    #     replacement: '${1}:id${3}'
+    # pdf-service is deliberately network-isolated: pdf-service-networkpolicy.yaml
+    # denies all ingress except from this release's api and worker pods, because
+    # a headless-Chromium renderer should not be reachable by anything else
+    # (REQUIREMENTS §2.5). Prometheus is not one of those pods, so scraping it
+    # needs an explicit hole punched for whatever Prometheus runs as.
+    #
+    # Left empty, no ServiceMonitor is rendered for pdf-service at all. That is
+    # deliberate: the alternative is a target Prometheus can never reach, which
+    # shows up as permanently down and pages someone about a scrape failure that
+    # is really a policy decision. No target beats a dead one.
+    #
+    # Set this to the NetworkPolicy peer(s) your Prometheus runs as, and both
+    # the ingress rule and the ServiceMonitor appear together, e.g.:
+    #   scrapeFrom:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: monitoring
+    scrapeFrom: []
+    # Applied at ingestion, before storage — the place to drop a metric this
+    # cluster does not want to pay to keep, or to rewrite a label whose
+    # cardinality is a problem in your deployment specifically. Left empty
+    # because the app's own labels are already bounded by design: `route` is the
+    # matched Express route pattern, never a raw id, and 404s collapse to
+    # "unmatched" rather than echoing an attacker-controlled path. Example:
+    #   metricRelabelings:
+    #     - sourceLabels: [__name__]
+    #       regex: 'nodejs_gc_duration_seconds.*'
+    #       action: drop
     metricRelabelings: []

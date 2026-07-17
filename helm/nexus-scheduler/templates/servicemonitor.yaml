@@ -14,9 +14,20 @@ statement that the CRD exists.
 */ -}}
 {{- if .Values.observability.serviceMonitor.enabled }}
 {{- $components := list
-      (dict "name" "api"         "port" "http")
-      (dict "name" "worker"      "port" "health")
-      (dict "name" "pdf-service" "port" "http") }}
+      (dict "name" "api"    "port" "http")
+      (dict "name" "worker" "port" "health") }}
+{{- /*
+pdf-service only when there is a route for Prometheus to actually reach it.
+Its NetworkPolicy denies all ingress except from this release's api and worker
+(REQUIREMENTS §2.5 — a headless-Chromium renderer reachable by nothing else),
+so rendering a ServiceMonitor regardless would create a target that is
+permanently down and page someone about a scrape failure that is really a
+policy decision. observability.serviceMonitor.scrapeFrom is what opens the
+path; until it is set, no target is the honest answer.
+*/ -}}
+{{- if .Values.observability.serviceMonitor.scrapeFrom }}
+{{- $components = append $components (dict "name" "pdf-service" "port" "http") }}
+{{- end }}
 {{- range $c := $components }}
 ---
 apiVersion: monitoring.coreos.com/v1

@@ -239,7 +239,14 @@ OSS proxy has no `/metrics` endpoint (Prometheus export is an enterprise
 feature), so `litellm-exporter` turns its spend log into the counters the
 cost dashboard needs. And cAdvisor cannot read the cgroup tree on Docker
 Desktop's VM, so `container-stats-exporter` sources the same per-container
-numbers from the Engine API instead.
+numbers from the Engine API instead — it sits behind a Compose profile, so
+on Docker Desktop add `--profile docker-desktop` to the command above or
+the container panels stay empty:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile docker-desktop up -d
+```
 
 Everything runs locally — no cloud, no external endpoints. Ports 3000
 and 3001 belong to the api and worker, so Grafana takes 3300.

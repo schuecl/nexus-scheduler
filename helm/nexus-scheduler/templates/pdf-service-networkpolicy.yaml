@@ -34,6 +34,22 @@ spec:
               app.kubernetes.io/component: worker
       ports:
         - port: {{ .Values.pdfService.port }}
+  {{- /*
+  Prometheus, when — and only when — an operator has said where it runs.
+  Scraping /metrics reads counters this pod already publishes; it does not
+  widen what pdf-service can be asked to *do*. The rule above still gates the
+  render endpoint to api/worker, and egress stays empty, so this pod still
+  cannot reach anything itself. Rendering only with scrapeFrom set leaves the
+  default posture byte-for-byte what it was — and servicemonitor.yaml omits the
+  pdf-service target in that same case, rather than pointing Prometheus at a
+  door this policy keeps shut.
+  */ -}}
+  {{- with .Values.observability.serviceMonitor.scrapeFrom }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: {{ $.Values.pdfService.port }}
+  {{- end }}
   # No egress rules at all: `renderHtmlToPdf` only ever calls
   # `page.setContent()` on an already-built HTML string this process
   # generated itself — it never navigates to a URL, local or remote —
