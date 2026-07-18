@@ -19,6 +19,8 @@ import { startCancellationSubscriber } from "./cancellation.js";
 interface RawTestClient {
   sadd(key: string, member: string): Promise<number>;
   publish(channel: string, message: string): Promise<number>;
+  zadd(key: string, score: number, member: string): Promise<number>;
+  zcard(key: string): Promise<number>;
 }
 
 // Real Redis + real Postgres + a real in-process HTTP server standing in
@@ -309,6 +311,61 @@ describe("processRun (via createRunProcessor)", () => {
     const events = await prisma.auditEvent.findMany({ where: { correlationId: run.id, action: "run.complete" } });
     expect(events).toHaveLength(1);
     expect(events[0]?.result).toBe("SUCCESS");
+  });
+
+  // Regression tests for issue #124: a worker that acquires a run's
+  // concurrency slot and then crashes before its own `finally` runs
+  // leaves a stale member in the user's ZSET — self-healing eventually
+  // via TTL, but not before throttling that user's *other* runs for
+  // however long was left on a run that isn't even executing anymore.
+  // Both early-return paths that can follow such a crash now release it
+  // immediately instead of waiting. Simulated here by seeding the ZSET
+  // member directly (standing in for "a prior worker acquired this and
+  // died") rather than actually crashing a worker mid-run.
+
+  it("releases a stale concurrency slot when skipping a run that's already terminal", async () => {
+    const { server, baseUrl, callCount } = await listenLibreChat(() => ({
+      status: 200,
+      body: { choices: [{ message: { content: "should never be seen" }, finish_reason: "stop" }] },
+    }));
+    libreChatServer = server;
+    const { job, user } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id, "SUCCESS");
+
+    worker = createRunProcessor(connection, { ...config, LIBRECHAT_BASE_URL: baseUrl }, logger, metrics);
+    const raw = (await worker.client) as unknown as RawTestClient;
+    const slotKey = `nexus:concurrency:user:${user.id}`;
+    await raw.zadd(slotKey, Date.now() + 60_000, run.id);
+    expect(await raw.zcard(slotKey)).toBe(1);
+
+    const bullJob = await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 1 });
+    await waitForJobOutcome(worker, bullJob.id!);
+
+    expect(callCount()).toBe(0); // the idempotency guard returned before ever calling the agent
+    expect(await raw.zcard(slotKey)).toBe(0);
+  });
+
+  it("releases a stale concurrency slot when cancelling a run before it starts", async () => {
+    const { server, baseUrl } = await listenLibreChat(() => ({
+      status: 200,
+      body: { choices: [{ message: { content: "should never be seen" }, finish_reason: "stop" }] },
+    }));
+    libreChatServer = server;
+    const { job, user } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id);
+
+    worker = createRunProcessor(connection, { ...config, LIBRECHAT_BASE_URL: baseUrl }, logger, metrics);
+    const raw = (await worker.client) as unknown as RawTestClient;
+    const slotKey = `nexus:concurrency:user:${user.id}`;
+    await raw.zadd(slotKey, Date.now() + 60_000, run.id);
+    await raw.sadd(RUN_CANCEL_REQUESTED_KEY, run.id);
+
+    const bullJob = await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 1 });
+    await waitForJobOutcome(worker, bullJob.id!);
+
+    const updated = await prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+    expect(updated.status).toBe("CANCELLED");
+    expect(await raw.zcard(slotKey)).toBe(0);
   });
 
   it("aborts an in-flight agent call when cancellation is requested while it's running", async () => {

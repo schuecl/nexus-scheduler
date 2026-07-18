@@ -1,4 +1,4 @@
-import { Worker, DelayedError, type ConnectionOptions, type Job as BullJob } from "bullmq";
+import { Worker, DelayedError, type ConnectionOptions, type Job as BullJob, type RedisClient } from "bullmq";
 import { decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "./db.js";
 import { RUNS_QUEUE_NAME, type RunJobData } from "./queue.js";
@@ -111,6 +111,23 @@ async function markRunCancelled(
   await deliverTerminalSideEffects(runId, jobId, config, logger);
 }
 
+// Best-effort release used on every exit path that can follow a prior
+// (possibly crashed) worker's successful acquire for this exact runId —
+// see the two early-return call sites below and issue #124. A plain
+// ZREM, so calling it when there was never anything to release (the
+// overwhelming majority of the time) is a harmless no-op; never allowed
+// to fail processing, since the TTL self-heals a leaked slot regardless.
+async function releaseUserSlotSafely(
+  redisClient: RedisClient,
+  userId: string,
+  runId: string,
+  logger: Logger,
+): Promise<void> {
+  await releaseUserSlot(redisClient, userId, runId).catch((releaseErr: unknown) => {
+    logger.warn({ runId, userId, err: releaseErr }, "failed to release concurrency slot — will self-expire via TTL");
+  });
+}
+
 async function processRun(
   bullJob: BullJob<RunJobData>,
   token: string | undefined,
@@ -136,18 +153,23 @@ async function processRun(
     },
   });
 
+  const userId = run.job.createdById;
+  const redisClient = await worker.client;
+
   // Idempotency guard: a Run already in a terminal state has already
   // been fully processed — re-running it would call the agent a second
   // time (duplicate cost/side effects) or overwrite a SUCCESS result.
   // This can happen via BullMQ redelivery after a worker crash between
   // finishing the DB update and acking the job, not just the specific
-  // webhook/notification-failure scenario below.
+  // webhook/notification-failure scenario below. Also releases this
+  // run's slot on the way out (issue #124): a worker that crashed after
+  // writing the terminal status but before its own `finally` ran would
+  // otherwise leave that slot held until TTL expiry.
   if (run.status === "SUCCESS" || run.status === "FAILED" || run.status === "CANCELLED" || run.status === "SKIPPED") {
     logger.warn({ runId, status: run.status }, "run already in a terminal state, skipping reprocessing");
+    await releaseUserSlotSafely(redisClient, userId, runId, logger);
     return;
   }
-
-  const redisClient = await worker.client;
 
   // A Run cancelled while still queued/delayed (never yet reached this
   // point before) — checked before doing any of the real work below
@@ -155,6 +177,13 @@ async function processRun(
   // cancelled Run never actually calls the agent (issue #111). A Run
   // cancelled *during* the agent call is handled separately, further
   // down, since by then this check has already passed.
+  //
+  // Also releases this run's slot on the way out (issue #124): if a
+  // prior worker acquired it and crashed before releasing, this run
+  // never reaches the slot-acquisition block below to trigger the usual
+  // release-on-finally, so nothing else would clean it up before its
+  // TTL — a stale slot otherwise throttles that user's *other* runs for
+  // however long was left on a run that is no longer even executing.
   if (await isCancelRequested(redisClient, runId)) {
     await clearCancelRequest(redisClient, runId);
     logger.info({ runId }, "run cancelled before it started");
@@ -168,6 +197,7 @@ async function processRun(
       logger,
       metrics,
     );
+    await releaseUserSlotSafely(redisClient, userId, runId, logger);
     return;
   }
 
@@ -180,7 +210,6 @@ async function processRun(
   // TTL is generous (job timeout + 5min buffer) so a crashed worker
   // that never releases its slot self-heals instead of permanently
   // shrinking that user's effective limit.
-  const userId = run.job.createdById;
   const slotTtlMs = run.job.timeoutSeconds * 1000 + 5 * 60_000;
   const acquired = await tryAcquireUserSlot(
     redisClient,
@@ -424,11 +453,6 @@ async function processRun(
       throw err; // rethrow so BullMQ applies the configured retry/backoff (§2.1)
     }
   } finally {
-    await releaseUserSlot(redisClient, userId, runId).catch((releaseErr: unknown) => {
-      logger.warn(
-        { runId, userId, err: releaseErr },
-        "failed to release concurrency slot — will self-expire via TTL",
-      );
-    });
+    await releaseUserSlotSafely(redisClient, userId, runId, logger);
   }
 }
