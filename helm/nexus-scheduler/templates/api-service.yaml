@@ -10,5 +10,9 @@ spec:
     {{- include "nexus-scheduler.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: api
   ports:
+    # Named so a ServiceMonitor can select it by name (see
+    # servicemonitor.yaml). Callers address the port by number, so adding a
+    # name to a previously-unnamed single port changes nothing for them.
     - port: {{ .Values.api.port }}
       targetPort: {{ .Values.api.port }}
+      name: http

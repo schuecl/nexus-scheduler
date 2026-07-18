@@ -69,8 +69,10 @@ explicitly configured rather than fetched at install time.
   and acceptance is audit-logged. Re-shown on every visit to the login
   page rather than remembered, matching how consent-to-monitor banners
   are expected to behave.
-- **Observability** — Prometheus metrics, a Postgres-backed audit log,
-  and an optional RFC 5424 syslog mirror for SIEM integration.
+- **Observability** — Prometheus metrics from every service (including
+  per-model LLM latency, token consumption and error kinds), a
+  Postgres-backed audit log, and an optional RFC 5424 syslog mirror for
+  SIEM integration.
 - **Admin console** — user/role management, classification taxonomy,
   cost rates, and the webhook destination allow-list.
 - **Built-in Knowledge Base** — a searchable, offline (bundled, no
@@ -207,16 +209,6 @@ dashboard and to attach budgets/rate limits to the LibreChat key.
 
 </details>
 
-### Running a single package against the Compose infra
-
-```bash
-npm run dev --workspace=packages/api      # or packages/worker, packages/frontend
-```
-
-Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
-(`5432`/`6379`) via a local `.env` in that package, or export them in
-your shell.
-
 ## Configuration
 
 Nexus Scheduler is configured primarily through environment variables
@@ -273,6 +265,32 @@ helm install nexus-scheduler helm/nexus-scheduler -f my-values.yaml
 - Run `helm template`/`helm lint` against your own values before
   installing, and see the chart's `NOTES.txt` (printed after install)
   for the exact list of Secrets that must exist beforehand.
+- Metrics are exposed by every service and collected by whatever the
+  cluster already runs — this chart deliberately does not deploy
+  Alloy/Mimir/Loki/Grafana. Two supported paths:
+  - **Prometheus Operator**: set `observability.serviceMonitor.enabled:
+    true` to render a ServiceMonitor per service. Off by default because
+    it needs the Operator's CRD, and applying one without it fails the
+    install. Most Operator installs also select ServiceMonitors by label
+    — set `observability.serviceMonitor.labels` (commonly `release:
+    kube-prometheus-stack`) or the objects are silently ignored, which
+    looks identical to the app not exposing metrics at all.
+  - **Annotation-based scraping**: nothing to enable — the api and worker
+    pods already carry `prometheus.io/scrape`.
+  Either way, **pdf-service is not scrapeable in Kubernetes** and its
+  dashboard will be empty there. That is a deliberate consequence of the
+  isolation it is under, not a Prometheus misconfiguration: its `/metrics`
+  and its `POST /render/*` endpoints are the same listener on the same
+  port, and its NetworkPolicy admits only the api and worker, so nothing
+  can collect the metrics without also exposing the renderer. Making them
+  collectable needs a dedicated metrics port — tracked upstream in
+  [#118](https://github.com/schuecl/nexus-scheduler/issues/118). The
+  Compose stack is unaffected: it has no NetworkPolicy, so all three are
+  scraped locally.
+  Ready-made Grafana dashboards for these metrics ship with the
+  observability stack ([#103](https://github.com/schuecl/nexus-scheduler/issues/103))
+  as plain JSON, importable or mountable as ConfigMaps for the Grafana
+  sidecar; they are deliberately not part of this chart.
 
 ### Container images
 

@@ -212,3 +212,59 @@ securityContext:
   readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
+
+# Observability. The api, worker and pdf-service all expose Prometheus metrics
+# (the frontend is an nginx serving static assets and has none), but only the
+# api and worker can be collected in Kubernetes — pdf-service is unreachable by
+# design, see serviceMonitor below. This section is about who does the
+# collecting.
+#
+# Note what is deliberately absent: this chart does not ship Alloy, Mimir, Loki
+# or Grafana. A cluster that runs this app almost certainly already runs a
+# monitoring stack, and an app chart bringing its own would duplicate storage,
+# compete for scrape ownership, and make this chart responsible for upgrading
+# four components it does not own. The repo's compose observability overlay
+# (issue #103) exists for local development, where none of that is true.
+observability:
+  serviceMonitor:
+    # Off by default: a ServiceMonitor needs the Prometheus Operator's CRD, and
+    # applying one to a cluster without it fails outright. Enabling this is a
+    # statement that the CRD is installed.
+    #
+    # Pick ONE discovery path. Without the Operator, the pod annotations already
+    # on the api and worker deployments (prometheus.io/scrape) cover the classic
+    # annotation-based scrape config and nothing here is needed. Neither path
+    # reaches pdf-service — see below. Enabling this *as well* as an annotation-based Prometheus means
+    # both scrape the same pods: the series differ only by `job`, so nothing
+    # errors — the graphs just quietly double wherever a query sums across
+    # jobs. The chart cannot detect the annotation path (it lives in
+    # Prometheus's own config), so this is the operator's call to make.
+    enabled: false
+    # Matches the app's own scrape interval in the compose stack. The
+    # queue_depth gauge queries Redis on every scrape, so this is not free —
+    # halving it doubles that load for little extra resolution.
+    interval: 15s
+    scrapeTimeout: 10s
+    # Extra labels on the ServiceMonitor itself. Most Prometheus Operator
+    # installs select ServiceMonitors by label (`release: kube-prometheus-stack`
+    # is the common one) and will silently ignore this object without it —
+    # which looks exactly like the app not exposing metrics.
+    labels: {}
+    # pdf-service is not scraped, and cannot safely be. It is the one
+    # component REQUIREMENTS §2.5 isolates outright, and its NetworkPolicy is
+    # not one control among several — app.ts says so itself: "access control is
+    # NetworkPolicy, not session/API-key auth". Its /metrics and its
+    # POST /render/* endpoints are the same Express listener on the same port,
+    # and a NetworkPolicy cannot tell them apart, so any rule that lets
+    # Prometheus in also lets that namespace drive Chromium. Doing it safely
+    # needs a dedicated metrics listener — an application change, not a chart
+    # one. api and worker are unaffected and are scraped normally.
+    #
+    # Applied at ingestion, before storage — the place to drop a metric family
+    # this cluster does not want to pay to keep, or to rewrite a label whose
+    # cardinality is a problem in your deployment specifically. Example:
+    #   metricRelabelings:
+    #     - sourceLabels: [__name__]
+    #       regex: 'nodejs_gc_duration_seconds.*'
+    #       action: drop
+    metricRelabelings: []

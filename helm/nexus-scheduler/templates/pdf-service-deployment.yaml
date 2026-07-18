@@ -17,9 +17,17 @@ spec:
         {{- include "nexus-scheduler.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: pdf-service
       annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: {{ .Values.pdfService.port | quote }}
+        # No prometheus.io/scrape here, unlike api and worker. This pod's
+        # NetworkPolicy admits only this release's api and worker (§2.5), so
+        # an annotation-scraping Prometheus is refused at the network — the
+        # annotation would advertise a target that can never answer, and a
+        # permanently-down target pages someone about a policy decision.
+        #
+        # It is not an oversight and not a missing feature: /metrics and
+        # POST /render/* are the same listener on the same port, so nothing
+        # can admit the scrape without also admitting anything in that
+        # namespace to drive Chromium. Collecting it needs a dedicated
+        # metrics port — an application change, tracked in schuecl#118.
     spec:
       serviceAccountName: {{ include "nexus-scheduler.serviceAccountName" . }}
       securityContext:

@@ -1,0 +1,72 @@
+{{- /*
+Integration point for a cluster that already runs Prometheus, rather than a
+monitoring stack of our own. The app exposes /metrics; the platform collects it.
+
+Deliberately not shipping Alloy/Mimir/Loki/Grafana in this chart: a real cluster
+already has them, and an app chart that brings its own would duplicate storage,
+compete for scrape ownership, and make this chart responsible for upgrading four
+infrastructure components it does not own. the repo's compose observability overlay (issue #103)
+exists for local development, where none of that is true.
+
+Off by default: this needs the Prometheus Operator's CRD, and rendering a
+ServiceMonitor into a cluster without it fails the apply. Turning it on is a
+statement that the CRD exists.
+
+pdf-service is deliberately absent. It is the one component REQUIREMENTS §2.5
+isolates outright, and pdf-service-networkpolicy.yaml is not merely one control
+among several — app.ts says so itself: "access control is NetworkPolicy, not
+session/API-key auth". Scraping it would mean opening its port to the monitoring
+namespace, and a NetworkPolicy cannot distinguish GET /metrics from
+POST /render/* — they are the same Express listener on the same port, and the
+chart sets no PDF_SERVICE_SHARED_SECRET. So the hole that admits Prometheus also
+admits anything in that namespace to drive Chromium. Collecting a metric is not
+worth handing that away; doing it safely needs a dedicated metrics listener,
+which is an application change, not a chart one.
+*/ -}}
+{{- if .Values.observability.serviceMonitor.enabled }}
+{{- $components := list
+      (dict "name" "api"    "port" "http")
+      (dict "name" "worker" "port" "health") }}
+{{- range $c := $components }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "nexus-scheduler.fullname" $ }}-{{ $c.name }}
+  labels:
+    {{- include "nexus-scheduler.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+    {{- with $.Values.observability.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nexus-scheduler.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $c.name }}
+  namespaceSelector:
+    matchNames:
+      - {{ $.Release.Namespace }}
+  endpoints:
+    - port: {{ $c.port }}
+      path: /metrics
+      interval: {{ $.Values.observability.serviceMonitor.interval }}
+      scrapeTimeout: {{ $.Values.observability.serviceMonitor.scrapeTimeout }}
+      # The Operator derives `service` from the Kubernetes Service name, so
+      # these targets would arrive as service="<release>-api" while the
+      # dashboards — and the Compose collector they were written against —
+      # use the bare component name. Every Node/process panel filters on it
+      # (`nodejs_eventloop_lag_p99_seconds{service="api"}` and friends), so
+      # without this the runtime rows are blank in Kubernetes while the
+      # metrics are demonstrably being scraped: the worst kind of empty
+      # panel, because nothing is broken. Pinning it here keeps one set of
+      # dashboards honest in both places.
+      relabelings:
+        - targetLabel: service
+          replacement: {{ $c.name }}
+      {{- with $.Values.observability.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}
