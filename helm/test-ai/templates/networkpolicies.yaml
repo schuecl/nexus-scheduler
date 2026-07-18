@@ -1,0 +1,79 @@
+{{- if .Values.networkPolicy.enabled }}
+# The chart's no-auth surfaces, isolated by topology (same posture as
+# the app chart's pdf-service and the ocr chart): Mongo runs --noauth
+# and Ollama has no auth at all, so without these any pod in the
+# cluster could reach them on clusters lacking a default-deny.
+# Ingress-only policies: egress stays open (model pulls, gateway calls).
+# Requires a CNI that enforces NetworkPolicy — without one this renders
+# but does nothing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "test-ai.fullname" . }}-mongo
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mongo
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: librechat
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: mongo
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "test-ai.fullname" . }}-ollama
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Ingress"]
+  ingress:
+    # Only the gateway — the enforcement point for metering — may talk
+    # to the inference engine, plus the model-pull Job via its stable
+    # component label (its name changes every revision).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: test-ai
+              app.kubernetes.io/component: ollama-pull
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-postgres
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: pg
+{{- end }}

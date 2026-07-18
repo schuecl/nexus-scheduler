@@ -1,0 +1,308 @@
+{{- define "test-ai.litellmConfig" -}}
+model_list:
+{{- range .Values.models }}
+  - model_name: {{ .name | quote }}
+    litellm_params:
+      model: {{ printf "ollama_chat/%s" .ollamaModel | quote }}
+      api_base: http://{{ include "test-ai.fullname" $ }}-ollama:11434
+{{- end }}
+{{- if .Values.anthropic.enabled }}
+  - model_name: claude-sonnet
+    litellm_params:
+      model: {{ printf "anthropic/%s" .Values.anthropic.model | quote }}
+      api_key: os.environ/ANTHROPIC_API_KEY
+{{- end }}
+litellm_settings:
+  request_timeout: 600
+  telemetry: false
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+{{- end -}}
+# The gateway — every model call is metered here (per-key spend,
+# budgets, RPM/TPM), which is data LibreChat's Agents API doesn't
+# provide. Routes to Ollama in this release; hosted Anthropic joins
+# the same model_list when anthropic.enabled, so no traffic can
+# bypass metering.
+{{- $secretName := .Values.litellm.existingSecret | default (printf "%s-litellm-keys" (include "test-ai.fullname" .)) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-config
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "test-ai.litellmConfig" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-postgres
+  labels:
+    app.kubernetes.io/name: litellm-postgres
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "test-ai.fullname" . }}-litellm-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm-postgres
+        {{- include "test-ai.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.litellmPostgres.image) }}
+          env:
+            - name: POSTGRES_DB
+              value: litellm
+            - name: POSTGRES_USER
+              value: litellm
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: postgresPassword
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: pg
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "litellm", "-d", "litellm"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.litellmPostgres.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.litellmPostgres.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.litellmPostgres.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-postgres
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: litellm-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm
+  labels:
+    app.kubernetes.io/name: litellm
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm
+        {{- include "test-ai.labels" . | nindent 8 }}
+      annotations:
+        # The RENDERED config, not just values: template-side changes
+        # (request_timeout, general_settings, endpoint shape) must roll
+        # the pod too — the subPath mount never propagates ConfigMap
+        # updates to a running container.
+        checksum/config: {{ include "test-ai.litellmConfig" . | sha256sum | trunc 32 }}
+    spec:
+      containers:
+        - name: litellm
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.litellm.image) }}
+          # The DSN is assembled at container start so the password is
+          # URL-encoded first — an externally-managed postgresPassword
+          # may contain URL-reserved characters that a raw Kubernetes
+          # $(VAR) substitution would misparse.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export DATABASE_URL="postgresql://litellm:$(python3 -c 'import urllib.parse,os,sys; sys.stdout.write(urllib.parse.quote(os.environ["LITELLM_PG_PASSWORD"], safe=""))')@{{ include "test-ai.fullname" . }}-litellm-postgres:5432/litellm"
+              exec litellm --config /app/config.yaml --port 4000
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: masterKey
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: saltKey
+            - name: LITELLM_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: postgresPassword
+            {{- if .Values.anthropic.enabled }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "anthropic.enabled requires anthropic.existingSecret (a Secret with key `apiKey`)" .Values.anthropic.existingSecret }}
+                  key: apiKey
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 4000
+          readinessProbe:
+            # readiness (not liveliness): includes the DB connection the
+            # key endpoints need; db is the field docs and images agree on.
+            exec:
+              command:
+                - python3
+                - -c
+                - "import json,sys,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:4000/health/readiness')); sys.exit(0 if r.get('db')=='connected' else 1)"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+            # The probe shells into python; the k8s default 1s timeout
+            # kills it mid-import (observed flapping on a real install).
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          resources:
+            {{- toYaml .Values.litellm.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "test-ai.fullname" . }}-litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.litellm.service.type }}
+  selector:
+    app.kubernetes.io/name: litellm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+---
+# Provisions LibreChat's llm_api-only virtual key — the same
+# least-privilege split as the Compose stack: the master key never
+# enters the librechat container, budgets/limits attach to the virtual
+# key. Runs as a hook Job; the script no-ops when the key exists and
+# migrates pre-existing default-type keys.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-init
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  init-librechat-key.py: |-
+    {{- .Files.Get "config/init-librechat-key.py" | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "test-ai.fullname" . }}-litellm-init
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # 1, not more: each attempt already contains its own ~4m readiness
+  # wait — retrying the whole loop would sail far past Helm's 5m hook
+  # budget with the release long since marked failed.
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "test-ai.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.litellm.image) }}
+          # Helm runs post-install hooks when resources are LOADED, not
+          # ready (unless --wait) — on a first install LiteLLM is still
+          # pulling images/running migrations. Wait for its readiness
+          # (bounded: 10m covers a slow first pull) before the script;
+          # the script itself has no readiness loop by design.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # Bounded to stay inside Helm's default 5m hook timeout:
+              # worst case ~50 x (3s request timeout + 2s sleep) = 4m10s.
+              # Slow first installs (image pulls, long migrations) should
+              # pass --timeout to helm rather than have this hook race it.
+              # Readiness means the DB is CONNECTED, not just HTTP 200 —
+              # the key endpoints this script calls are DB-backed, and
+              # /health/readiness reports db separately from its status.
+              tries=0
+              until python3 -c "import urllib.request,os,json,sys; body=json.load(urllib.request.urlopen(os.environ['LITELLM_URL'] + '/health/readiness', timeout=3)); sys.exit(0 if body.get('db')=='connected' else 1)" 2>/dev/null; do
+                tries=$((tries+1))
+                if [ "$tries" -ge 50 ]; then
+                  echo "litellm at $LITELLM_URL not db-ready within the hook budget" >&2
+                  exit 1
+                fi
+                echo "waiting for litellm db readiness..."
+                sleep 2
+              done
+              exec python3 /app/init-librechat-key.py
+          env:
+            - name: LITELLM_URL
+              value: http://{{ include "test-ai.fullname" . }}-litellm:4000
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: masterKey
+            - name: LITELLM_LIBRECHAT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: librechatKey
+          volumeMounts:
+            - name: script
+              mountPath: /app/init-librechat-key.py
+              subPath: init-librechat-key.py
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: {{ include "test-ai.fullname" . }}-litellm-init

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # Overridable for environments where the gateway is not literally
@@ -31,7 +32,9 @@ def call(path, payload=None):
 
 
 try:
-    resp = json.load(call("/key/info?key=" + LIBRECHAT_KEY))
+    # quote(): a key containing URL-reserved characters (+ & # %) would
+    # otherwise change meaning in the query string and break idempotence.
+    resp = json.load(call("/key/info?key=" + urllib.parse.quote(LIBRECHAT_KEY, safe="")))
     # A key provisioned before key_type existed here is default-type —
     # it can reach LiteLLM's management routes, which the master-key
     # separation exists to prevent. Migrate it in place rather than

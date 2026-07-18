@@ -87,20 +87,24 @@ jobs:
         # authoritative from the tag, the same way the image tags above
         # already are, regardless of what's committed in Chart.yaml.
         run: |
-          helm package helm/nexus-scheduler \
-            --version "${{ steps.version.outputs.version }}" \
-            --app-version "${{ steps.version.outputs.version }}" \
-            --destination .
+          for chart in helm/nexus-scheduler helm/test-ai; do
+            helm package "$chart" \
+              --version "${{ steps.version.outputs.version }}" \
+              --app-version "${{ steps.version.outputs.version }}" \
+              --destination .
+          done
 
       - name: helm push (OCI)
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-          helm push "nexus-scheduler-${{ steps.version.outputs.version }}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
+          for chart in nexus-scheduler test-ai; do
+            helm push "${chart}-${{ steps.version.outputs.version }}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
           name: helm-chart
-          path: nexus-scheduler-*.tgz
+          path: "*.tgz"
           retention-days: 1
 
   github-release:
@@ -131,4 +135,4 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release-notes.md
           generate_release_notes: false
-          files: nexus-scheduler-*.tgz
+          files: "*.tgz"
