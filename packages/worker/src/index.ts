@@ -10,6 +10,7 @@ import { createMetrics } from "./metrics.js";
 import { startUsageReportLoop } from "./usageReportScheduler.js";
 import { startCancellationSubscriber } from "./cancellation.js";
 import { startOrphanReaperLoop } from "./orphanReaper.js";
+import { startComponentStatusPublisherLoop } from "./componentStatusPublisher.js";
 
 async function main() {
   const config = loadConfig();
@@ -30,6 +31,7 @@ async function main() {
   startSchedulerLoop(queue, config, logger, metrics);
   const usageReportInterval = startUsageReportLoop(config, logger);
   const orphanReaperInterval = startOrphanReaperLoop(queue, config, logger, metrics);
+  const componentStatusInterval = startComponentStatusPublisherLoop(queue, config, logger);
   const runWorker = createRunProcessor(connection, config, logger, metrics);
 
   runWorker.on("failed", (job, err) => {
@@ -46,6 +48,7 @@ async function main() {
         logger.info({ signal }, "shutting down worker");
         clearInterval(usageReportInterval);
         clearInterval(orphanReaperInterval);
+        clearInterval(componentStatusInterval);
         await stopCancellationSubscriber();
         await runWorker.close();
         await queue.close();

@@ -7,7 +7,7 @@
 export interface KbArticle {
   slug: string;
   title: string;
-  category: "Getting Started" | "Modules" | "Admin" | "Troubleshooting";
+  category: "Getting Started" | "Modules" | "Admin" | "Architecture" | "Troubleshooting";
   summary: string;
   content: string;
 }
@@ -591,6 +591,52 @@ target (see [Jobs, notifications & webhooks](/help/jobs)) — destinations
 aren't arbitrary user-supplied URLs, precisely so a Job can't be used to
 exfiltrate data to an unapproved endpoint. Includes a test-send button and
 signing-secret rotation.
+`,
+  },
+  {
+    slug: "architecture",
+    title: "Architecture: live system map",
+    category: "Architecture",
+    summary: "Which components are set up, and which connections are working right now.",
+    content: `
+This page answers "which components are set up, and which connections are
+working right now" — normally something you'd have to piece together from
+compose files, Helm values, and logs. The live diagram above this text
+(rendered by the app, not part of this article) shows every component this
+deployment actually depends on and whether it's currently reachable.
+
+## How it's determined
+
+Two different mechanisms feed the same diagram, because reachability isn't
+always knowable from one side:
+
+- **Postgres, Redis, and the PDF service** are probed directly by the API
+  on every page load — there's exactly one true status per link, so the
+  API checking it once is enough.
+- **LibreChat**, and the Worker's own liveness, can only be checked by the
+  Worker itself (nothing else in this app calls LibreChat directly). The
+  Worker publishes what it finds to Redis every 30 seconds with a short
+  expiry. If the Worker crashes, is restarted, or is scaled to zero, that
+  published status simply expires — the diagram shows **"No recent
+  report"** rather than a stale last-known-good value that might no longer
+  be true.
+
+## Reading the colors
+
+- **Green** — reachable right now.
+- **Red** — configured, but the last check failed.
+- **Grey ("No recent report")** — no reachability data has arrived
+  recently. For the Worker-reported components, this almost always means
+  the Worker process itself isn't currently running or hasn't completed a
+  publish cycle yet, not that LibreChat is actually down.
+
+## What isn't on this map yet
+
+This is deliberately scoped to the components this deployment actually
+talks to today. A model gateway (e.g. LiteLLM) sitting behind LibreChat,
+and an OCR pipeline, are both planned but not yet wired into the app as
+direct dependencies — see the open architecture work for where those
+stand before expecting to see them here.
 `,
   },
   {

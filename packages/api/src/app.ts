@@ -24,6 +24,7 @@ import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js
 import { createSettingsRouter } from "./routes/settings.js";
 import { createCostRatesRouter } from "./routes/costRates.js";
 import { createAdminReportsRouter } from "./routes/adminReports.js";
+import { createSystemStatusRouter } from "./routes/systemStatus.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRunsQueue } from "./queue.js";
 import { parseRedisConnectionOptions } from "./redisConnection.js";
@@ -112,6 +113,7 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/schedules", createSchedulesRouter());
   app.use("/api/runs", createRunsRouter(config, redisClient));
   app.use("/api/dashboard", createDashboardRouter());
+  app.use("/api/system-status", createSystemStatusRouter(config, redisClient));
   app.use("/api/users", createUsersRouter(config, logger));
   app.use("/api/classification-labels", createClassificationLabelsRouter());
   app.use("/api/api-keys", createApiKeysRouter(config));

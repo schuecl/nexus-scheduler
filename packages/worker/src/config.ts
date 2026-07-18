@@ -46,6 +46,14 @@ const envSchema = z.object({
   // and get reaped while still about to be picked up normally.
   ORPHAN_REAPER_PENDING_GRACE_MS: z.coerce.number().int().positive().default(60_000),
 
+  // Live system map (issue #131): how often the worker probes the links
+  // only it can reach (LibreChat) and publishes the result to Redis with
+  // a TTL, so the API's system-status endpoint can show it without the
+  // API needing to reach LibreChat itself. 30s publish / 90s TTL (3x) is
+  // the same generous-multiple pattern the reaper/concurrency TTLs use,
+  // so one slow tick doesn't flicker a healthy link to stale.
+  COMPONENT_STATUS_PUBLISH_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 

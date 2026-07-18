@@ -12,7 +12,7 @@ import {
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import { KB_ARTICLES, type KbArticle } from "../help/kbContent";
 
-const CATEGORY_ORDER: KbArticle["category"][] = ["Getting Started", "Modules", "Admin", "Troubleshooting"];
+const CATEGORY_ORDER: KbArticle["category"][] = ["Getting Started", "Modules", "Admin", "Architecture", "Troubleshooting"];
 
 // Knowledge Base index (§42) — every article is bundled into the SPA
 // (see help/kbContent.ts), so this works fully offline and search is

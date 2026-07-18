@@ -10,6 +10,24 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+### Added
+
+- A live system map (issue #131): the Dashboard now shows an at-a-glance
+  status row, and a new Knowledge Base *Architecture* page draws every
+  backend component this deployment depends on (API, Worker, Postgres,
+  Redis, the PDF service, LibreChat) as a flow chart — green where it's
+  reachable right now, red where it's configured but the last check
+  failed, grey where no recent reachability data has arrived. Postgres,
+  Redis, and the PDF service are probed directly by the API on every
+  request; LibreChat and the Worker's own liveness (nothing else in this
+  app calls LibreChat directly) are published by the Worker into Redis
+  every 30s under a short TTL, so a crashed or scaled-to-zero Worker
+  degrades those to "no recent report" instead of showing a stale
+  last-known-good status. Deliberately scoped to the links this app
+  actually models today — a model gateway and an OCR pipeline are
+  planned but not yet wired in as direct dependencies, so they aren't on
+  the map yet.
+
 ### Security
 
 - `LOCAL_AUTH_ENABLED=false` was silently ignored: the env var used

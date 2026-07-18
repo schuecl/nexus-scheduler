@@ -4,8 +4,10 @@ import HistoryIcon from "@mui/icons-material/History";
 import UpcomingIcon from "@mui/icons-material/Upcoming";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import { Link as RouterLink } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { RunStatusIcon, RUN_STATUS_COLOR, type RunStatus } from "../components/RunStatusIcon";
+import { SystemStatusSummary } from "../components/SystemStatusGraph";
 
 interface RunSummary {
   id: string;
@@ -125,6 +127,14 @@ export function DashboardPage() {
           </List>
         </Grid>
       </Grid>
+
+      <Stack spacing={1}>
+        <Typography variant="h6">System Status</Typography>
+        <SystemStatusSummary />
+        <Typography variant="body2">
+          <RouterLink to="/help/architecture">View the full system map</RouterLink>
+        </Typography>
+      </Stack>
     </Stack>
   );
 }
