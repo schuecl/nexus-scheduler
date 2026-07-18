@@ -106,8 +106,12 @@ export async function runSchedulerTick(
       });
       // Retry policy default (§2.1): N retries with exponential backoff
       // starting at 30s. BullMQ's `attempts` counts the initial try, so
-      // maxRetries=2 -> attempts=3.
+      // maxRetries=2 -> attempts=3. jobId is pinned to the Run's own id
+      // (rather than left to BullMQ's auto-generated one) so the orphan
+      // reaper (orphanReaper.ts, issue #123) can look a PENDING run's
+      // BullMQ job up by runId directly instead of scanning the queue.
       await queue.add("run", { runId: run.id } satisfies RunJobData, {
+        jobId: run.id,
         attempts: schedule.job.maxRetries + 1,
         backoff: { type: "exponential", delay: 30_000 },
       });

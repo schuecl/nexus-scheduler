@@ -50,7 +50,11 @@ export function createJobRunsRouter(queue: Queue<RunJobData>): Router {
       },
     });
 
+    // jobId pinned to the Run's own id (see scheduler.ts's scheduled-fire
+    // enqueue for the same convention) so the worker's orphan reaper can
+    // look this Run's BullMQ job up by runId (issue #123).
     await queue.add("run", { runId: run.id } satisfies RunJobData, {
+      jobId: run.id,
       attempts: job.maxRetries + 1,
       backoff: { type: "exponential", delay: 30_000 },
     });

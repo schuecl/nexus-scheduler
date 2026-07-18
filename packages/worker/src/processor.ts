@@ -49,7 +49,7 @@ export function createRunProcessor(
 // never escape into processRun's outer catch, which would otherwise
 // misclassify an already-successful run as a retryable failure and
 // either re-run the agent or overwrite a SUCCESS result to FAILED.
-async function deliverTerminalSideEffects(
+export async function deliverTerminalSideEffects(
   runId: string,
   jobId: string,
   config: WorkerConfig,
@@ -117,7 +117,7 @@ async function markRunCancelled(
 // ZREM, so calling it when there was never anything to release (the
 // overwhelming majority of the time) is a harmless no-op; never allowed
 // to fail processing, since the TTL self-heals a leaked slot regardless.
-async function releaseUserSlotSafely(
+export async function releaseUserSlotSafely(
   redisClient: RedisClient,
   userId: string,
   runId: string,

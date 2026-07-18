@@ -30,6 +30,18 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   Both early-return paths now release the run's slot on the way out;
   harmless no-op the overwhelming majority of the time when there was
   nothing stale to release (#124).
+- A run orphaned by a worker crash or restart mid-processing — left
+  RUNNING with nothing left to finish it, or PENDING with no BullMQ job
+  ever enqueued for it — previously stayed in that state forever: no
+  retry, no failure notification, no freed concurrency slot, and no
+  operator-visible signal beyond it never completing. The worker now
+  runs a periodic reconciliation sweep (every 5 minutes by default) that
+  force-terminates a RUNNING run once it's past its job timeout plus the
+  same grace period the concurrency slot's own TTL uses, and a PENDING
+  run once it's past a short grace period with no corresponding BullMQ
+  job — each reaped run gets the identical FAILED treatment (audit
+  event, concurrency slot release, webhook/email notification) a
+  normally-failed run gets, not a second, inconsistent code path (#123).
 
 ## [0.1.9] - 2026-07-16
 

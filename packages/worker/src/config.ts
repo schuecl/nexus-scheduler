@@ -32,6 +32,20 @@ const envSchema = z.object({
 
   SCHEDULER_TICK_MS: z.coerce.number().int().positive().default(15_000),
 
+  // Orphan reaper (issue #123): a run whose worker crashed/restarted
+  // mid-processing has no other process watching it — BullMQ's own
+  // stalled-job recovery didn't reliably reclaim these in practice, so
+  // this is a direct DB-side sweep instead. 5 minutes balances "orphaned
+  // runs don't sit for hours" against not hammering Postgres with a
+  // full-table-ish scan every few seconds.
+  ORPHAN_REAPER_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
+  // A Run row is created before its BullMQ job is enqueued (two separate
+  // calls, not a transaction) at both enqueue call sites — without this
+  // grace period, a PENDING run swept in that narrow gap would look
+  // identical to one truly orphaned by a crash between those two calls,
+  // and get reaped while still about to be picked up normally.
+  ORPHAN_REAPER_PENDING_GRACE_MS: z.coerce.number().int().positive().default(60_000),
+
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 

@@ -150,6 +150,34 @@ export function createMetrics(queue: Queue<RunJobData>) {
     registers: [register],
   });
 
+  // Mirrors schedulerTickDuration/schedulerTicksTotal (same reentrancy-
+  // guard + tick-result shape) for the orphan reaper (issue #123): if
+  // the sweep itself stalls or errors, nothing else surfaces that —
+  // reaped runs simply stop appearing.
+  const orphanReaperTickDuration = new Histogram({
+    name: "nexus_scheduler_orphan_reaper_tick_duration_seconds",
+    help: "Duration of one orphan reaper sweep",
+    buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30],
+    registers: [register],
+  });
+
+  const orphanReaperTicksTotal = new Counter({
+    name: "nexus_scheduler_orphan_reaper_tick_total",
+    help: "Orphan reaper sweeps by result (ok, skipped_reentrant, error)",
+    labelNames: ["result"] as const,
+    registers: [register],
+  });
+
+  // The reaper is a safety net for a failure mode (worker crash mid-run)
+  // that should be rare — a rising count here is itself the signal worth
+  // alerting on, distinct from "did the sweep run" above.
+  const orphanRunsReapedTotal = new Counter({
+    name: "nexus_scheduler_orphan_runs_reaped_total",
+    help: "Runs force-terminated by the orphan reaper, by the status they were reaped from",
+    labelNames: ["previousStatus"] as const,
+    registers: [register],
+  });
+
   // Pull-based: BullMQ's own job counts are queried live at scrape
   // time (via a Gauge `collect` callback) rather than tracked by hand
   // alongside every enqueue/dequeue, so this can never drift out of
@@ -202,6 +230,9 @@ export function createMetrics(queue: Queue<RunJobData>) {
     runsThrottledTotal,
     concurrencyLimit,
     queueDepth,
+    orphanReaperTickDuration,
+    orphanReaperTicksTotal,
+    orphanRunsReapedTotal,
   };
 }
 

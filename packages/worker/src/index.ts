@@ -9,6 +9,7 @@ import { startHealthServer } from "./health.js";
 import { createMetrics } from "./metrics.js";
 import { startUsageReportLoop } from "./usageReportScheduler.js";
 import { startCancellationSubscriber } from "./cancellation.js";
+import { startOrphanReaperLoop } from "./orphanReaper.js";
 
 async function main() {
   const config = loadConfig();
@@ -28,6 +29,7 @@ async function main() {
   startHealthServer(config, logger, metrics);
   startSchedulerLoop(queue, config, logger, metrics);
   const usageReportInterval = startUsageReportLoop(config, logger);
+  const orphanReaperInterval = startOrphanReaperLoop(queue, config, logger, metrics);
   const runWorker = createRunProcessor(connection, config, logger, metrics);
 
   runWorker.on("failed", (job, err) => {
@@ -43,6 +45,7 @@ async function main() {
       void (async () => {
         logger.info({ signal }, "shutting down worker");
         clearInterval(usageReportInterval);
+        clearInterval(orphanReaperInterval);
         await stopCancellationSubscriber();
         await runWorker.close();
         await queue.close();
