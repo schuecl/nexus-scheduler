@@ -32,6 +32,14 @@ services:
 
   alloy:
     image: grafana/alloy:latest
+    # default for everything else, ocr-net to reach the OCR service's
+    # /metrics — that network is internal-only by design, so the scraper
+    # must come to it. Declared below as well so this overlay stands
+    # alone when the base compose has no ocr service (scrape then just
+    # reports up=0 for the ocr target).
+    networks:
+      - default
+      - ocr-net
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -152,3 +160,10 @@ volumes:
   loki-data:
   alloy-data:
   grafana-data:
+
+networks:
+  # Same definition as the base compose's ocr-net (internal-only, no
+  # gateway out) — compose merges identical declarations; declaring it
+  # here keeps this overlay usable when the base has no ocr service.
+  ocr-net:
+    internal: true

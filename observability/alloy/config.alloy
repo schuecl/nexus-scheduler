@@ -22,6 +22,10 @@ prometheus.scrape "app" {
     { __address__ = "api:3000", service = "api" },
     { __address__ = "worker:3001", service = "worker" },
     { __address__ = "pdf-service:4100", service = "pdf-service" },
+    // The OCR pipeline service (#109) lives on the internal-only
+    // ocr-net; the alloy container joins that network to reach it.
+    // Reports up=0 here when the stack runs without the ocr service.
+    { __address__ = "ocr:4200", service = "ocr" },
     // The LiteLLM gateway's meter, via the litellm-exporter bridge
     // (OSS LiteLLM has no /metrics of its own). Exports
     // litellm_gateway_up 0 when the stack runs without the gateway.

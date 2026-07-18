@@ -1,0 +1,497 @@
+{
+  "uid": "nexus-ocr",
+  "title": "OCR Service — Document Extraction",
+  "tags": [
+    "nexus-scheduler",
+    "app",
+    "ocr"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "The #109 OCR pipeline: one Tesseract pass via OCRmyPDF --skip-text, layout/tables via docling. Pages 'skipped' are the zero-cost digital passthrough — the whole point of --skip-text. Service metrics are nexus_ocr_*; the worker-side view of the same calls is nexus_scheduler_ocr_extraction_seconds.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Requests",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nexus_ocr_requests_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "description": "nexus_ocr_requests_total{outcome}. client_error is a bad upload (415/422/400), server_error is the pipeline itself failing."
+    },
+    {
+      "type": "stat",
+      "title": "Error ratio",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(nexus_ocr_requests_total{outcome!=\"success\"}[10m])) or vector(0)) / clamp_min(sum(rate(nexus_ocr_requests_total[10m])), 0.0001)",
+          "legendFormat": "errors"
+        }
+      ],
+      "description": "Client errors count too: a burst of 415/422 usually means a caller regression, not a healthy service."
+    },
+    {
+      "type": "stat",
+      "title": "Documents (24h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(nexus_ocr_requests_total{outcome=\"success\"}[24h]))",
+          "legendFormat": "documents"
+        }
+      ],
+      "description": "Successful /process requests — one per document (a multi-image batch is one document)."
+    },
+    {
+      "type": "row",
+      "title": "OCR economics — the --skip-text dividend",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pages: OCR'd vs passed through",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (disposition) (rate(nexus_ocr_pages_total[5m]))",
+          "legendFormat": "{{disposition}}"
+        }
+      ],
+      "description": "nexus_ocr_pages_total{disposition}. 'ocred' went through Tesseract; 'skipped' already had a text layer and cost nothing — digital PDFs should land entirely here."
+    },
+    {
+      "type": "stat",
+      "title": "Passthrough share (24h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(nexus_ocr_pages_total{disposition=\"skipped\"}[24h])) or vector(0)) / clamp_min(sum(increase(nexus_ocr_pages_total[24h])), 1)",
+          "legendFormat": "skipped"
+        }
+      ],
+      "description": "Share of pages that needed no OCR. High is good — it means callers send digital PDFs, not scans of printouts."
+    },
+    {
+      "type": "timeseries",
+      "title": "Input files by kind",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(nexus_ocr_input_files_total[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "description": "nexus_ocr_input_files_total{kind} — the concrete type callers upload (pdf, png, jpeg, tiff, bmp, webp)."
+    },
+    {
+      "type": "timeseries",
+      "title": "Pages per document (p50 / p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_ocr_document_pages_bucket[10m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_ocr_document_pages_bucket[10m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "description": "nexus_ocr_document_pages — pages per document, OCR'd or not. Distinguishes one 40-page contract from 40 one-page receipts, which the page counters alone cannot."
+    },
+    {
+      "type": "row",
+      "title": "Latency — where document time goes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stage duration (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(nexus_ocr_stage_duration_seconds_bucket{stage!=\"total\"}[10m])))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "description": "nexus_ocr_stage_duration_seconds{stage}. ocrmypdf is the Tesseract pass, docling the layout/table model — on CPU these two dominate; img2pdf should be negligible."
+    },
+    {
+      "type": "timeseries",
+      "title": "End-to-end request duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_ocr_stage_duration_seconds_bucket{stage=\"total\"}[10m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_ocr_stage_duration_seconds_bucket{stage=\"total\"}[10m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_ocr_stage_duration_seconds_bucket{stage=\"total\"}[10m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "description": "The full /process wall time the worker experiences per attachment."
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker-side extraction (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(nexus_scheduler_ocr_extraction_seconds_bucket[10m])))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "description": "nexus_scheduler_ocr_extraction_seconds{outcome} — the same calls seen from the worker. A gap between this and the service's own total is network or queueing, and it comes out of the run's timeout budget."
+    },
+    {
+      "type": "row",
+      "title": "Service health",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Scrape up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(up{service=\"ocr\"})",
+          "legendFormat": "up"
+        }
+      ],
+      "description": "The scrape target on ocr:4200. 0 or absent means alloy cannot reach the service on ocr-net."
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{service=\"ocr\"}[5m])",
+          "legendFormat": "cpu"
+        }
+      ],
+      "description": "Tesseract and docling are CPU-bound; sustained saturation here is the first thing to check when stage p95s climb."
+    },
+    {
+      "type": "timeseries",
+      "title": "Resident memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{service=\"ocr\"}",
+          "legendFormat": "rss"
+        }
+      ],
+      "description": "The compose service runs under mem_limit 2g; the docling models alone hold a large resident set."
+    },
+    {
+      "type": "timeseries",
+      "title": "Image descriptions by outcome",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nexus_ocr_descriptions_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "description": "nexus_ocr_descriptions_total{outcome}. 'unavailable' with describe=true means the vision gateway is unset, unreachable, or slow — extraction still succeeds without it."
+    }
+  ]
+}
