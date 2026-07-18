@@ -28,10 +28,14 @@ jobs:
           version: v3.16.2
 
       - name: helm lint
-        run: helm lint helm/nexus-scheduler
+        run: |
+          helm lint helm/nexus-scheduler
+          helm lint helm/test-ai
 
       - name: helm template (render manifests)
-        run: helm template release helm/nexus-scheduler > rendered.yaml
+        run: |
+          helm template release helm/nexus-scheduler > rendered.yaml
+          helm template release helm/test-ai >> rendered.yaml
 
       - name: Install kubeconform
         run: |

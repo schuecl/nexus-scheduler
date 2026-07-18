@@ -1,0 +1,142 @@
+# Local CPU inference. Never exposed outside the cluster and reached
+# only via the gateway Service — Ollama has no auth, so the gateway is
+# the enforcement point for metering/budgets, same as the Compose
+# stack's unpublished port.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "test-ai.fullname" . }}-ollama
+  labels:
+    app.kubernetes.io/name: ollama
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "test-ai.fullname" . }}-ollama
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama
+        {{- include "test-ai.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: ollama
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.ollama.image) }}
+          env:
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: {{ .Values.ollama.maxLoadedModels | quote }}
+            - name: OLLAMA_KEEP_ALIVE
+              value: {{ .Values.ollama.keepAlive | quote }}
+          ports:
+            - name: http
+              containerPort: 11434
+          readinessProbe:
+            httpGet: {path: /api/tags, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.ollama.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-ai.fullname" . }}-ollama
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+---
+# Pull the values-declared model set. A plain Job, NOT a Helm hook:
+# the default model set is multiple GB, Helm waits for hook Jobs, and
+# the default install/upgrade timeout is 5m — a first install on a slow
+# link would time the whole release out. As a regular resource the
+# install returns immediately and the pull proceeds in the background
+# (ollama serves models as they arrive; LibreChat calls fail politely
+# until then).
+#
+# Named by a hash of the pulled model set, not the release revision: an
+# unrelated upgrade renders the identical Job and Helm leaves the
+# in-progress pull alone; only an actual model-set change mints a new
+# name (Jobs are immutable). ollama no-ops models it already has, so
+# re-runs are cheap. TTL reaps completed Jobs.
+{{- $pullSet := list }}
+{{- range .Values.models }}{{- if .pull }}{{- $pullSet = append $pullSet .ollamaModel }}{{- end }}{{- end }}
+{{- /* The image reference is part of the hash: a registry/digest change
+     with an unchanged model set must mint a NEW Job, not attempt to
+     patch the immutable pod template of a live one. */}}
+{{- $pullImage := include "test-ai.image" (dict "root" $ "image" .Values.ollama.image) }}
+{{- $pullHash := printf "%s|%s" ($pullSet | join ",") $pullImage | sha256sum | trunc 8 }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "test-ai.fullname" . }}-ollama-pull-{{ $pullHash }}
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        # Stable across upgrades — the ollama NetworkPolicy admits the
+        # pull Job by this label, and the Job's own name carries a
+        # model-set hash (job-name labels can't be matched by prefix).
+        app.kubernetes.io/component: ollama-pull
+        {{- include "test-ai.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.ollama.image) }}
+          env:
+            - name: OLLAMA_HOST
+              value: {{ include "test-ai.fullname" . }}-ollama:11434
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # The Job starts concurrently with the StatefulSet (no
+              # compose-style service_healthy ordering in k8s) — wait
+              # for the server before pulling or the first attempts
+              # burn backoffLimit on connection refusals.
+              # Bounded: a permanently absent server should fail the
+              # Job (visible, retryable) rather than hang it forever.
+              tries=0
+              until ollama list >/dev/null 2>&1; do
+                tries=$((tries+1))
+                if [ "$tries" -ge 60 ]; then
+                  echo "ollama at $OLLAMA_HOST not ready after 5m" >&2
+                  exit 1
+                fi
+                echo "waiting for ollama at $OLLAMA_HOST..."
+                sleep 5
+              done
+              {{- range .Values.models }}
+              {{- if .pull }}
+              ollama pull {{ .ollamaModel | quote }}
+              {{- end }}
+              {{- end }}

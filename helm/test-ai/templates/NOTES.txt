@@ -1,0 +1,20 @@
+{{ .Chart.Name }} deployed.
+
+LibreChat (the Agents API):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "test-ai.fullname" . }}-librechat 3080:{{ .Values.librechat.service.port }}
+
+LiteLLM gateway admin UI (spend, budgets, keys):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "test-ai.fullname" . }}-litellm 4000:4000
+  login with: kubectl -n {{ .Release.Namespace }} get secret {{ .Values.litellm.existingSecret | default (printf "%s-litellm-keys" (include "test-ai.fullname" .)) }} -o jsonpath='{.data.masterKey}' | base64 -d
+
+Wiring the other charts:
+- The app chart (helm/nexus-scheduler): set its LIBRECHAT_BASE_URL to
+  http://{{ include "test-ai.fullname" . }}-librechat.{{ .Release.Namespace }}:{{ .Values.librechat.service.port }}
+- The observability chart (helm/observability): add {{ .Release.Namespace | quote }} to its
+  alloy.appNamespaces for logs, and set its litellmExporter values at
+  http://{{ include "test-ai.fullname" . }}-litellm.{{ .Release.Namespace }}:4000 with the masterKey
+  Secret to feed the AI dashboards.
+
+First model pulls run as a background Job (named for the model set, so
+upgrades don't interrupt it) and need registry egress once; watch with:
+  kubectl -n {{ .Release.Namespace }} logs -f -l app.kubernetes.io/component=ollama-pull,app.kubernetes.io/instance={{ .Release.Name }}

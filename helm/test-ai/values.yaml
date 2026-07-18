@@ -1,0 +1,121 @@
+# One replica of everything, filesystem-backed — the same dev/small
+# profile as helm/observability, and the same air-gap affordances:
+# global.imageRegistry prefixes every image, per-image digests beat
+# tags. Secrets are generated into the release on first install (and
+# preserved across upgrades) unless you point at existing ones.
+global:
+  imageRegistry: ""
+
+ollama:
+  image:
+    repository: ollama/ollama
+    tag: latest
+    digest: ""
+  # Loaded one at a time, evicted after idling — same rationale as the
+  # Compose stack: the pulled set does not fit in RAM together on a
+  # small node.
+  maxLoadedModels: 1
+  keepAlive: 5m
+  persistence:
+    size: 20Gi
+    storageClassName: ""
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 6Gi}
+
+# The model catalogue: each entry becomes a LiteLLM model_list route
+# and, when pull is true, is fetched by the post-install pull Job.
+# Names must match what agents/jobs reference. No Chinese-origin
+# models.
+models:
+  - name: gemma3:1b
+    ollamaModel: gemma3:1b
+    pull: true
+  - name: codegemma:2b
+    ollamaModel: codegemma:2b
+    pull: true
+  - name: phi4-mini-reasoning:3.8b
+    ollamaModel: phi4-mini-reasoning:3.8b
+    pull: true
+
+# Optional hosted model through the same gateway. Enabled only when an
+# existing Secret (key `apiKey`) is named — the key reaches the litellm
+# container only, exactly like the Compose stack.
+anthropic:
+  enabled: false
+  model: claude-sonnet-5
+  existingSecret: ""
+
+litellm:
+  image:
+    repository: ghcr.io/berriai/litellm-database
+    tag: main-stable
+    digest: ""
+  # Existing Secret with keys masterKey, saltKey, librechatKey and
+  # postgresPassword (the gateway's Postgres and the litellm Deployment
+  # both read it from this same Secret). Empty = all four generated on
+  # first install and preserved on upgrade.
+  existingSecret: ""
+  service:
+    # Set to NodePort/LoadBalancer to reach the admin UI (/ui) from
+    # outside the cluster; the master key is the login.
+    type: ClusterIP
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    # The -database image runs its Prisma migrations at startup, which
+    # spikes well past steady-state — 1Gi gets the container OOM-killed
+    # before it ever serves (observed on a real install).
+    limits: {memory: 2Gi}
+
+litellmPostgres:
+  image:
+    repository: postgres
+    tag: 16-alpine
+    digest: ""
+  persistence:
+    size: 5Gi
+    storageClassName: ""
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+librechat:
+  image:
+    repository: registry.librechat.ai/danny-avila/librechat-dev
+    tag: latest
+    digest: ""
+  # Existing Secret with keys jwtSecret, jwtRefreshSecret, credsKey
+  # (64 hex chars) and credsIv (32 hex chars) — LibreChat rejects
+  # non-hex or wrong-length CREDS material. Empty = generated on first
+  # install, preserved on upgrade.
+  existingSecret: ""
+  allowRegistration: true
+  service:
+    type: ClusterIP
+    port: 3080
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 1536Mi}
+  # Writable dirs (agent assets, uploads, logs) — one PVC, subPath per
+  # directory; without it they die with the pod.
+  persistence:
+    size: 2Gi
+    storageClassName: ""
+
+networkPolicy:
+  # Isolates the no-auth backing services (Mongo --noauth, Ollama,
+  # the gateway's Postgres) to their in-release clients. Needs an
+  # enforcing CNI; renders inert without one.
+  enabled: true
+
+mongo:
+  image:
+    repository: mongo
+    tag: 8.0.20
+    digest: ""
+  persistence:
+    size: 5Gi
+    storageClassName: ""
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
