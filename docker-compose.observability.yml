@@ -148,9 +148,9 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      # 3300 on the host: 3000 is taken by the api and 3001 is the worker's
-      # health/metrics port.
-      - "3300:3000"
+      # Defaults to 3300 on the host because 3000 is taken by the api and
+      # 3001 is the worker's health/metrics port; override with GRAFANA_PORT.
+      - "${GRAFANA_PORT:-3300}:3000"
     depends_on:
       - mimir
       - loki
