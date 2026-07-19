@@ -114,6 +114,12 @@ environment for trying Nexus Scheduler out or developing against it.
 docker compose up --build
 ```
 
+Every multi-file compose invocation below also has a canonical Make
+target (`make env`, `make up`, `make up-obs`, `make verify`, the test
+suites, …) so nobody has to retype the `-f` chains — run `make help`
+for the list. A gitignored `docker-compose.override.yml` is applied
+automatically by every target when present, for local-only tweaks.
+
 Then:
 
 | Service | URL |

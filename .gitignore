@@ -27,3 +27,6 @@ docker/librechat/.env
 
 # Python bytecode (observability exporters are stdlib scripts)
 __pycache__/
+
+# Local-only compose tweaks, applied by the Makefile targets
+docker-compose.override.yml
