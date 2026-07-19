@@ -1,0 +1,135 @@
+# Deployment profile: one replica of everything, filesystem storage on
+# PVCs. That is the point — this chart exists for air-gapped and
+# small clusters with no monitoring stack at all, where "some
+# observability, owned and upgraded deliberately" beats "none". It is
+# not an HA metrics platform, and it does not try to compete with a
+# real Prometheus/Grafana install (if you have one, use the app chart's
+# observability.serviceMonitor values and skip this chart).
+
+# Air-gap note: every image below takes an optional digest. In a
+# mirrored-registry environment, set registry to your mirror and pin
+# digests — tags are convenience for connected dev clusters only.
+# `helm template --set global.imageRegistry=registry.example.internal`
+global:
+  # Prepended to every image repository below when set (mirror hostname,
+  # no trailing slash).
+  imageRegistry: ""
+
+alloy:
+  image:
+    repository: grafana/alloy
+    tag: v1.10.2
+    digest: ""  # "sha256:..." — takes precedence over tag when set
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  # The namespaces where the workloads to observe run — typically the
+  # app chart's and the test-ai chart's, since all three charts are
+  # deliberately independent installs. Alloy scrapes any pod in these
+  # namespaces (plus its own) carrying prometheus.io/scrape
+  # annotations, and tails their logs; no per-service list to
+  # maintain. appNamespace (singular) is still honoured for
+  # compatibility.
+  appNamespaces: []
+  appNamespace: ""
+  # Scrape each node's kubelet cAdvisor endpoint for the per-container
+  # CPU/memory panels. Works on every conformant cluster; needs the
+  # RBAC this chart installs.
+  kubeletCadvisor: true
+  # Run Alloy's embedded unix exporter against the node's /proc,/sys,/
+  # (read-only hostPath mounts) — feeds the Host dashboard's node_*
+  # panels, mirroring the Compose stack's host job. Disable if node
+  # metrics already come from elsewhere.
+  hostMetrics: true
+
+mimir:
+  image:
+    repository: grafana/mimir
+    tag: "2.14.2"
+    digest: ""
+  persistence:
+    size: 10Gi
+    storageClassName: ""
+  # Metric retention before blocks are deleted.
+  retention: 15d
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+
+loki:
+  image:
+    repository: grafana/loki
+    tag: "3.4.2"
+    digest: ""
+  persistence:
+    size: 10Gi
+    storageClassName: ""
+  retention: 168h
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "11.5.2"
+    digest: ""
+  # Unlike the Compose overlay (anonymous admin, dev-only), Kubernetes
+  # installs get a real admin login. Set adminPassword, or leave empty
+  # to have the chart generate one into a Secret (kubectl get secret
+  # <release>-grafana-admin -o jsonpath='{.data.password}' | base64 -d).
+  adminUser: admin
+  adminPassword: ""
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClassName: ""
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+    className: ""
+    host: grafana.example.internal
+    tls: []
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+# Database integrations for the Infrastructure dashboard's Postgres and
+# Redis panels — a separate single-replica Deployment, NOT part of the
+# Alloy DaemonSet (one exporter per database, not one per node, or
+# every node scrapes the same server). Off by default: point them at
+# the app's databases only where those are reachable from this
+# cluster, with credentials from existing Secrets.
+integrations:
+  postgres:
+    enabled: false
+    # Secret with key `dsn`, e.g.
+    # postgresql://user:pass@postgres:5432/db?sslmode=disable
+    existingSecret: ""
+  redis:
+    enabled: false
+    addr: "redis:6379"
+    # Optional Secret with key `password`; omit for unauthenticated.
+    existingSecret: ""
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+# Bridges the LiteLLM gateway's spend log into Prometheus (the OSS
+# proxy has no /metrics). Enable only when the gateway runs in-cluster;
+# reuses the gateway's image (python3 + stdlib script from a ConfigMap).
+litellmExporter:
+  enabled: false
+  image:
+    repository: ghcr.io/berriai/litellm-database
+    tag: main-stable
+    digest: ""
+  litellmUrl: http://litellm:4000
+  # Name of an existing Secret with key `masterKey` holding
+  # LITELLM_MASTER_KEY. Never put the key itself in values.
+  existingSecret: ""
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}

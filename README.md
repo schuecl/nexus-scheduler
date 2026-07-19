@@ -69,10 +69,8 @@ explicitly configured rather than fetched at install time.
   and acceptance is audit-logged. Re-shown on every visit to the login
   page rather than remembered, matching how consent-to-monitor banners
   are expected to behave.
-- **Observability** — Prometheus metrics from every service (including
-  per-model LLM latency, token consumption and error kinds), a
-  Postgres-backed audit log, and an optional RFC 5424 syslog mirror for
-  SIEM integration.
+- **Observability** — Prometheus metrics, a Postgres-backed audit log,
+  and an optional RFC 5424 syslog mirror for SIEM integration.
 - **Admin console** — user/role management, classification taxonomy,
   cost rates, and the webhook destination allow-list.
 - **Built-in Knowledge Base** — a searchable, offline (bundled, no
@@ -124,7 +122,6 @@ Then:
 | Mailpit (catches outbound email) | http://localhost:8025 |
 | Keycloak admin console | http://localhost:8081 (`admin` / see `.env`) |
 | LibreChat | http://localhost:3080 |
-| LiteLLM admin (model spend/budgets/keys) | http://localhost:4000/ui (log in with `LITELLM_MASTER_KEY` from `.env`) |
 
 Log in to Nexus Scheduler with "Sign in with password" using
 `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults
@@ -146,27 +143,14 @@ to test SSO login end to end.
 scriptable):
 
 1. Pick a model provider. Two are wired up already:
-   - **Local models via LiteLLM → Ollama** — free, no API key needed.
-     `gemma3:1b` (default chat), `codegemma:2b` (coding) and
-     `phi4-mini-reasoning:3.8b` (reasoning) pull automatically on first
-     `docker compose up` (~5.6GB of disk, loaded into RAM one at a
-     time; needs internet the first time only). LiteLLM is the gateway
-     in front of Ollama: it meters every call — per-key spend, hard
-     budgets, rate limits — which is the usage data LibreChat's Agents
-     API doesn't report (#38). Small CPU-only models are fine for
-     exercising the pipeline but weak at tool calling; for real agentic
-     work add a hosted model behind the same gateway
-     (`docker/litellm/config.yaml`).
+   - **Ollama running `qwen3:0.6b`** — free, local, no API key needed.
+     Pulls automatically on first `docker compose up` (~0.5GB, needs
+     internet the first time only).
    - **Claude** — set `ANTHROPIC_API_KEY` in this repo's root `.env` to
-     a real key, then `docker compose restart litellm`, and pick the
-     `claude-sonnet` model on the same LiteLLM endpoint. Claude goes
-     through the gateway too — never directly to LibreChat — so hosted
-     traffic gets the same metering, budgets, and rate limits.
+     a real key, then `docker compose restart librechat`.
 
-   (Other hosted providers work the same way — add a `model_list`
-   entry for them in `docker/litellm/config.yaml` rather than handing
-   LibreChat a provider key directly, which would bypass the gateway's
-   metering.)
+   (`OPENAI_API_KEY`/`AZURE_API_KEY` also work if you'd rather test
+   against those — set them in `docker/librechat/.env`.)
 2. Visit http://localhost:3080 and register an account — this is
    LibreChat's own local auth, separate from Nexus Scheduler's users.
 3. Create an Agent in LibreChat's UI, backed by whichever provider you
@@ -202,17 +186,73 @@ LIBRECHAT_BASE_URL=http://librechat:3080
 ANTHROPIC_API_KEY=
 ```
 
-**Adding LiteLLM to an existing `.env`**: re-run
-`./scripts/generate-local-env.sh` — it appends freshly generated
-`LITELLM_MASTER_KEY`/`LITELLM_SALT_KEY`/`LITELLM_POSTGRES_PASSWORD`/
-`LITELLM_LIBRECHAT_KEY` lines to an existing `.env` that predates the
-LiteLLM gateway, without touching any existing values. LibreChat
-authenticates to the gateway with the `LITELLM_LIBRECHAT_KEY` virtual
-key (provisioned automatically by the `litellm-init` service); the
-master key is the admin credential — use it for the `:4000/ui`
-dashboard and to attach budgets/rate limits to the LibreChat key.
-
 </details>
+
+### Observability stack (optional)
+
+The app ships Prometheus metrics; this brings up somewhere to put them —
+Grafana with dashboards, backed by Mimir (metrics) and Loki (logs),
+collected by a single Alloy agent. Entirely optional: the app runs
+without it, and the stack is a separate Compose file precisely so it can
+be left off.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+# Grafana -> http://localhost:3300   (anonymous admin, dev only)
+```
+
+To turn it off again, just drop the second `-f` — nothing in
+`docker-compose.yml` depends on it.
+
+Eleven dashboards are provisioned automatically, covering the app
+(overview, API, worker, PDF service), the models (per-model latency,
+tokens, errors, spend, and local-vs-hosted savings), the infrastructure
+(Postgres, Redis, containers, host), the logs, and the collector itself.
+That last one matters more than it sounds: if the collector stops
+shipping, every other dashboard goes flat and looks exactly like a
+healthy, idle system — this is the only place that tells the two apart.
+
+Two small exporters fill gaps the upstream components leave. LiteLLM's
+OSS proxy has no `/metrics` endpoint (Prometheus export is an enterprise
+feature), so `litellm-exporter` turns its spend log into the counters the
+cost dashboard needs. And cAdvisor cannot read the cgroup tree on Docker
+Desktop's VM, so `container-stats-exporter` sources the same per-container
+numbers from the Engine API instead — it sits behind a Compose profile, so
+on Docker Desktop add `--profile docker-desktop` to the command above or
+the container panels stay empty:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile docker-desktop up -d
+```
+
+Everything runs locally — no cloud, no external endpoints. Ports 3000
+and 3001 belong to the api and worker, so Grafana takes 3300.
+
+For Kubernetes, do **not** use this file — see the Helm notes under
+[Deployment](#kubernetes-helm): a real cluster already has a monitoring
+stack, and the app only needs to be scraped by it.
+
+### Running a single package against the Compose infra
+
+```bash
+npm run dev --workspace=packages/api      # or packages/worker, packages/frontend
+```
+
+Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
+(`5432`/`6379`) via a local `.env` in that package, or export them in
+your shell.
+
+
+### Running a single package against the Compose infra
+
+```bash
+npm run dev --workspace=packages/api      # or packages/worker, packages/frontend
+```
+
+Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
+(`5432`/`6379`) via a local `.env` in that package, or export them in
+your shell.
 
 ## Configuration
 
@@ -270,32 +310,6 @@ helm install nexus-scheduler helm/nexus-scheduler -f my-values.yaml
 - Run `helm template`/`helm lint` against your own values before
   installing, and see the chart's `NOTES.txt` (printed after install)
   for the exact list of Secrets that must exist beforehand.
-- Metrics are exposed by every service and collected by whatever the
-  cluster already runs — this chart deliberately does not deploy
-  Alloy/Mimir/Loki/Grafana. Two supported paths:
-  - **Prometheus Operator**: set `observability.serviceMonitor.enabled:
-    true` to render a ServiceMonitor per service. Off by default because
-    it needs the Operator's CRD, and applying one without it fails the
-    install. Most Operator installs also select ServiceMonitors by label
-    — set `observability.serviceMonitor.labels` (commonly `release:
-    kube-prometheus-stack`) or the objects are silently ignored, which
-    looks identical to the app not exposing metrics at all.
-  - **Annotation-based scraping**: nothing to enable — the api and worker
-    pods already carry `prometheus.io/scrape`.
-  Either way, **pdf-service is not scrapeable in Kubernetes** and its
-  dashboard will be empty there. That is a deliberate consequence of the
-  isolation it is under, not a Prometheus misconfiguration: its `/metrics`
-  and its `POST /render/*` endpoints are the same listener on the same
-  port, and its NetworkPolicy admits only the api and worker, so nothing
-  can collect the metrics without also exposing the renderer. Making them
-  collectable needs a dedicated metrics port — tracked upstream in
-  [#118](https://github.com/schuecl/nexus-scheduler/issues/118). The
-  Compose stack is unaffected: it has no NetworkPolicy, so all three are
-  scraped locally.
-  Ready-made Grafana dashboards for these metrics ship with the
-  observability stack ([#103](https://github.com/schuecl/nexus-scheduler/issues/103))
-  as plain JSON, importable or mountable as ConfigMaps for the Grafana
-  sidecar; they are deliberately not part of this chart.
 
 ### Container images
 

@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-alloy-config
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  config.alloy: |
+    // Kubernetes port of observability/alloy/config.alloy. The compose
+    // file's docker-socket discovery becomes Kubernetes API discovery;
+    // per-container CPU/memory comes from each node's kubelet cAdvisor
+    // instead of a cAdvisor exporter (works on every conformant
+    // cluster, no bind mounts).
+
+    prometheus.remote_write "mimir" {
+      endpoint {
+        url = "http://{{ include "observability.fullname" . }}-mimir:9009/api/v1/push"
+      }
+    }
+
+    loki.write "loki" {
+      endpoint {
+        url = "http://{{ include "observability.fullname" . }}-loki:3100/loki/api/v1/push"
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // App metrics: any pod annotated prometheus.io/scrape=true (the app
+    // chart sets these on api and worker) in the app namespace or ours.
+    // ------------------------------------------------------------------
+    discovery.kubernetes "pods" {
+      role = "pod"
+      namespaces {
+        names = [
+          {{- range .Values.alloy.appNamespaces }}
+          {{ . | quote }},
+          {{- end }}
+          {{- if .Values.alloy.appNamespace }}
+          {{ .Values.alloy.appNamespace | quote }},
+          {{- end }}
+          {{ .Release.Namespace | quote }},
+        ]
+      }
+    }
+
+    discovery.relabel "annotated_pods" {
+      targets = discovery.kubernetes.pods.targets
+
+      // Every node runs an Alloy; each collects only its own node's
+      // pods, or an N-node cluster scrapes (and tails) everything N
+      // times over.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+        regex         = "true"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+        regex         = "(.+)"
+        target_label  = "__metrics_path__"
+      }
+      rule {
+        source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+        regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+        target_label  = "__address__"
+        replacement   = "$1:$2"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "service"
+      }
+      // The app chart shares app.kubernetes.io/name across api/worker/
+      // pdf-service and puts the per-service identity in .../component
+      // — prefer it when present so panels don't collapse every app
+      // pod into one "nexus-scheduler" series.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+        regex         = "(.+)"
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+    }
+
+    prometheus.scrape "app" {
+      targets         = discovery.relabel.annotated_pods.output
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "15s"
+    }
+
+    {{- if .Values.alloy.kubeletCadvisor }}
+    // ------------------------------------------------------------------
+    // Per-container CPU/memory from each node's kubelet cAdvisor —
+    // feeds the same container_* series the dashboards query.
+    // ------------------------------------------------------------------
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+      // Own node only — same N-times-over argument as the pod scrape.
+      rule {
+        source_labels = ["__meta_kubernetes_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+      rule {
+        target_label = "__metrics_path__"
+        replacement  = "/metrics/cadvisor"
+      }
+    }
+
+    prometheus.scrape "kubelet_cadvisor" {
+      targets           = discovery.relabel.cadvisor.output
+      forward_to        = [prometheus.remote_write.mimir.receiver]
+      scheme            = "https"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      tls_config {
+        ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        insecure_skip_verify = true
+      }
+      scrape_interval = "30s"
+    }
+    {{- end }}
+
+    {{- if .Values.alloy.hostMetrics }}
+    // ------------------------------------------------------------------
+    // Host metrics: Alloy's embedded unix exporter against the node's
+    // own /proc,/sys,/ — feeds the Host dashboard's node_* panels the
+    // same way the Compose stack's host job does. Per-node by
+    // construction; instance is the node name.
+    // ------------------------------------------------------------------
+    prometheus.exporter.unix "host" {
+      procfs_path = "/host/proc"
+      sysfs_path  = "/host/sys"
+      rootfs_path = "/host/root"
+    }
+
+    discovery.relabel "host" {
+      targets = prometheus.exporter.unix.host.targets
+      rule {
+        target_label = "instance"
+        replacement  = sys.env("NODE_NAME")
+      }
+      rule {
+        target_label = "service"
+        replacement  = "host"
+      }
+    }
+
+    prometheus.scrape "host" {
+      targets         = discovery.relabel.host.output
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "30s"
+    }
+    {{- end }}
+
+    // ------------------------------------------------------------------
+    // Self-monitoring. Mimir, Loki, Grafana and the optional exporter
+    // carry prometheus.io/scrape annotations on their pods, so the
+    // node-local annotated-pods path above collects them exactly once,
+    // wherever they land. Alloy itself is not a discoverable pod from
+    // its own config — each instance scrapes its own listener, with
+    // the pod name as the instance label so per-node series don't
+    // collide.
+    // ------------------------------------------------------------------
+    prometheus.scrape "self" {
+      targets = [
+        { __address__ = "127.0.0.1:12345", service = "alloy", instance = sys.env("HOSTNAME") },
+      ]
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "15s"
+    }
+
+    // ------------------------------------------------------------------
+    // Logs: every pod in the app namespace and ours, via the
+    // Kubernetes API (no docker socket, no hostPath tailing).
+    // ------------------------------------------------------------------
+    discovery.relabel "pod_logs" {
+      targets = discovery.kubernetes.pods.targets
+      // Node-local tailing: without this every Alloy tails every pod
+      // through the API server and each log line is stored once per
+      // node in the cluster.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pod_logs.output
+      forward_to = [loki.process.levels.receiver]
+    }
+
+    loki.process "levels" {
+      forward_to = [loki.write.loki.receiver]
+      stage.json {
+        expressions = { level = "level" }
+      }
+      stage.labels {
+        values = { level = "" }
+      }
+    }

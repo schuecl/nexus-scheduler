@@ -1,0 +1,674 @@
+{
+  "uid": "nexus-worker",
+  "title": "Worker \u2014 Queue & Job Execution",
+  "tags": [
+    "nexus-scheduler",
+    "app",
+    "worker"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "The BullMQ worker: queue depth, run outcomes, the LibreChat calls that dominate job time, and \u2014 since #104 \u2014 how long runs wait versus work, whether the scheduler is keeping up, and whether the concurrency ceiling is being hit. Runtime names verified against prom-client 15.1.3.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Queue (BullMQ)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth by state",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (nexus_scheduler_queue_depth)",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "description": "Rising `waiting` with flat `active` means the worker is saturated or wedged. Sustained `delayed` growth points at retries/backoff. This gauge is pull-based with a 2s timeout guard, so gaps here mean Redis was slow to answer, not that the queue was empty."
+    },
+    {
+      "type": "timeseries",
+      "title": "Backlog growth",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "deriv(sum(nexus_scheduler_queue_depth{state=\"waiting\"})[10m:])",
+          "legendFormat": "waiting +/- per sec"
+        }
+      ],
+      "description": "The derivative is the leading indicator: a persistently positive slope means arrival outpaces completion and the backlog will not drain on its own."
+    },
+    {
+      "type": "row",
+      "title": "Run outcomes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Runs by status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(nexus_scheduler_runs_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "description": "nexus_scheduler_runs_total. Gaps to be aware of (#104): CANCELLED is never recorded, and a timeout is indistinguishable from a generic failure."
+    },
+    {
+      "type": "stat",
+      "title": "Success rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.98
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_runs_total{status=\"success\"}[30m])) / clamp_min(sum(rate(nexus_scheduler_runs_total[30m])), 0.0001)",
+          "legendFormat": "success"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Runs (24h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(nexus_scheduler_runs_total[24h]))",
+          "legendFormat": "runs"
+        }
+      ],
+      "description": "Volume for the day \u2014 context for every rate above."
+    },
+    {
+      "type": "row",
+      "title": "LibreChat calls \u2014 where job time goes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Call latency vs job timeout",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "description": "p95 approaching DEFAULT_JOB_TIMEOUT_SECONDS (600s, red) is the early warning that runs are about to be killed. The histogram's largest bucket is 300s, so anything slower is unresolvable \u2014 it lands in +Inf and the quantile flattens (#104)."
+    },
+    {
+      "type": "timeseries",
+      "title": "Calls / sec",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_librechat_call_duration_seconds_count[5m]))",
+          "legendFormat": "calls/s"
+        }
+      ],
+      "description": "Derived from the histogram's _count \u2014 the only throughput signal available for model calls today."
+    },
+    {
+      "type": "row",
+      "title": "Node.js runtime \u2014 saturation signals",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Event loop lag (p99 / mean)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_eventloop_lag_p99_seconds{service=\"worker\"}",
+          "legendFormat": "p99"
+        },
+        {
+          "refId": "B",
+          "expr": "nodejs_eventloop_lag_mean_seconds{service=\"worker\"}",
+          "legendFormat": "mean"
+        }
+      ],
+      "description": "The single best saturation signal for a Node process: when the loop lags, everything queues behind it \u2014 requests, timers and job callbacks alike."
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap used vs total",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_heap_size_used_bytes{service=\"worker\"}",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "expr": "nodejs_heap_size_total_bytes{service=\"worker\"}",
+          "legendFormat": "total"
+        },
+        {
+          "refId": "C",
+          "expr": "process_resident_memory_bytes{service=\"worker\"}",
+          "legendFormat": "rss"
+        }
+      ],
+      "description": "RSS climbing while heap stays flat points outside the JS heap \u2014 native buffers, or Chromium in the PDF path."
+    },
+    {
+      "type": "timeseries",
+      "title": "GC time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(nodejs_gc_duration_seconds_sum{service=\"worker\"}[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "description": "Fraction of wall-clock spent in GC, by collection kind. A rising `major` share means the heap is under real pressure, not just busy."
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{service=\"worker\"}[5m])",
+          "legendFormat": "cores"
+        }
+      ],
+      "description": "Node is single-threaded: sustained values near 1 core mean this process is the bottleneck."
+    },
+    {
+      "type": "timeseries",
+      "title": "Active handles",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_active_handles_total{service=\"worker\"}",
+          "legendFormat": "handles"
+        }
+      ],
+      "description": "Steadily climbing handles with flat throughput is the classic leak signature (sockets or timers never released)."
+    },
+    {
+      "type": "timeseries",
+      "title": "Open file descriptors",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_open_fds{service=\"worker\"}",
+          "legendFormat": "open"
+        },
+        {
+          "refId": "B",
+          "expr": "process_max_fds{service=\"worker\"}",
+          "legendFormat": "max"
+        }
+      ],
+      "description": "Approaching max_fds means new connections start failing."
+    },
+    {
+      "type": "row",
+      "title": "Scheduler \u2014 the heart of the product",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Scheduler ticks by result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(nexus_scheduler_tick_total[5m]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tick duration (p95) vs the tick interval",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_tick_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Schedule fires: claimed vs missed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_schedules_claimed_total[5m]))",
+          "legendFormat": "claimed/s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(nexus_scheduler_schedules_missed_total[5m]))",
+          "legendFormat": "MISSED/s"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Capacity \u2014 waiting vs working",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue wait vs run duration (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_queue_wait_seconds_bucket[5m])))",
+          "legendFormat": "queue wait p95"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_run_duration_seconds_bucket[5m])))",
+          "legendFormat": "run duration p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Run duration by outcome (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 57
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, status) (rate(nexus_scheduler_run_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Throttling against the configured ceiling",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "description": "Requires the worker instrumentation from PR #110 (feat/genai-metrics-model-labels) \u2014 tick, schedule-claim, queue-wait, run-duration and throttling metrics are registered there, not on main. Verified live with #110 built in: all these panels populate (scheduled fires claimed, queue-wait p95 51.7s under a run burst). Until #110 merges, empty here means 'not instrumented yet', not a scheduler failure.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (scope) (rate(nexus_scheduler_runs_throttled_total[5m]))",
+          "legendFormat": "{{scope}} throttled/s"
+        },
+        {
+          "refId": "B",
+          "expr": "nexus_scheduler_concurrency_limit",
+          "legendFormat": "{{scope}} limit"
+        }
+      ]
+    }
+  ]
+}

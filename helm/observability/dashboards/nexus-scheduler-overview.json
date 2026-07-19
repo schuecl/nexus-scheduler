@@ -1,0 +1,260 @@
+{
+  "uid": "nexus-overview",
+  "title": "Nexus Scheduler \u2014 Overview",
+  "tags": [
+    "nexus-scheduler"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Runs by outcome (rate)",
+      "description": "nexus_scheduler_runs_total. Note: CANCELLED is not currently recorded (see #104).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(nexus_scheduler_runs_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth by state (BullMQ)",
+      "description": "nexus_scheduler_queue_depth. Rising 'waiting' with flat 'active' = worker saturation or a stuck scheduler.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (nexus_scheduler_queue_depth)",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LibreChat call latency vs job timeout",
+      "description": "p50/p95/p99 of nexus_scheduler_librechat_call_duration_seconds. The 600s line is DEFAULT_JOB_TIMEOUT_SECONDS \u2014 p95 approaching it means runs are about to time out. NOTE: buckets currently stop at 300s (#104), so values above 300s are not resolvable yet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API requests (RED)",
+      "description": "nexus_scheduler_http_request_duration_seconds, excluding scrape/health endpoints (Alloy polls /metrics every 15s and would otherwise dominate). Note: the `route` label still contains raw ids for routers mounted with a param \u2014 see #108.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PDF renders by result",
+      "description": "nexus_scheduler_pdf_renders_total \u2014 the Chromium path (most memory-hungry component).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result, template) (rate(nexus_scheduler_pdf_renders_total[5m]))",
+          "legendFormat": "{{template}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container memory (cAdvisor)",
+      "description": "No container memory limits are set in this stack \u2014 this is what explains Chromium/PDF and Ollama model-load failures. On Docker Desktop (macOS/Windows), cAdvisor cannot see the VM's cgroups \u2014 start the container-stats-exporter fallback instead: docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d. It emits the same metric names from the Docker Engine API, so this panel populates either way.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (name) (container_memory_working_set_bytes{name!=\"\"}))",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Node event loop lag (p99)",
+      "description": "From collectDefaultMetrics \u2014 the app's own saturation signal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Errors across all services (Loki)",
+      "description": "Errors from every container. The app services (pino) emit JSON, so their level is a parsed label; the rest are matched on content, since Alloy does not parse their formats. Query B excludes the pino services to avoid double-reporting the same line.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{service=~\".*-(api|worker|pdf-service)-.*\", level=~\"error|fatal\"}"
+        },
+        {
+          "refId": "B",
+          "queryType": "range",
+          "expr": "{service=~\".+\", service!~\".*-(api|worker|pdf-service)-.*\"} |~ \"(?i)\\\\b(error|fatal|panic|emerg|alert|crit)\\\\b\""
+        }
+      ]
+    }
+  ]
+}

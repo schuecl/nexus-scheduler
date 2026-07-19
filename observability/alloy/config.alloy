@@ -1,0 +1,282 @@
+// Grafana Alloy — the single collector for the whole deployment (#103).
+// Metrics -> Mimir, logs -> Loki. Infra metrics come from Alloy's own
+// built-in exporters, so no per-service exporter containers are needed.
+
+logging {
+  level = "warn"
+}
+
+// ---------------------------------------------------------------------------
+// Metrics -> Mimir
+// ---------------------------------------------------------------------------
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+  }
+}
+
+// The app already exposes Prometheus-format /metrics on each service.
+// (Prometheus is the exposition format here, not a server — Mimir stores it.)
+prometheus.scrape "app" {
+  targets = [
+    { __address__ = "api:3000", service = "api" },
+    { __address__ = "worker:3001", service = "worker" },
+    { __address__ = "pdf-service:4100", service = "pdf-service" },
+    // The LiteLLM gateway's meter, via the litellm-exporter bridge
+    // (OSS LiteLLM has no /metrics of its own). Exports
+    // litellm_gateway_up 0 when the stack runs without the gateway.
+    { __address__ = "litellm-exporter:9099", service = "litellm-gateway" },
+  ]
+  metrics_path    = "/metrics"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Per-container CPU/memory/OOM-kills. No container memory limits are set
+// anywhere in this stack, so this is what explains Chromium/PDF and
+// Ollama model-load failures.
+prometheus.exporter.cadvisor "containers" {
+  docker_host      = "unix:///var/run/docker.sock"
+  storage_duration = "5m"
+
+  // Report containers only. cAdvisor otherwise walks the host's whole cgroup
+  // tree (/system.slice, /init.scope, ...), which is noise here and outranks
+  // real containers in the topk panels.
+  docker_only = true
+
+  // Only the Compose project label is needed (to scope the metrics below).
+  // The default converts every container label into a metric label, which is
+  // unbounded cardinality driven by whatever labels an image happens to set.
+  store_container_labels       = false
+  allowlisted_container_labels = ["com.docker.compose.project"]
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.cadvisor_project.receiver]
+}
+
+// The socket exposes every container on the daemon, not just this project's.
+// The log pipeline is filtered at discovery; metrics have no equivalent, so
+// they are filtered here instead — otherwise neighbouring workloads' names
+// and resource usage are retained in Mimir, and a busy neighbour hides the
+// Nexus services in the topk panels.
+prometheus.relabel "cadvisor_project" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    source_labels = ["container_label_com_docker_compose_project"]
+    regex         = coalesce(sys.env("COMPOSE_PROJECT"), "nexus-scheduler")
+    action        = "keep"
+  }
+
+  // Its only job was that filter, and it carries one value on every series.
+  rule {
+    regex  = "container_label_com_docker_compose_project"
+    action = "labeldrop"
+  }
+}
+
+// The host itself. Every container on this box shares one kernel, one disk and
+// one CPU budget: a full disk stops Postgres and Mimir alike, and neither
+// cAdvisor nor the app can see that coming. Paths point at /rootfs because the
+// container's own /proc and /sys are namespaced views — reading them would
+// report the container, not the machine everything actually runs on.
+prometheus.exporter.unix "host" {
+  rootfs_path = "/rootfs"
+  procfs_path = "/rootfs/proc"
+  sysfs_path  = "/rootfs/sys"
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// The observability stack watching itself. Without this the pipeline fails
+// silently and looks identical to a healthy, quiet system: if Alloy stops
+// shipping, every dashboard in this repo goes flat and nothing anywhere says
+// why. These four expose their own /metrics, so meta-monitoring costs one
+// scrape and answers "are the graphs empty, or is the collector dead?".
+prometheus.scrape "observability" {
+  targets = [
+    { __address__ = "alloy:12345", service = "alloy" },
+    { __address__ = "mimir:9009", service = "mimir" },
+    { __address__ = "loki:3100", service = "loki" },
+    { __address__ = "grafana:3000", service = "grafana" },
+  ]
+  metrics_path    = "/metrics"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Redis backs BullMQ — the entire scheduler/queue. Memory pressure and
+// evictions here mean silently lost runs, so it's a first-class signal.
+prometheus.exporter.redis "redis" {
+  redis_addr     = "redis:6379"
+  redis_password = sys.env("REDIS_PASSWORD")
+}
+
+prometheus.scrape "redis" {
+  targets         = prometheus.exporter.redis.redis.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Postgres is the system of record (runs, schedules, audit trail).
+prometheus.exporter.postgres "postgres" {
+  data_source_names = [
+    "postgresql://" + sys.env("POSTGRES_USER") + ":" + sys.env("POSTGRES_PASSWORD") + "@postgres:5432/" + sys.env("POSTGRES_DB") + "?sslmode=disable",
+  ]
+}
+
+prometheus.scrape "postgres" {
+  targets         = prometheus.exporter.postgres.postgres.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// ---------------------------------------------------------------------------
+// Logs -> Loki (every container in the deployment, not just the app)
+// ---------------------------------------------------------------------------
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // Keep only this Compose project. discovery.docker reads the whole host
+  // daemon, not just this stack, so without this rule Alloy tails the logs of
+  // every unrelated container on the machine into this Loki — and the same
+  // compose file serves Grafana with anonymous Admin, so anything those
+  // containers log (credentials included) becomes readable by anyone who can
+  // reach it, and is retained here for 7 days.
+  //
+  // Honours COMPOSE_PROJECT_NAME so a renamed project still matches; the
+  // default mirrors Compose's own (the directory name).
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = coalesce(sys.env("COMPOSE_PROJECT"), "nexus-scheduler")
+    action        = "keep"
+  }
+
+  // Container name -> a clean `service` label (drop Docker's leading "/").
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.pino.receiver]
+}
+
+// api/worker/pdf-service log structured JSON (pino). Extract level and the
+// request id so logs join the audit trail (and future traces) on `requestId`.
+//
+// The parsing is scoped with stage.match to only those services: applied
+// globally, the template below renders the literal string "<no value>" for
+// every non-JSON line (Postgres, nginx, Ollama, Alloy itself), which both
+// pollutes the `level` label and breaks `level=~"error|fatal"` queries.
+// Other services' logs pass through untouched and keep their own labels.
+loki.process "pino" {
+  stage.match {
+    selector = "{service=~\".*-(api|worker|pdf-service)-.*\"}"
+
+    stage.json {
+      expressions = {
+        level = "level",
+        // pino-http serializes the id returned by genReqId under the nested
+        // `req` object, so there is no top-level `requestId` to match on.
+        requestId = "req.id",
+      }
+    }
+
+    // pino emits numeric levels by default (30=info, 40=warn, 50=error);
+    // map them to names so `level` is human-queryable in Grafana. The
+    // `if .Value` guard keeps a missing level from becoming "<no value>".
+    stage.template {
+      source   = "level"
+      template = "{{ if .Value }}{{ if eq .Value \"10\" }}trace{{ else if eq .Value \"20\" }}debug{{ else if eq .Value \"30\" }}info{{ else if eq .Value \"40\" }}warn{{ else if eq .Value \"50\" }}error{{ else if eq .Value \"60\" }}fatal{{ else }}{{ .Value }}{{ end }}{{ end }}"
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+
+    // requestId is a UUID per request — as a label it would blow up Loki's
+    // index (a stream per request). Structured metadata is exactly the
+    // escape hatch for high-cardinality fields: attached to the line and
+    // filterable, without becoming part of the stream identity.
+    stage.structured_metadata {
+      values = {
+        requestId = "",
+      }
+    }
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+// ---------------------------------------------------------------------------
+// Docker Desktop fallback: per-container stats via the Engine API
+// (container-stats-exporter, `docker-desktop` compose profile). Discovered
+// through the Docker socket rather than a static target so that on Linux
+// hosts — where cAdvisor works and the profile stays off — there is no
+// permanently-down target polluting the collector-health view.
+// ---------------------------------------------------------------------------
+discovery.relabel "container_stats" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = coalesce(sys.env("COMPOSE_PROJECT"), "nexus-scheduler")
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "container-stats-exporter"
+    action        = "keep"
+  }
+
+  // Point the scrape at the exporter's port on its compose-network IP
+  // (the service EXPOSEs nothing, so discovery's default port guess
+  // cannot be trusted).
+  rule {
+    source_labels = ["__meta_docker_network_ip"]
+    regex         = "(.+)"
+    target_label  = "__address__"
+    replacement   = "$1:9101"
+  }
+
+  rule {
+    target_label = "service"
+    replacement  = "container-stats"
+  }
+}
+
+prometheus.scrape "container_stats" {
+  targets         = discovery.relabel.container_stats.output
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "15s"
+}

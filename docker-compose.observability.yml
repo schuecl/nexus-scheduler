@@ -1,0 +1,154 @@
+# Observability stack (issue #103), Grafana-suite only:
+#   Alloy   — single collector: scrapes /metrics, tails container logs
+#   Mimir   — metrics backend (Prometheus-compatible), monolithic mode
+#   Loki    — logs backend, single-binary mode
+#   Grafana — dashboards + alerting, provisioned as code
+#
+# Bring it up alongside the app so Alloy can reach the services by name:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+# Tempo (traces) and Pyroscope (profiles) are intentionally NOT here yet:
+# the app has no OpenTelemetry instrumentation, so those backends would
+# stand up and receive nothing. They land with Phase 2/3 of #103.
+services:
+  # No healthcheck on mimir/loki: both images are distroless — they have no
+  # shell and no wget/curl, so a CMD-SHELL probe can never pass and would
+  # just mark them permanently unhealthy. Alloy and Grafana both retry their
+  # connections, so strict start ordering isn't needed. (Mimir's ingester
+  # ring takes ~40s to form before /ready returns 200.)
+  mimir:
+    image: grafana/mimir:latest
+    command: ["-config.file=/etc/mimir/mimir.yaml"]
+    volumes:
+      - ./observability/mimir/mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir-data:/data
+
+  loki:
+    image: grafana/loki:latest
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:latest
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      # Read by config.alloy's built-in postgres/redis exporters — same
+      # values the app services already use from .env.
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus}
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Scopes log discovery to this project's containers (see config.alloy).
+      # Compose does not expose its project name to containers, so pass it in.
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-nexus-scheduler}
+    # cAdvisor reads OOM-kill events from /dev/kmsg. With kernel.dmesg_restrict=1
+    # (the default on most distros) that read needs CAP_SYSLOG — and the
+    # capability is only effective for a root process, while the Alloy image
+    # runs as a non-root user. Without both of these the mount alone yields
+    # "operation not permitted" and OOM events are silently dropped.
+    # Note: this container already mounts the Docker socket, which is
+    # root-equivalent, so running as root here adds little marginal risk.
+    user: root
+    cap_add:
+      - SYSLOG
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Explicit socket bind on top of the /var/run directory mount below:
+      # on Docker Desktop (macOS/Windows) the directory bind carries the
+      # host's /var/run, which does NOT contain the engine socket — only
+      # this exact-path bind is special-cased to reach it. Redundant but
+      # harmless on a Linux host. Without it, container log discovery
+      # silently collects nothing on Docker Desktop.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Container discovery + log tailing for every service in the stack.
+      # cAdvisor needs the host's cgroup tree for per-container CPU/memory and
+      # Docker's metadata to resolve those cgroups back to container names.
+      # Without them it only ever reports the root cgroup (id="/") — i.e. no
+      # per-container data at all, which is the whole reason it is here.
+      # This mount set follows the Alloy cadvisor exporter's Docker deployment
+      # example; /var/run (not just the socket) is what lets it resolve names.
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - alloy-data:/var/lib/alloy/data
+    devices:
+      # cAdvisor reads OOM-kill events from the kernel log. This must be a
+      # `devices:` entry, not a volume mount: bind-mounting the device node
+      # still leaves it blocked by the container's device cgroup ("operation
+      # not permitted"), no matter what capabilities are granted.
+      - /dev/kmsg:/dev/kmsg:r
+    depends_on:
+      - mimir
+      - loki
+
+  # Bridges the LiteLLM gateway's spend log (the authoritative token/
+  # spend meter, #102) into Prometheus — the OSS proxy has no /metrics
+  # of its own. No depends_on: on a stack without the gateway (pre-#102
+  # main) it simply exports litellm_gateway_up 0 instead of failing, so
+  # this overlay stays usable against either compose file. Reuses the
+  # litellm image purely for its python3 — the exporter is stdlib-only.
+  litellm-exporter:
+    image: ghcr.io/berriai/litellm-database:main-stable
+    entrypoint: ["python3", "/app/exporter.py"]
+    environment:
+      LITELLM_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+    volumes:
+      - ./observability/litellm-exporter/exporter.py:/app/exporter.py:ro
+    mem_limit: 256m
+
+
+  # Docker Desktop (macOS/Windows) fallback for per-container CPU/memory:
+  # cAdvisor cannot see the VM's cgroups through the bind mounts there, so
+  # the Infrastructure/Overview container panels read "No data". This
+  # exporter gets the same numbers from the Docker Engine API over the
+  # socket and emits them under the cAdvisor metric names the panels
+  # already query. Profile-gated OFF by default — on a Linux host cAdvisor
+  # works and running both would double-count. Enable with:
+  #   docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d
+  container-stats-exporter:
+    image: ghcr.io/berriai/litellm-database:main-stable
+    profiles: ["docker-desktop"]
+    entrypoint: ["python3", "/app/exporter.py"]
+    environment:
+      # Scopes the Engine-API listing to this project's containers only.
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-nexus-scheduler}
+    volumes:
+      - ./observability/container-stats-exporter/exporter.py:/app/exporter.py:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 256m
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      # Dev-only convenience: anonymous admin so the stack is usable
+      # immediately. Never do this outside a local dev compose.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # 3300 on the host: 3000 is taken by the api and 3001 is the worker's
+      # health/metrics port.
+      - "3300:3000"
+    depends_on:
+      - mimir
+      - loki
+
+volumes:
+  mimir-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

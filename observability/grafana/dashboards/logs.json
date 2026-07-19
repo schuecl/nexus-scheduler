@@ -1,0 +1,199 @@
+{
+  "uid": "nexus-logs",
+  "title": "Logs \u2014 All Services",
+  "tags": [
+    "nexus-scheduler",
+    "logs"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "description": "Every container in the deployment ships its logs here, not just the app. Note the shape difference that drives the queries below: the three app services emit pino JSON, so their level is parsed into a label; everything else (Postgres, Redis, Mimir, Loki, Grafana, Alloy) emits its own format and is matched on content instead. A single query cannot cover both, and pretending otherwise silently drops half the estate.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Volume",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log volume by service",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate({service=~\".+\"}[5m]))",
+          "queryType": "range",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "description": "A service going silent is as informative as one going loud \u2014 flat-zero here for a running container usually means the process is wedged, not idle."
+    },
+    {
+      "type": "timeseries",
+      "title": "App log volume by level",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (rate({service=~\".*-(api|worker|pdf-service)-.*\"}[5m]))",
+          "queryType": "range",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "description": "Only the pino services carry a parsed `level` label; see the dashboard description."
+    },
+    {
+      "type": "row",
+      "title": "Errors",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Errors \u2014 app services (parsed level)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\".*-(api|worker|pdf-service)-.*\", level=~\"error|fatal\"}",
+          "queryType": "range"
+        }
+      ],
+      "description": "pino emits numeric levels (50=error, 60=fatal) which Alloy maps to names. A content search for the word \"error\" would miss these entirely \u2014 the word never appears in the line.",
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Errors \u2014 everything else (content match)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\".+\", service!~\".*-(api|worker|pdf-service)-.*\"} |~ \"(?i)\\\\b(error|fatal|panic|emerg|alert|crit)\\\\b\"",
+          "queryType": "range"
+        }
+      ],
+      "description": "Postgres, Redis, Mimir, Loki, Grafana and Alloy. The positive service=~\".+\" matcher is load-bearing: Loki rejects a selector built only from a negative matcher.",
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "type": "row",
+      "title": "Live tail",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      }
+    },
+    {
+      "type": "logs",
+      "title": "All services",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=~\".+\"}",
+          "queryType": "range"
+        }
+      ],
+      "description": "Unfiltered firehose. Use the requestId link on an app log line to pivot to every line for that request across services \u2014 the id is attached as structured metadata, not a label, so it stays queryable without exploding Loki's index.",
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    }
+  ]
+}

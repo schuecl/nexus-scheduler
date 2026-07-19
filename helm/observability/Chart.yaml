@@ -1,0 +1,15 @@
+apiVersion: v2
+name: observability
+description: >-
+  Optional observability backend for Nexus Scheduler on clusters that do
+  not already run a monitoring stack — the air-gapped/small-cluster
+  profile. Alloy collects (metrics, logs, kubelet cAdvisor), Mimir and
+  Loki store, Grafana serves the same dashboards the Compose overlay
+  provisions. Single-replica, filesystem-backed storage on PVCs: this is
+  deliberately not an HA monitoring platform. Clusters that already run
+  Prometheus/Grafana should use the app chart's
+  observability.serviceMonitor integration instead and skip this chart
+  entirely — see helm/nexus-scheduler/values.yaml for that rationale.
+type: application
+version: 0.1.0
+appVersion: "0.1.9"

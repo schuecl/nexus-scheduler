@@ -1,0 +1,363 @@
+{
+  "uid": "nexus-collector",
+  "title": "Observability \u2014 Collector & Pipeline Health",
+  "tags": [
+    "nexus-scheduler",
+    "meta"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "Watches the thing that watches everything else. If Alloy stops shipping, every other dashboard in this repo goes flat and looks exactly like a healthy, idle system \u2014 this is the only place that distinguishes 'nothing is happening' from 'nothing is being collected'. All metric names verified against the live collector.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Alloy \u2014 the collector",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Healthy components",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "alloy_component_controller_running_components{health_type=\"healthy\"}",
+          "legendFormat": "healthy"
+        }
+      ],
+      "description": "Every pipeline stage is a component. A drop here means part of the pipeline stopped without the container dying \u2014 no restart, no crash, just missing data."
+    },
+    {
+      "type": "stat",
+      "title": "Remote-write lag",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 5,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(prometheus_remote_storage_highest_timestamp_in_seconds) - max(prometheus_remote_storage_queue_highest_sent_timestamp_seconds)",
+          "legendFormat": "lag"
+        }
+      ],
+      "description": "How far behind Mimir is from what Alloy has scraped. Steady growth means shipping is slower than collecting and dashboards are quietly showing stale data. Written as max()-max() on purpose: the two metrics carry different labels, so a direct subtraction matches nothing and yields an empty panel rather than an error."
+    },
+    {
+      "type": "timeseries",
+      "title": "Samples shipped vs failed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 9,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(prometheus_remote_storage_samples_total[5m]))",
+          "legendFormat": "shipped/s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(prometheus_remote_storage_samples_failed_total[5m]))",
+          "legendFormat": "FAILED/s"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(prometheus_remote_storage_samples_retried_total[5m]))",
+          "legendFormat": "retried/s"
+        }
+      ],
+      "description": "failed/s must sit at zero \u2014 anything else is metrics lost between here and Mimir, which no downstream panel can reveal. retried/s rising first is the early warning: the queue is struggling before it starts dropping."
+    },
+    {
+      "type": "timeseries",
+      "title": "Send queue",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prometheus_remote_storage_samples_pending",
+          "legendFormat": "pending"
+        },
+        {
+          "refId": "B",
+          "expr": "prometheus_remote_storage_shards",
+          "legendFormat": "shards"
+        },
+        {
+          "refId": "C",
+          "expr": "prometheus_remote_storage_shards_desired",
+          "legendFormat": "shards desired"
+        }
+      ],
+      "description": "Pending climbing while shards sit at max means the backend cannot keep up."
+    },
+    {
+      "type": "row",
+      "title": "Loki \u2014 log pipeline",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Entries sent",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(loki_write_sent_entries_total[5m]))",
+          "legendFormat": "entries/s"
+        }
+      ],
+      "description": "Log lines reaching Loki. Zero here while containers are logging means the pipeline is broken, not that the system is quiet."
+    },
+    {
+      "type": "timeseries",
+      "title": "Entries DROPPED (must stay flat)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (rate(loki_write_dropped_entries_total[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "description": "Broken out by reason \u2014 rate_limited and stream_limited mean Loki is pushing back (usually label cardinality), line_too_long means the log itself is the problem. Silent data loss either way."
+    },
+    {
+      "type": "timeseries",
+      "title": "Write latency (p99)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(loki_write_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Backends \u2014 are they receiving?",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Mimir: samples received",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(cortex_distributor_received_samples_total[5m]))",
+          "legendFormat": "samples/s"
+        }
+      ],
+      "description": "The other end of remote-write. Compare with 'shipped' above: a gap between them is loss in flight."
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki: lines received",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(loki_distributor_lines_received_total[5m]))",
+          "legendFormat": "lines/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Grafana: request rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(grafana_http_request_duration_seconds_count[5m]))",
+          "legendFormat": "req/s"
+        }
+      ]
+    }
+  ]
+}

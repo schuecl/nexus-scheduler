@@ -1,0 +1,41 @@
+# Alloy needs cluster-scope read access for discovery (pods across the
+# app namespace, nodes for kubelet cAdvisor) and the nodes/proxy verb
+# to reach each kubelet's metrics endpoints. Read-only throughout.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability.fullname" . }}-alloy
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "observability.fullname" . }}-alloy
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy", "nodes/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "observability.fullname" . }}-alloy
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "observability.fullname" . }}-alloy
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "observability.fullname" . }}-alloy
+    namespace: {{ .Release.Namespace }}

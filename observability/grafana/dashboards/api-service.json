@@ -1,0 +1,447 @@
+{
+  "uid": "nexus-api",
+  "title": "API \u2014 Service Health",
+  "tags": [
+    "nexus-scheduler",
+    "app",
+    "api"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "The Express API: the RED method (Rate, Errors, Duration) over nexus_scheduler_http_request_duration_seconds, plus the Node runtime underneath it. Metric and label names verified from source; runtime names verified against prom-client 15.1.3.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "HTTP \u2014 the RED method",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by status class",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ],
+      "description": "Rate. Labelled by matched route pattern rather than raw URL, so ids do not explode cardinality. Scrape and health endpoints are excluded: Alloy polls /metrics every 15s, which on an idle deployment is *all* the traffic \u2014 it would top the route panels and dilute every ratio here."
+    },
+    {
+      "type": "stat",
+      "title": "Error ratio (5xx)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\",status_code=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\"}[5m])), 0.0001)",
+          "legendFormat": "5xx ratio"
+        }
+      ],
+      "description": "Errors. The SLO-shaped number: what share of requests are failing. Scrape and health endpoints are excluded: Alloy polls /metrics every 15s, which on an idle deployment is *all* the traffic \u2014 it would top the route panels and dilute every ratio here."
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_scheduler_http_request_duration_seconds_bucket{route!~\"/metrics|/healthz|/readyz\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_http_request_duration_seconds_bucket{route!~\"/metrics|/healthz|/readyz\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_scheduler_http_request_duration_seconds_bucket{route!~\"/metrics|/healthz|/readyz\"}[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "description": "Duration. Watch p99 against p50: a widening gap is queueing, not slow handlers. Scrape and health endpoints are excluded: Alloy polls /metrics every 15s, which on an idle deployment is *all* the traffic \u2014 it would top the route panels and dilute every ratio here."
+    },
+    {
+      "type": "timeseries",
+      "title": "Slowest routes (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(8, histogram_quantile(0.95, sum by (le, route) (rate(nexus_scheduler_http_request_duration_seconds_bucket{route!~\"/metrics|/healthz|/readyz\"}[5m]))))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "description": "Where latency actually lives. Route-level p95 is what tells you which endpoint to fix."
+    },
+    {
+      "type": "timeseries",
+      "title": "Busiest routes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(8, sum by (route, method) (rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\"}[5m])))",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ],
+      "description": "Traffic mix \u2014 pair with the panel to its left before optimising anything. Scrape and health endpoints are excluded: Alloy polls /metrics every 15s, which on an idle deployment is *all* the traffic \u2014 it would top the route panels and dilute every ratio here."
+    },
+    {
+      "type": "timeseries",
+      "title": "4xx by route",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(8, sum by (route, status_code) (rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\",status_code=~\"4..\"}[5m])))",
+          "legendFormat": "{{route}} {{status_code}}"
+        }
+      ],
+      "description": "Client errors concentrated on one route usually means a contract or auth problem, not user error. 401/429 spikes are worth alerting on."
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx by route",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(8, sum by (route) (rate(nexus_scheduler_http_request_duration_seconds_count{route!~\"/metrics|/healthz|/readyz\",status_code=~\"5..\"}[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "description": "Server errors \u2014 should be flat at zero."
+    },
+    {
+      "type": "row",
+      "title": "Node.js runtime \u2014 saturation signals",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Event loop lag (p99 / mean)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_eventloop_lag_p99_seconds{service=\"api\"}",
+          "legendFormat": "p99"
+        },
+        {
+          "refId": "B",
+          "expr": "nodejs_eventloop_lag_mean_seconds{service=\"api\"}",
+          "legendFormat": "mean"
+        }
+      ],
+      "description": "The single best saturation signal for a Node process: when the loop lags, everything queues behind it \u2014 requests, timers and job callbacks alike."
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap used vs total",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_heap_size_used_bytes{service=\"api\"}",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "expr": "nodejs_heap_size_total_bytes{service=\"api\"}",
+          "legendFormat": "total"
+        },
+        {
+          "refId": "C",
+          "expr": "process_resident_memory_bytes{service=\"api\"}",
+          "legendFormat": "rss"
+        }
+      ],
+      "description": "RSS climbing while heap stays flat points outside the JS heap \u2014 native buffers, or Chromium in the PDF path."
+    },
+    {
+      "type": "timeseries",
+      "title": "GC time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(nodejs_gc_duration_seconds_sum{service=\"api\"}[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "description": "Fraction of wall-clock spent in GC, by collection kind. A rising `major` share means the heap is under real pressure, not just busy."
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{service=\"api\"}[5m])",
+          "legendFormat": "cores"
+        }
+      ],
+      "description": "Node is single-threaded: sustained values near 1 core mean this process is the bottleneck."
+    },
+    {
+      "type": "timeseries",
+      "title": "Active handles",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_active_handles_total{service=\"api\"}",
+          "legendFormat": "handles"
+        }
+      ],
+      "description": "Steadily climbing handles with flat throughput is the classic leak signature (sockets or timers never released)."
+    },
+    {
+      "type": "timeseries",
+      "title": "Open file descriptors",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_open_fds{service=\"api\"}",
+          "legendFormat": "open"
+        },
+        {
+          "refId": "B",
+          "expr": "process_max_fds{service=\"api\"}",
+          "legendFormat": "max"
+        }
+      ],
+      "description": "Approaching max_fds means new connections start failing."
+    }
+  ]
+}

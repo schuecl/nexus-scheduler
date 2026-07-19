@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - "helm/**"
+      - "observability/grafana/dashboards/**"
       - ".github/workflows/helm-validate.yml"
   push:
     branches: [main, master]
@@ -28,10 +29,27 @@ jobs:
           version: v3.16.2
 
       - name: helm lint
-        run: helm lint helm/nexus-scheduler
+        run: |
+          helm lint helm/nexus-scheduler
+          helm lint helm/observability
+
+      - name: Dashboards in sync with the chart copy
+        # Helm can only template files inside the chart, so the Grafana
+        # dashboards exist both at their source of truth
+        # (observability/grafana/dashboards) and inside helm/observability.
+        # The sync script makes the copy mechanical; this makes drift fail CI.
+        run: scripts/sync-helm-dashboards.sh --check
 
       - name: helm template (render manifests)
-        run: helm template release helm/nexus-scheduler > rendered.yaml
+        run: |
+          helm template release helm/nexus-scheduler > rendered.yaml
+          helm template release helm/observability >> rendered.yaml
+          # Exercise the optional paths too — the exporter toggle and the
+          # mirrored-registry/digest form both have to render valid YAML.
+          helm template release helm/observability \
+            --set litellmExporter.enabled=true \
+            --set litellmExporter.existingSecret=ci-placeholder \
+            --set global.imageRegistry=registry.example.internal >> rendered.yaml
 
       - name: Install kubeconform
         run: |

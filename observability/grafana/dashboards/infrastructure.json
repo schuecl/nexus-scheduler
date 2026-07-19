@@ -1,0 +1,482 @@
+{
+  "uid": "nexus-infra",
+  "title": "Infrastructure \u2014 Postgres, Redis & Containers",
+  "tags": [
+    "nexus-scheduler",
+    "infra"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "description": "The dependencies the scheduler actually rides on. Redis backs BullMQ (the whole queue), Postgres is the system of record, and container memory/OOM is what usually explains an unexplained failure. All metric names here were verified against live data.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Redis \u2014 BullMQ's backing store (queue loss lives here)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Redis up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_up",
+          "legendFormat": "up"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis memory used vs max",
+      "description": "If used approaches max, Redis starts evicting \u2014 and evicted BullMQ keys mean silently lost runs.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_memory_max_bytes > 0",
+          "legendFormat": "max"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis evictions (must stay flat)",
+      "description": "Any non-zero rate here is a red flag: BullMQ jobs can be evicted, losing scheduled runs with no error anywhere.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_evicted_keys_total[5m])",
+          "legendFormat": "evictions/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis ops/sec",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_commands_processed_total[5m])",
+          "legendFormat": "commands/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis clients",
+      "description": "blocked_clients is normal for BullMQ (workers block on BRPOPLPUSH waiting for jobs).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_connected_clients",
+          "legendFormat": "connected"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_blocked_clients",
+          "legendFormat": "blocked"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis keys per db",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_db_keys",
+          "legendFormat": "{{db}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Postgres \u2014 system of record",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Postgres up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_up",
+          "legendFormat": "up"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections by state",
+      "description": "pg_stat_activity_count. Watch this against max_connections \u2014 the api and worker each hold a Prisma pool.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 4,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (pg_stat_activity_count)",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Longest transaction",
+      "description": "A climbing max transaction duration usually means a stuck scheduler tick or a long-running migration holding locks.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (datname) (pg_stat_activity_max_tx_duration)",
+          "legendFormat": "{{datname}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Locks",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode) (pg_locks_count)",
+          "legendFormat": "{{mode}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Database size",
+      "description": "The runs and audit_events tables are the fastest-growing; watch the trend for retention planning.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_database_size_bytes",
+          "legendFormat": "{{datname}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Containers & host",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory by container (top 10)",
+      "description": "Per-container working set. No container memory limits are set in this stack, so this is what explains Chromium/PDF and model-load failures. name!=\"\" keeps this to real containers \u2014 cAdvisor also reports host cgroups (/system.slice etc.) which would otherwise dominate the topk. On Docker Desktop (macOS/Windows), cAdvisor cannot see the VM's cgroups \u2014 start the container-stats-exporter fallback instead: docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d. It emits the same metric names from the Docker Engine API, so this panel populates either way.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (name) (container_memory_working_set_bytes{name!=\"\"}))",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU by container (top 10)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])))",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "description": " On Docker Desktop (macOS/Windows), cAdvisor cannot see the VM's cgroups \u2014 start the container-stats-exporter fallback instead: docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d. It emits the same metric names from the Docker Engine API, so this panel populates either way."
+    },
+    {
+      "type": "timeseries",
+      "title": "OOM kills",
+      "description": "Requires Alloy to read /dev/kmsg \u2014 see the devices: entry in docker-compose.observability.yml. Any non-zero value means a container was killed for memory. Note: OOM-kill events come only from cAdvisor (kernel log) \u2014 the Docker Desktop fallback exporter does not report them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (name) (increase(container_oom_events_total{name!=\"\"}[10m]))",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    }
+  ]
+}

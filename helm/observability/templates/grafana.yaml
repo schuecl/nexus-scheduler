@@ -1,0 +1,210 @@
+# Grafana with datasources and dashboards provisioned as code — the
+# same JSON the Compose overlay serves, copied into the chart by
+# scripts/sync-helm-dashboards.sh (CI guards the copy against drift).
+# Unlike the dev overlay there is no anonymous admin here: a real
+# password, supplied or generated into a Secret.
+{{- $secretName := printf "%s-grafana-admin" (include "observability.fullname" .) }}
+{{- /* Precedence: explicit value > the already-generated Secret (so
+       upgrades don't rotate the password) > a fresh random one. lookup
+       returns nil during template/lint — hence the explicit branches
+       rather than ternary, which evaluates both arms eagerly. */}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $password := .Values.grafana.adminPassword }}
+{{- if not $password }}
+{{- if and $existing $existing.data (hasKey $existing.data "password") }}
+{{- $password = index $existing.data "password" | b64dec }}
+{{- else }}
+{{- $password = randAlphaNum 24 }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  password: {{ $password | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana-provisioning
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Mimir
+        uid: mimir
+        type: prometheus
+        url: http://{{ include "observability.fullname" . }}-mimir:9009/prometheus
+        isDefault: true
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://{{ include "observability.fullname" . }}-loki:3100
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: nexus-scheduler
+        folder: Nexus Scheduler
+        type: file
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana
+  labels:
+    app.kubernetes.io/name: grafana
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        {{- include "observability.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        checksum/dashboards: {{ (.Files.Glob "dashboards/*.json").AsConfig | sha256sum | trunc 32 }}
+        checksum/provisioning: {{ printf "%s|%s" (include "observability.fullname" .) .Chart.Version | sha256sum | trunc 16 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: {{ include "observability.image" (dict "root" $ "image" .Values.grafana.image) }}
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: {{ .Values.grafana.adminUser | quote }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: password
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: provisioning-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: provisioning-dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+            {{- if .Values.grafana.persistence.enabled }}
+            - name: storage
+              mountPath: /var/lib/grafana
+              subPath: grafana-storage
+            {{- end }}
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+      volumes:
+        - name: provisioning-datasources
+          configMap:
+            name: {{ include "observability.fullname" . }}-grafana-provisioning
+            items: [{key: datasources.yml, path: datasources.yml}]
+        - name: provisioning-dashboards
+          configMap:
+            name: {{ include "observability.fullname" . }}-grafana-provisioning
+            items: [{key: dashboards.yml, path: dashboards.yml}]
+        - name: dashboards
+          configMap:
+            name: {{ include "observability.fullname" . }}-grafana-dashboards
+        {{- if .Values.grafana.persistence.enabled }}
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ include "observability.fullname" . }}-grafana
+        {{- end }}
+{{- if .Values.grafana.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.grafana.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.persistence.size }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.grafana.service.type }}
+  selector:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.grafana.service.port }}
+      targetPort: http
+{{- if .Values.grafana.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.grafana.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.grafana.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "observability.fullname" . }}-grafana
+                port: {name: http}
+  {{- with .Values.grafana.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

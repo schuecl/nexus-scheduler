@@ -1,0 +1,145 @@
+{{- define "observability.mimir.config" -}}
+target: all
+multitenancy_enabled: false
+# Written relative to the working directory by default, which the
+# non-root user cannot write — surfaced by a real install, the compose
+# stack masked it by running as root.
+activity_tracker:
+  filepath: /data/metrics-activity.log
+ruler:
+  rule_path: /data/ruler-scratch
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: warn
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /data/common
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/blocks
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+  tsdb:
+    dir: /data/tsdb
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/ruler
+compactor:
+  data_dir: /data/compactor
+ingester:
+  ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+distributor:
+  ring:
+    kvstore:
+      store: memberlist
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+memberlist:
+  join_members: []
+limits:
+  compactor_blocks_retention_period: {{ .Values.mimir.retention }}
+{{- end }}
+# Mimir in monolithic mode on a PVC — the single-writer profile this
+# chart is scoped to. The config is the Compose file's, with retention
+# taken from values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir-config
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  mimir.yaml: |
+{{ include "observability.mimir.config" . | trim | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir
+  labels:
+    app.kubernetes.io/name: mimir
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "observability.fullname" . }}-mimir
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mimir
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mimir
+        {{- include "observability.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9009"
+        checksum/config: {{ include "observability.mimir.config" . | sha256sum | trunc 32 }}
+    spec:
+      securityContext:
+        # The image runs as a non-root user; without fsGroup the PVC's
+        # root-owned mount point is unwritable and the pod never comes up.
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: mimir
+          image: {{ include "observability.image" (dict "root" $ "image" .Values.mimir.image) }}
+          args: ["-config.file=/etc/mimir/mimir.yaml"]
+          ports:
+            - name: http
+              containerPort: 9009
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            # The ingester ring takes ~40s to form on first start.
+            initialDelaySeconds: 45
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+              readOnly: true
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.mimir.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-mimir-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.mimir.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.mimir.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: mimir
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 9009
+      targetPort: http

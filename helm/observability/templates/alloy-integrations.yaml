@@ -1,0 +1,132 @@
+{{- if or .Values.integrations.postgres.enabled .Values.integrations.redis.enabled }}
+{{- if and .Values.integrations.postgres.enabled (not .Values.integrations.postgres.existingSecret) }}
+{{- fail "integrations.postgres.enabled requires integrations.postgres.existingSecret (a Secret with key `dsn`)" }}
+{{- end }}
+# Singleton Alloy running only the database exporters — deliberately
+# not part of the DaemonSet, which would scrape the same database once
+# per node. Feeds the Infrastructure dashboard's Postgres/Redis panels.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-integrations-config
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  config.alloy: |
+    prometheus.remote_write "mimir" {
+      endpoint {
+        url = "http://{{ include "observability.fullname" . }}-mimir:9009/api/v1/push"
+      }
+    }
+    {{- if .Values.integrations.postgres.enabled }}
+
+    prometheus.exporter.postgres "postgres" {
+      data_source_names = [sys.env("POSTGRES_DSN")]
+    }
+
+    discovery.relabel "postgres" {
+      targets = prometheus.exporter.postgres.postgres.targets
+      rule {
+        target_label = "service"
+        replacement  = "postgres"
+      }
+    }
+
+    prometheus.scrape "postgres" {
+      targets         = discovery.relabel.postgres.output
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "30s"
+    }
+    {{- end }}
+    {{- if .Values.integrations.redis.enabled }}
+
+    prometheus.exporter.redis "redis" {
+      redis_addr = {{ .Values.integrations.redis.addr | quote }}
+      {{- if .Values.integrations.redis.existingSecret }}
+      redis_password = sys.env("REDIS_PASSWORD")
+      {{- end }}
+    }
+
+    discovery.relabel "redis" {
+      targets = prometheus.exporter.redis.redis.targets
+      rule {
+        target_label = "service"
+        replacement  = "redis"
+      }
+    }
+
+    prometheus.scrape "redis" {
+      targets         = discovery.relabel.redis.output
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "30s"
+    }
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability.fullname" . }}-integrations
+  labels:
+    app.kubernetes.io/name: alloy-integrations
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy-integrations
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alloy-integrations
+        {{- include "observability.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ toYaml .Values.integrations | sha256sum | trunc 32 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 473
+        fsGroup: 473
+      containers:
+        - name: alloy
+          image: {{ include "observability.image" (dict "root" $ "image" .Values.alloy.image) }}
+          args:
+            - run
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
+            - /etc/alloy/config.alloy
+          env:
+            {{- if .Values.integrations.postgres.enabled }}
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.integrations.postgres.existingSecret }}
+                  key: dsn
+            {{- end }}
+            {{- if and .Values.integrations.redis.enabled .Values.integrations.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.integrations.redis.existingSecret }}
+                  key: password
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy/data
+          resources:
+            {{- toYaml .Values.integrations.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-integrations-config
+        - name: data
+          emptyDir: {}
+{{- end }}

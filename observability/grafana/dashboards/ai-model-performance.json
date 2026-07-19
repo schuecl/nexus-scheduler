@@ -1,0 +1,333 @@
+{
+  "uid": "nexus-ai-perf",
+  "title": "AI \u2014 Model Performance & Reliability",
+  "tags": [
+    "nexus-scheduler",
+    "ai"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "Latency, throughput, errors and outcome quality for agent runs against LibreChat, broken down by the model that actually served each call. The app requests `model: agentId` \u2014 an Agent, not a model \u2014 so the serving model is read from the response; that is why this is answerable at all.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Latency (available today)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Model call latency vs job timeout",
+      "description": "p50/p95/p99 across all models. The 600s line is DEFAULT_JOB_TIMEOUT_SECONDS \u2014 p95 approaching it is the early warning that runs are about to be killed. Buckets now reach 900s, so calls past the timeout are resolvable rather than piling into +Inf.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Avg model call duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_librechat_call_duration_seconds_sum[5m])) / sum(rate(nexus_scheduler_librechat_call_duration_seconds_count[5m]))",
+          "legendFormat": "avg"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Throughput & outcomes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Model calls / sec",
+      "description": "Serving throughput. Derived from the latency histogram's _count.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_librechat_call_duration_seconds_count[5m]))",
+          "legendFormat": "calls/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Run outcomes",
+      "description": "nexus_scheduler_runs_total by status. Note CANCELLED is absent by necessity, not oversight: nothing in the codebase ever sets a run to it and no cancel route exists \u2014 see the note on #110.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(nexus_scheduler_runs_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Run success rate",
+      "description": "Share of terminal runs that succeeded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.98
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexus_scheduler_runs_total{status=\"success\"}[30m])) / clamp_min(sum(rate(nexus_scheduler_runs_total[30m])), 0.0001)",
+          "legendFormat": "success rate"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Errors",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Model errors by kind",
+      "description": "nexus_scheduler_librechat_errors_total. A timeout means the job budget is too small or the model too slow; a rate_limit means back off; upstream_error means LibreChat or the provider is unhealthy; client_error means our request or key is wrong. These call for opposite responses, and were previously all one generic run failure.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(nexus_scheduler_librechat_errors_total[5m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency by model (p95)",
+      "description": "The basis for model selection: which model is actually slower, rather than an average across all of them. Buckets reach 900s against the 600s job timeout \u2014 OpenTelemetry's GenAI convention stops at 81.92s, which would flatten this exactly where it matters.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(nexus_scheduler_librechat_call_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{model}} p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Calls per model",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "description": "Which model is actually carrying the traffic, split by outcome. Failed calls report no model and appear as `unknown` \u2014 kept rather than dropped, so a model that always fails cannot masquerade as a model with no traffic.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model, outcome) (rate(nexus_scheduler_librechat_call_duration_seconds_count[5m]))",
+          "legendFormat": "{{model}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Share of calls by model (1h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "description": "Traffic mix over the last hour.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model) (increase(nexus_scheduler_librechat_call_duration_seconds_count{outcome=\"success\"}[1h]))",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    }
+  ]
+}

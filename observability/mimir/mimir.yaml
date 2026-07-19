@@ -1,0 +1,57 @@
+# Grafana Mimir in monolithic (single-binary) mode — appropriate for
+# Compose/dev. In Kubernetes use the distributed/microservices mode.
+target: all
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: warn
+
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /data/common
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/blocks
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+  tsdb:
+    dir: /data/tsdb
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/ruler
+
+compactor:
+  data_dir: /data/compactor
+
+# Single instance: no replication, no gossip peers to join.
+ingester:
+  ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+
+distributor:
+  ring:
+    kvstore:
+      store: memberlist
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+
+memberlist:
+  join_members: []
+
+limits:
+  # Explicit retention rather than the default — sized for a dev stack.
+  compactor_blocks_retention_period: 7d

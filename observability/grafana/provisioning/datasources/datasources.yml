@@ -1,0 +1,41 @@
+# Datasources provisioned as code (#103) — no click-ops.
+apiVersion: 1
+
+datasources:
+  - name: Mimir
+    type: prometheus
+    uid: mimir
+    access: proxy
+    # Mimir's Prometheus-compatible query API.
+    url: http://mimir:9009/prometheus
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Lets metric panels jump straight to the matching logs.
+      exemplarTraceIdDestinations: []
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # Correlate a log line to the audit trail / future traces by request id.
+      derivedFields:
+        - name: requestId
+          # Alloy attaches requestId as structured metadata rather than
+          # leaving it in the line body (see config.alloy), so match it as a
+          # label — a regex over the raw line would have to know pino's
+          # nested `req` shape and would break the moment it changed.
+          matcherType: label
+          matcherRegex: requestId
+          # Clicking the id pivots to every line for that request across all
+          # services, which is the point of carrying the id in the first place.
+          #
+          # With datasourceUid set, `url` carries the *query* to run against
+          # that datasource — there is no `query` key. Provisioning stores
+          # jsonData verbatim, so a wrong key is persisted silently and the
+          # link simply never fires.
+          datasourceUid: loki
+          url: '{service=~".+"} | requestId=`$${__value.raw}`'
+          urlDisplayLabel: 'All logs for this request'

@@ -1,0 +1,239 @@
+{
+  "uid": "nexus-host",
+  "title": "Host \u2014 CPU, Memory, Disk & Network",
+  "tags": [
+    "nexus-scheduler",
+    "infra"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "The machine every container shares. One kernel, one disk, one CPU budget \u2014 a full disk stops Postgres, Mimir and Loki at once, and nothing inside a container can see it coming. Collected via Alloy's unix exporter reading /rootfs rather than the container's own namespaced /proc.",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "CPU by mode",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+          "legendFormat": "{{mode}}"
+        }
+      ],
+      "description": "iowait rising is usually the disk, not the CPU \u2014 and it stalls Postgres before it shows up anywhere else."
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_memory_MemTotal_bytes",
+          "legendFormat": "total"
+        },
+        {
+          "refId": "B",
+          "expr": "node_memory_MemAvailable_bytes",
+          "legendFormat": "available"
+        },
+        {
+          "refId": "C",
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "used"
+        }
+      ],
+      "description": "Available, not free: free excludes reclaimable cache and reads alarmingly low on a healthy machine. When available approaches zero the kernel starts OOM-killing containers \u2014 cross-check the OOM panel on the Infrastructure dashboard."
+    },
+    {
+      "type": "timeseries",
+      "title": "Load average",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_load1",
+          "legendFormat": "1m"
+        },
+        {
+          "refId": "B",
+          "expr": "node_load5",
+          "legendFormat": "5m"
+        },
+        {
+          "refId": "C",
+          "expr": "node_load15",
+          "legendFormat": "15m"
+        },
+        {
+          "refId": "D",
+          "expr": "count(count by (cpu) (node_cpu_seconds_total))",
+          "legendFormat": "cores"
+        }
+      ],
+      "description": "Compare against the core count: load above cores means work is queueing for CPU."
+    },
+    {
+      "type": "timeseries",
+      "title": "Filesystem available",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\"}",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ],
+      "description": "Docker volumes, Mimir blocks and Loki chunks all land here. Mimir keeps 7 days and Loki 168h \u2014 this is the panel that tells you whether that retention is affordable."
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk I/O utilisation",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (device) (rate(node_disk_io_time_seconds_total[5m]))",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "description": "Time the disk spent busy. Approaching 1 means it is saturated and every fsync \u2014 every Postgres commit \u2014 waits."
+    },
+    {
+      "type": "timeseries",
+      "title": "Network throughput",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "legendFormat": "{{device}} rx"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "legendFormat": "{{device}} tx"
+        }
+      ],
+      "description": "Virtual/bridge interfaces excluded \u2014 they double-count container traffic already visible per-container in cAdvisor."
+    },
+    {
+      "type": "timeseries",
+      "title": "Filesystem inodes free",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay|squashfs\"}",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ],
+      "description": "Inode exhaustion looks exactly like a full disk while df reports free space \u2014 worth its own panel because it is invisible otherwise."
+    }
+  ]
+}

@@ -1,0 +1,355 @@
+{
+  "title": "AI \u2014 Savings vs Hosted Models",
+  "uid": "nexus-ai-savings",
+  "description": "API-bill avoidance from serving model calls locally (Ollama behind the LiteLLM gateway) instead of public hosted APIs.",
+  "tags": [
+    "nexus-scheduler",
+    "ai",
+    "finops"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### How these savings are computed\n\nEvery call served by the **local Ollama models** (via the LiteLLM gateway, #102) is metered per token in\n`litellm_gateway_tokens_total`. These panels price those same tokens at what public hosted APIs would have\ncharged, then subtract actual gateway spend for local models ($0 \u2014 they run on your own hardware):\n\n| Reference model | Input $/1M | Output $/1M | Source (checked 2026-07-17) |\n|---|---|---|---|\n| GPT-4o mini | $0.15 | $0.60 | OpenAI pricing |\n| Gemini 2.5 Flash | $0.30 | $2.50 | Google/OpenRouter pricing |\n| Claude Haiku 4.5 | $1.00 | $5.00 | Anthropic pricing |\n| Claude Sonnet 5 | $3.00 | $15.00 | Anthropic pricing ($2/$10 intro through 2026-08-31) |\n\n**Read the budget tier (4o-mini / Flash / Haiku) as the honest comparison** \u2014 these small local models\n(gemma3:1b, codegemma:2b, phi4-mini-reasoning) are budget-tier replacements, not Sonnet-class. The\nSonnet line is the upper bound if the same traffic had gone to a mid-tier hosted model. Hosted calls\nthat actually go through the gateway (claude-sonnet) are excluded from savings and appear as real\nspend on the AI \u2014 Consumption & Cost dashboard. Not counted here: electricity, hardware, and the\nquality gap between a 1B local model and a hosted frontier model \u2014 this measures API-bill avoidance only.\nPrices are constants in the panel queries: update them there when providers change pricing."
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Saved (24h) vs GPT-4o mini",
+      "description": "What the last 24h of local-model tokens would have cost on GPT-4o mini ($0.15/$0.6 per 1M in/out), minus actual local spend ($0).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 0.15 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 0.6) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)",
+          "legendFormat": "GPT-4o mini",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Saved (24h) vs Gemini 2.5 Flash",
+      "description": "What the last 24h of local-model tokens would have cost on Gemini 2.5 Flash ($0.3/$2.5 per 1M in/out), minus actual local spend ($0).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 0.3 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 2.5) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)",
+          "legendFormat": "Gemini 2.5 Flash",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Saved (24h) vs Claude Haiku 4.5",
+      "description": "What the last 24h of local-model tokens would have cost on Claude Haiku 4.5 ($1.0/$5.0 per 1M in/out), minus actual local spend ($0).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 1.0 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 5.0) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)",
+          "legendFormat": "Claude Haiku 4.5",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Saved (24h) vs Claude Sonnet 5",
+      "description": "What the last 24h of local-model tokens would have cost on Claude Sonnet 5 ($3.0/$15.0 per 1M in/out), minus actual local spend ($0).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 3.0 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 15.0) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)",
+          "legendFormat": "Claude Sonnet 5",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Projected 30-day savings (budget tier)",
+      "description": "Last 24h of avoided cost x30, per budget-tier reference. A projection, not a measurement \u2014 assumes traffic stays at the last-24h level.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 0.15 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 0.6) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)) * 30",
+          "legendFormat": "GPT-4o mini",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 0.3 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 2.5) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)) * 30",
+          "legendFormat": "Gemini 2.5 Flash",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(((sum(increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[24h])) * 1.0 + sum(increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[24h])) * 5.0) / 1e6 - (sum(increase(litellm_gateway_spend_usd_total{model=~\"ollama_chat/.+\"}[24h])) or vector(0))) or vector(0)) * 30",
+          "legendFormat": "Claude Haiku 4.5",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Savings rate ($/day) by reference model",
+      "description": "Current local-token throughput priced per day at each reference model's rates.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 14
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(sum(rate(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 0.15 + sum(rate(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 0.6) / 1e6 * 86400",
+          "legendFormat": "GPT-4o mini",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(sum(rate(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 0.3 + sum(rate(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 2.5) / 1e6 * 86400",
+          "legendFormat": "Gemini 2.5 Flash",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(sum(rate(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 1.0 + sum(rate(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 5.0) / 1e6 * 86400",
+          "legendFormat": "Claude Haiku 4.5",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(sum(rate(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 3.0 + sum(rate(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[$__rate_interval])) * 15.0) / 1e6 * 86400",
+          "legendFormat": "Claude Sonnet 5",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Local tokens served (by model)",
+      "description": "Cumulative tokens served by local models through the gateway \u2014 the volume being priced above.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "sum by (model) (litellm_gateway_tokens_total{model=~\"ollama_chat/.+\"})",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hypothetical hosted cost by local model (at Haiku 4.5 rates)",
+      "description": "Which local model is avoiding the most hosted cost. Priced at Claude Haiku 4.5 ($1/$5 per 1M).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mimir"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "mimir"
+          },
+          "expr": "(sum by (model) (increase(litellm_gateway_tokens_total{type=\"prompt\",model=~\"ollama_chat/.+\"}[1h])) * 1.00 + sum by (model) (increase(litellm_gateway_tokens_total{type=\"completion\",model=~\"ollama_chat/.+\"}[1h])) * 5.00) / 1e6",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
