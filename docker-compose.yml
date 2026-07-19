@@ -30,6 +30,15 @@
 # (register in LibreChat, create an Agent, generate a LibreChat API
 # key, paste it into Nexus Scheduler's own API Keys page).
 
+# Every published host port is overridable from .env (issue #143) —
+# defaults unchanged. E.g. another process owns 8081? Set
+# KEYCLOAK_PORT=8082 instead of hand-editing this file:
+#   APP_PORT (8080)  API_PORT (3000)  LIBRECHAT_PORT (3080)
+#   LITELLM_PORT (4000)  KEYCLOAK_PORT (8081)  POSTGRES_PORT (5432)
+#   MAILPIT_UI_PORT (8025)  MAILPIT_SMTP_PORT (1025)
+#   SYSLOG_UDP_PORT (5514)  SYSLOG_TCP_PORT (5601)  SYSLOG_TLS_PORT (6514)
+#   GRAFANA_PORT (3300, observability overlay)
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -40,7 +49,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     mem_limit: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -67,7 +76,7 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     ports:
-      - "8081:8080"
+      - "${KEYCLOAK_PORT:-8081}:8080"
     # Local stand-in for CAC/PIV-capable OIDC (REQUIREMENTS §4). Configure
     # a realm/client manually via the admin console for end-to-end OIDC
     # testing — no realm is pre-provisioned here yet.
@@ -76,8 +85,8 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "8025:8025" # web UI
-      - "1025:1025" # SMTP
+      - "${MAILPIT_UI_PORT:-8025}:8025" # web UI
+      - "${MAILPIT_SMTP_PORT:-1025}:1025" # SMTP
     mem_limit: 128m
 
   # Local stand-in for an on-prem syslog/SIEM receiver, so the syslog
@@ -99,9 +108,9 @@ services:
     build:
       context: ./docker/syslog-test
     ports:
-      - "5514:514/udp" # host-only, for manual testing outside Compose
-      - "5601:601"
-      - "6514:6514"
+      - "${SYSLOG_UDP_PORT:-5514}:514/udp" # host-only, for manual testing outside Compose
+      - "${SYSLOG_TCP_PORT:-5601}:601"
+      - "${SYSLOG_TLS_PORT:-6514}:6514"
     volumes:
       - ./docker/generated/syslog-test-certs/ca.pem:/etc/rsyslog-tls/ca.pem:ro
       - ./docker/generated/syslog-test-certs/server-cert.pem:/etc/rsyslog-tls/server-cert.pem:ro
@@ -218,7 +227,7 @@ services:
         target: /app/config.yaml
         read_only: true
     ports:
-      - "4000:4000"
+      - "${LITELLM_PORT:-4000}:4000"
     mem_limit: 1g
     healthcheck:
       # /health/readiness (not /health/liveliness): readiness includes
@@ -314,7 +323,7 @@ services:
       - librechat-uploads:/app/uploads
       - librechat-logs:/app/logs
     ports:
-      - "3080:3080"
+      - "${LIBRECHAT_PORT:-3080}:3080"
     mem_limit: 1536m
 
   migrate:
@@ -360,10 +369,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       SESSION_SECRET: ${SESSION_SECRET}
       API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY}
-      APP_BASE_URL: http://localhost:8080
+      APP_BASE_URL: http://localhost:${APP_PORT:-8080}
       OIDC_ISSUER_URL: http://keycloak:8080/realms/nexus-scheduler
       OIDC_CLIENT_ID: nexus-scheduler
-      OIDC_REDIRECT_URI: http://localhost:8080/auth/callback
+      OIDC_REDIRECT_URI: http://localhost:${APP_PORT:-8080}/auth/callback
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
       LIBRECHAT_BASE_URL: ${LIBRECHAT_BASE_URL}
@@ -380,7 +389,7 @@ services:
       pdf-service:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${API_PORT:-3000}:3000"
     mem_limit: 1g
 
   worker:
@@ -424,7 +433,7 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "8080:80"
+      - "${APP_PORT:-8080}:80"
     depends_on:
       - api
       - frontend
