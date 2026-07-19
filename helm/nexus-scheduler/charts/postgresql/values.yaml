@@ -30,15 +30,17 @@ resources:
   requests: { cpu: "250m", memory: "256Mi" }
   limits: { cpu: "1", memory: "1Gi" }
 
-# The upstream `postgres` image itself starts as root and drops
-# privileges internally (via gosu) unless launched as a non-root UID
-# from the start — forcing an untested runAsUser here risks a broken
-# first boot with no cluster available to verify against. Left at the
-# image's own default user for now; allowPrivilegeEscalation/dropped
-# capabilities apply regardless. Revisit alongside the rest of this
-# repo's placeholder-hardening TODOs (REQUIREMENTS §3/§9.1/§10) once
-# a real cluster is available to validate a locked-down UID against.
-podSecurityContext: {}
+# uid/gid 70 is the alpine postgres image's own `postgres` user. The
+# image's root-then-gosu path cannot work under this chart's dropped
+# capabilities (no CHOWN/SETUID), so first boot crashlooped on
+# `chmod: Operation not permitted` (issue #139). Started as uid 70
+# directly, the entrypoint skips its chown path and fsGroup makes the
+# PVC writable — verified end-to-end on a live cluster: clean initdb,
+# migrations, app connects.
+podSecurityContext:
+  runAsUser: 70
+  runAsGroup: 70
+  fsGroup: 70
 
 containerSecurityContext:
   allowPrivilegeEscalation: false

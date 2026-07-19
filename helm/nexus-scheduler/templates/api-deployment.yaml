@@ -55,12 +55,18 @@ spec:
               value: {{ .Values.api.port | quote }}
             - name: LOG_LEVEL
               value: "info"
+            {{- if .Values.oidc.issuerUrl }}
+            # Rendered only when SSO is configured: the app's env schema
+            # validates these as URLs, so unconditional empty strings
+            # crashlooped every API pod despite values.yaml documenting
+            # "left empty, SSO login is unavailable" (issue #139).
             - name: OIDC_ISSUER_URL
               value: {{ .Values.oidc.issuerUrl | quote }}
             - name: OIDC_CLIENT_ID
               value: {{ .Values.oidc.clientId | quote }}
             - name: OIDC_REDIRECT_URI
               value: {{ .Values.oidc.redirectUri | quote }}
+            {{- end }}
             - name: LIBRECHAT_BASE_URL
               value: {{ .Values.librechat.baseUrl | quote }}
             - name: PDF_SERVICE_URL
@@ -83,8 +89,13 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ .Values.secrets.appSecretName }}
+            {{- if .Values.oidc.issuerUrl }}
+            # Same gate as the OIDC env block above — without SSO there
+            # is no OIDC_CLIENT_SECRET to mount, and requiring the
+            # Secret to exist anyway made "OIDC disabled" installs fail.
             - secretRef:
                 name: {{ .Values.secrets.oidcSecretName }}
+            {{- end }}
           livenessProbe:
             httpGet: { path: /healthz, port: {{ .Values.api.port }} }
             initialDelaySeconds: 5

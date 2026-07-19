@@ -11,8 +11,10 @@ exist in this namespace (none are created by this chart — REQUIREMENTS
       (the built-in break-glass admin's password is re-synced from
       BOOTSTRAP_ADMIN_PASSWORD on every API pod start — rotate it here
       and roll the Deployment to recover admin access)
+{{- if .Values.oidc.issuerUrl }}
   - {{ .Values.secrets.oidcSecretName }}
       keys: OIDC_CLIENT_SECRET
+{{- end }}
   - {{ .Values.postgresql.auth.existingSecretName }}
       keys: username, password, database
       (DATABASE_URL is built automatically and URL-encoded at pod start

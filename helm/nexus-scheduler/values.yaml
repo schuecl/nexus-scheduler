@@ -205,6 +205,11 @@ serviceAccount:
 
 podSecurityContext:
   runAsNonRoot: true
+  # Numeric on purpose: the app images declare their user by NAME
+  # (USER nexus, uid 999), and kubelet refuses runAsNonRoot when it
+  # cannot prove a named user is non-root — every pod failed with
+  # CreateContainerConfigError on a real cluster (issue #139).
+  runAsUser: 999
   fsGroup: 1000
 
 securityContext:
