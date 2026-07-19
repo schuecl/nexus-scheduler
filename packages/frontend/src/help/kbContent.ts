@@ -65,6 +65,12 @@ Scheduler call LibreChat's Agents API on your behalf. Keys are stored
 encrypted, and can be personal (yours only) or owned by a Team you belong
 to. See [API Keys](/help/api-keys).
 
+**Where the key comes from:** in LibreChat, open **Settings → API Keys**
+and create one — you get a durable \`sk-…\` token, shown once. That is
+the value to paste here. (A login token/JWT from your browser session is
+**not** an API key: the Agents API rejects it. Access tokens expire after
+15 minutes by default, though LibreChat deployments can configure this.)
+
 ## 2. Create a Project
 
 Go to **Projects** and create one. A Project is just a shared container
@@ -489,6 +495,15 @@ create/adjust sub-Teams.
     content: `
 An **API Key** is what Nexus Scheduler uses to call LibreChat's Agents API
 on your behalf. It's created on the LibreChat side and entered here.
+
+## Creating one in LibreChat
+
+LibreChat **Settings → API Keys → Create** mints a durable \`sk-…\`
+token (also available programmatically: \`POST /api/api-keys\` with a
+logged-in session). Copy it when shown — LibreChat doesn't display it
+again. Do **not** paste a browser login token/JWT: the Agents API
+rejects those. Access tokens expire after 15 minutes by default, though
+LibreChat deployments can configure this.
 
 ## Personal vs. Team keys
 
