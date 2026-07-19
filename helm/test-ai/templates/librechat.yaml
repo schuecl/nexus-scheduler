@@ -1,0 +1,262 @@
+{{- define "test-ai.librechatConfig" -}}
+version: 1.3.13
+cache: true
+{{ if .Values.librechat.ocr.baseUrl }}
+# Optional chat-upload OCR through the separately deployed helm/ocr
+# service. The placeholder key is intentional: access control is the
+# OCR chart's NetworkPolicy, not an application credential.
+ocr:
+  strategy: "mistral_ocr"
+  baseURL: {{ .Values.librechat.ocr.baseUrl | quote }}
+  apiKey: "network-isolated-no-key"
+  mistralModel: "nexus-ocr"
+{{ end }}
+# Match the Compose chat-upload ceilings. LibreChat applies these before
+# calling the OCR service, so leaving its smaller image defaults in place
+# would reject inputs that the configured OCR pipeline explicitly accepts.
+fileConfig:
+  endpoints:
+    default:
+      fileLimit: {{ int .Values.librechat.fileConfig.fileLimit }}
+      fileSizeLimit: {{ int .Values.librechat.fileConfig.fileSizeLimit }}
+      totalSizeLimit: {{ int .Values.librechat.fileConfig.totalSizeLimit }}
+endpoints:
+  custom:
+    - name: "LiteLLM"
+      apiKey: "${LITELLM_API_KEY}"
+      baseURL: "http://{{ include "test-ai.fullname" . }}-litellm:4000/v1"
+      models:
+        default:
+          {{- range .Values.models }}
+          - {{ .name | quote }}
+          {{- end }}
+        fetch: true
+      # No conversation titling: each Agents-API call would spawn
+      # an async title generation nobody reads — on CPU inference
+      # those ghost requests queue behind real runs and starve them
+      # (observed live on the compose stack; same fix there).
+      titleConvo: false
+      summarize: false
+      modelDisplayLabel: "LiteLLM (gateway)"
+{{- end -}}
+# The Agents API the app's worker calls. Mirrors the Compose stack's
+# minimal footprint: no Meilisearch, no RAG API (SEARCH=false), and no
+# provider API keys in this container — the gateway is the only path
+# to models, authenticated with the llm_api-only virtual key.
+{{- $lcSecret := .Values.librechat.existingSecret | default (printf "%s-librechat-keys" (include "test-ai.fullname" .)) }}
+{{- $llSecret := .Values.litellm.existingSecret | default (printf "%s-litellm-keys" (include "test-ai.fullname" .)) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "test-ai.fullname" . }}-mongo
+  labels:
+    app.kubernetes.io/name: mongo
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "test-ai.fullname" . }}-mongo
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongo
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongo
+        {{- include "test-ai.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mongo
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.mongo.image) }}
+          args: ["mongod", "--noauth"]
+          ports:
+            - name: mongo
+              containerPort: 27017
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            {{- toYaml .Values.mongo.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.mongo.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.mongo.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-ai.fullname" . }}-mongo
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: mongo
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "test-ai.fullname" . }}-librechat-config
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+data:
+  librechat.yaml: |
+    {{- include "test-ai.librechatConfig" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-ai.fullname" . }}-librechat
+  labels:
+    app.kubernetes.io/name: librechat
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the single replica holds an RWO PVC, so
+  # a surge pod on a multi-node cluster can land on another node and
+  # wedge on volume multi-attach — old pod must release before the new
+  # one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: librechat
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: librechat
+        {{- include "test-ai.labels" . | nindent 8 }}
+      annotations:
+        # The RENDERED config, not just .Values.models: a template-side
+        # change (titleConvo, endpoint shape) must roll the pod too —
+        # the subPath mount never propagates ConfigMap updates to a
+        # running container.
+        checksum/config: {{ include "test-ai.librechatConfig" . | sha256sum | trunc 32 }}
+    spec:
+      # The PVC mounts below mask the image's node-owned (uid 1000)
+      # directories; without fsGroup the volume root is root-owned and
+      # LibreChat starts with EACCES on its own upload/log paths.
+      securityContext:
+        fsGroup: 1000
+        # Skip the full-volume ownership walk when the root already
+        # matches — a grown PVC would otherwise slow every restart.
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: librechat
+          image: {{ include "test-ai.image" (dict "root" $ "image" .Values.librechat.image) }}
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3080"
+            - name: MONGO_URI
+              value: mongodb://{{ include "test-ai.fullname" . }}-mongo:27017/LibreChat
+            - name: SEARCH
+              value: "false"
+            - name: DOMAIN_CLIENT
+              value: http://localhost:3080
+            - name: DOMAIN_SERVER
+              value: http://localhost:3080
+            - name: ALLOW_REGISTRATION
+              value: {{ .Values.librechat.allowRegistration | quote }}
+            - name: ALLOW_EMAIL_LOGIN
+              value: "true"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ $lcSecret }}, key: jwtSecret}
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ $lcSecret }}, key: jwtRefreshSecret}
+            - name: CREDS_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ $lcSecret }}, key: credsKey}
+            - name: CREDS_IV
+              valueFrom:
+                secretKeyRef: {name: {{ $lcSecret }}, key: credsIv}
+            - name: LITELLM_API_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ $llSecret }}, key: librechatKey}
+            - name: CONFIG_PATH
+              value: /app/librechat.yaml
+          ports:
+            - name: http
+              containerPort: 3080
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /app/librechat.yaml
+              subPath: librechat.yaml
+              readOnly: true
+            # LibreChat's writable directories — agent avatars/assets,
+            # user uploads, runtime logs. Without persistence they live
+            # on the container filesystem and vanish on every restart.
+            - name: data
+              mountPath: /app/client/public/images
+              subPath: images
+            - name: data
+              mountPath: /app/uploads
+              subPath: uploads
+            - name: data
+              mountPath: /app/logs
+              subPath: logs
+          resources:
+            {{- toYaml .Values.librechat.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "test-ai.fullname" . }}-librechat-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "test-ai.fullname" . }}-librechat-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "test-ai.fullname" . }}-librechat-data
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.librechat.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.librechat.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-ai.fullname" . }}-librechat
+  labels:
+    {{- include "test-ai.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.librechat.service.type }}
+  selector:
+    app.kubernetes.io/name: librechat
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.librechat.service.port }}
+      targetPort: http

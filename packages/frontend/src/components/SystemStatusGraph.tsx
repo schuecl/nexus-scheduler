@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { alpha, Chip, Stack, Tooltip, Typography, useTheme, type Theme } from "@mui/material";
+import { alpha, Box, Stack, Tooltip, Typography, useTheme, type Theme } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { apiFetch } from "../api/client";
 
-type ComponentStatus = "up" | "down" | "stale";
+type ComponentStatus = "up" | "down" | "stale" | "unconfigured";
 
 interface SystemComponent {
   id: string;
@@ -23,6 +23,7 @@ const STATUS_LABEL: Record<ComponentStatus, string> = {
   up: "Reachable",
   down: "Unreachable",
   stale: "No recent report",
+  unconfigured: "Not configured",
 };
 
 // Fixed layout for the six components this app actually models today
@@ -33,10 +34,11 @@ const STATUS_LABEL: Record<ComponentStatus, string> = {
 const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
   api: { x: 25, y: 12 },
   worker: { x: 75, y: 12 },
-  postgres: { x: 12, y: 75 },
-  redis: { x: 38, y: 75 },
-  "pdf-service": { x: 64, y: 75 },
-  librechat: { x: 90, y: 75 },
+  postgres: { x: 10, y: 75 },
+  redis: { x: 30, y: 75 },
+  "pdf-service": { x: 50, y: 75 },
+  librechat: { x: 70, y: 75 },
+  ocr: { x: 90, y: 75 },
 };
 
 function useSystemStatus() {
@@ -52,6 +54,8 @@ function useSystemStatus() {
 function statusColor(theme: Theme, status: ComponentStatus): string {
   if (status === "up") return theme.palette.success.main;
   if (status === "down") return theme.palette.error.main;
+  // "stale" and "unconfigured" both render muted: neither is an error,
+  // and the label below the node says which one it is.
   return theme.palette.text.disabled;
 }
 
@@ -63,26 +67,37 @@ function StatusIcon({ status }: { status: ComponentStatus }) {
 
 // Compact row of status chips — for embedding on the Dashboard, where a
 // full flow chart would be too heavy for a summary widget.
+// Compact strip for the top of the Admin page: one small
+// status-colored square per component. Live operational truth at a
+// glance, not navigation — the full node-and-edge map is its own page.
 export function SystemStatusSummary() {
+  const theme = useTheme();
   const query = useSystemStatus();
 
   if (query.isLoading) {
-    return <Typography color="text.secondary">Loading system status…</Typography>;
+    return null; // a strip that pops in beats a loading line at the top of Admin
   }
   if (query.isError || !query.data) {
     return <Typography color="text.secondary">System status unavailable.</Typography>;
   }
 
   return (
-    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
       {query.data.components.map((component) => (
         <Tooltip key={component.id} title={STATUS_LABEL[component.status]}>
-          <Chip
-            size="small"
-            icon={<StatusIcon status={component.status} />}
-            label={component.label}
-            variant="outlined"
-          />
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <Box
+              sx={{
+                width: 14,
+                height: 14,
+                borderRadius: 0.5,
+                bgcolor: statusColor(theme, component.status),
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {component.label}
+            </Typography>
+          </Stack>
         </Tooltip>
       ))}
     </Stack>
@@ -149,7 +164,7 @@ export function SystemStatusGraph() {
       </svg>
 
       <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
-        {(["up", "down", "stale"] as const).map((status) => (
+        {(["up", "down", "stale", "unconfigured"] as const).map((status) => (
           <Stack key={status} direction="row" spacing={0.5} alignItems="center">
             <StatusIcon status={status} />
             <Typography variant="caption" color="text.secondary">

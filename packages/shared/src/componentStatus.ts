@@ -15,12 +15,13 @@ export const WORKER_COMPONENT_STATUS_KEY_PREFIX = "nexus:component-status:";
 export const WORKER_HEARTBEAT_KEY = "nexus:worker-heartbeat";
 export const WORKER_COMPONENT_STATUS_TTL_SECONDS = 90;
 
-// The only link modeled today that only the Worker can reach (its own
-// LibreChat Agents API call). The system map's "model gateway"/OCR
-// links described in #131 aren't wired into this app yet — nothing
-// calls them directly, so there's nothing real to probe or draw a
-// status for until that groundwork exists.
-export type WorkerOwnedComponentId = "librechat";
+// Links only the Worker can reach: its own LibreChat Agents API call,
+// and the OCR pipeline service (#109) — which lives on an internal-only
+// network the API is deliberately not a member of. OCR is optional, so
+// its published value may be "unconfigured" (OCR_SERVICE_URL unset):
+// distinct from "down" (configured but unreachable) and from an expired
+// key ("stale" — the Worker itself isn't reporting).
+export type WorkerOwnedComponentId = "librechat" | "ocr";
 
 export function workerComponentStatusKey(componentId: WorkerOwnedComponentId): string {
   return `${WORKER_COMPONENT_STATUS_KEY_PREFIX}${componentId}`;

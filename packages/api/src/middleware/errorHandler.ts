@@ -17,6 +17,14 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       res.status(404).json({ error: "not found" });
       return;
     }
+    // body-parser rejects a body over the route's limit BEFORE the
+    // handler runs, so a route's own size checks (e.g. the attachment
+    // route's explicit 413 on the decoded bytes) never see it — without
+    // this mapping an oversized upload surfaced as a generic 500.
+    if ((err as { type?: string })?.type === "entity.too.large") {
+      res.status(413).json({ error: "request body too large" });
+      return;
+    }
     logger.error({ err, path: req.path }, "unhandled request error");
     res.status(500).json({ error: "internal server error" });
   };

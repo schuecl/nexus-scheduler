@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Redis } from "ioredis";
 import { WORKER_HEARTBEAT_KEY, workerComponentStatusKey } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
-import { requireAuth } from "../middleware/requireAuth.js";
+import { requireAuth, requireAdmin } from "../middleware/requireAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import type { AppConfig } from "../config.js";
 
@@ -21,7 +21,10 @@ import type { AppConfig } from "../config.js";
 //   A missing/expired key means "stale" — the Worker hasn't reported
 //   recently, which is itself the signal (crashed, restarted, scaled to
 //   zero), not "down" (which would claim to know something we don't).
-export type ComponentStatus = "up" | "down" | "stale";
+// "unconfigured": the component is optional and this deployment runs
+// without it — the Worker publishes that explicitly (componentStatus.ts
+// in shared), so it renders as "not set up" rather than as a failure.
+export type ComponentStatus = "up" | "down" | "stale" | "unconfigured";
 
 export interface SystemComponent {
   id: string;
@@ -68,18 +71,22 @@ async function probePdfService(pdfServiceUrl: string): Promise<ComponentStatus> 
 // than crashing the whole endpoint over one bad key.
 async function readWorkerPublishedStatus(redisClient: Redis, key: string): Promise<ComponentStatus> {
   const value = await redisClient.get(key);
-  return value === "up" || value === "down" ? value : "stale";
+  return value === "up" || value === "down" || value === "unconfigured" ? value : "stale";
 }
 
 export function createSystemStatusRouter(config: AppConfig, redisClient: Redis): Router {
   const router = Router();
 
-  router.get("/", requireAuth, asyncHandler(async (_req, res) => {
-    const [postgres, redis, pdfService, librechat, worker] = await Promise.all([
+  // Admin-only: live infrastructure reachability is operational data
+  // the platform owner acts on, not something every scheduler user
+  // needs (or should see — it enumerates internal service topology).
+  router.get("/", requireAuth, requireAdmin, asyncHandler(async (_req, res) => {
+    const [postgres, redis, pdfService, librechat, ocr, worker] = await Promise.all([
       probePostgres(),
       probeRedis(redisClient),
       probePdfService(config.PDF_SERVICE_URL),
       readWorkerPublishedStatus(redisClient, workerComponentStatusKey("librechat")),
+      readWorkerPublishedStatus(redisClient, workerComponentStatusKey("ocr")),
       readWorkerPublishedStatus(redisClient, WORKER_HEARTBEAT_KEY),
     ]);
 
@@ -93,6 +100,7 @@ export function createSystemStatusRouter(config: AppConfig, redisClient: Redis):
         { id: "redis", label: "Redis", status: redis },
         { id: "pdf-service", label: "PDF Service", status: pdfService },
         { id: "librechat", label: "LibreChat", status: librechat },
+        { id: "ocr", label: "OCR Service", status: ocr },
       ],
       edges: [
         { from: "api", to: "postgres" },
@@ -102,6 +110,7 @@ export function createSystemStatusRouter(config: AppConfig, redisClient: Redis):
         { from: "worker", to: "redis" },
         { from: "worker", to: "pdf-service" },
         { from: "worker", to: "librechat" },
+        { from: "worker", to: "ocr" },
       ],
       checkedAt: new Date().toISOString(),
     };

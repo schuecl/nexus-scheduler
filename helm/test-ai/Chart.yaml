@@ -1,0 +1,14 @@
+apiVersion: v2
+name: test-ai
+description: >-
+  The AI backend Nexus Scheduler talks to, as an independent chart:
+  LibreChat (the Agents API the worker calls), the LiteLLM gateway that
+  meters every model call (per-key spend, budgets, rate limits), Ollama
+  for local CPU inference, and their databases. Deliberately separate
+  from the app chart (helm/nexus-scheduler) and the observability chart
+  (helm/observability): each installs, upgrades and scales on its own,
+  the app finds LibreChat via LIBRECHAT_BASE_URL, and the observability
+  chart reads this namespace via its alloy.appNamespaces value.
+type: application
+version: 0.1.0
+appVersion: "0.1.9"

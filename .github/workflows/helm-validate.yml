@@ -32,6 +32,8 @@ jobs:
         run: |
           helm lint helm/nexus-scheduler
           helm lint helm/observability
+          helm lint helm/test-ai
+          helm lint helm/ocr
 
       - name: Dashboards in sync with the chart copy
         # Helm can only template files inside the chart, so the Grafana
@@ -50,6 +52,8 @@ jobs:
             --set litellmExporter.enabled=true \
             --set litellmExporter.existingSecret=ci-placeholder \
             --set global.imageRegistry=registry.example.internal >> rendered.yaml
+          helm template release helm/test-ai >> rendered.yaml
+          helm template release helm/ocr >> rendered.yaml
 
       - name: Install kubeconform
         run: |

@@ -17,6 +17,25 @@
 version: 1.3.13
 cache: true
 
+# Chat uploads OCR through this repo's own airgapped OCR service
+# (#109/#130). Strategy mistral_ocr, NOT custom_ocr: this LibreChat
+# build recognizes custom_ocr in config but implements no strategy for
+# it (verified in the image's strategies.js) — mistral_ocr is the
+# implemented path, and it honors baseURL, so it works against any
+# service speaking the Mistral OCR wire format. docker/ocr/service.py
+# implements that surface: /files + /files/{id}/url + /ocr + delete
+# (the "signed URL" it hands back is a data: URL, so nothing is ever
+# fetched over a network). The apiKey is a placeholder — isolation is
+# by network (ocr-net, internal-only), not credential. In the chat UI,
+# attach a file and pick "Upload as Text": the extracted markdown
+# enters the conversation context, so any text model can answer about
+# the document.
+ocr:
+  strategy: "mistral_ocr"
+  baseURL: "http://ocr:4200/v1"
+  apiKey: "network-isolated-no-key"
+  mistralModel: "nexus-ocr"
+
 endpoints:
   custom:
     - name: "LiteLLM"
@@ -30,7 +49,26 @@ endpoints:
         # live rather than trusting the hardcoded default above to stay
         # accurate as models are added/changed.
         fetch: true
-      titleConvo: true
-      titleModel: "gemma3:1b"
+      # No conversation titling: every Agents-API call (each scheduler
+      # run) would otherwise spawn an async title request nobody reads.
+      # On a CPU-only host those ghost generations queue behind real
+      # runs at ollama's single loaded-model slot and starve them —
+      # observed live as multi-minute agent calls timing out while the
+      # model decoded titles for long-gone clients.
+      titleConvo: false
       summarize: false
       modelDisplayLabel: "LiteLLM (local models)"
+
+# Chat uploads are OCR'd one file at a time by the pipeline, but a
+# single message may carry several: up to 10 files, 15MB each (the OCR
+# service's own per-file cap), 50MB per message. Deliberately the same
+# ceilings as a Nexus Scheduler job's attachment quota — the job door
+# stays the heavy one because it queues, retries, and keeps artifacts;
+# chat is for ad-hoc use. Mirrored in helm/test-ai's values
+# (librechat.fileConfig) so compose and Kubernetes behave the same.
+fileConfig:
+  endpoints:
+    default:
+      fileLimit: 10
+      fileSizeLimit: 15
+      totalSizeLimit: 50

@@ -3,6 +3,7 @@ import { Link as RouterLink } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 // Same typography styling as RunHistoryDialog.tsx's output rendering, minus
 // the dialog-list-item height cap — this is used for full-page content
@@ -20,6 +21,31 @@ const markdownComponents: Components = {
         {children}
       </a>
     ),
+  // ```mermaid fences render as real diagrams; every other fence stays
+  // a plain code block. The pre handler unwraps the mermaid case so the
+  // diagram isn't boxed in the code-block background styling.
+  pre: ({ children, ...props }) => {
+    const child = Array.isArray(children) ? children[0] : children;
+    if (
+      child &&
+      typeof child === "object" &&
+      "props" in child &&
+      (child as { props?: { className?: string } }).props?.className === "language-mermaid"
+    ) {
+      return <>{children}</>;
+    }
+    return <pre {...props}>{children}</pre>;
+  },
+  code: ({ className, children, ...props }) => {
+    if (className === "language-mermaid") {
+      return <MermaidDiagram source={String(children).trimEnd()} />;
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
 };
 
 export function MarkdownContent({ content }: { content: string }) {

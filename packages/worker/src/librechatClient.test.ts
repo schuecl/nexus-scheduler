@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { agentDispatcherOptions, callAgent, describeUnexecutedToolCall, extractTokenUsage } from "./librechatClient.js";
 
 describe("agentDispatcherOptions (issue #127)", () => {
@@ -48,6 +48,86 @@ describe("callAgent dispatcher wiring (issue #127)", () => {
       await expect(
         callAgent("agent_x", "hi", "key", { baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 500 }),
       ).rejects.toMatchObject({ kind: "timeout", transient: true });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("does not cross the request-start boundary when the caller signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const onRequestStart = vi.fn();
+
+    await expect(
+      callAgent("agent-1", "hello", "test-key", {
+        baseUrl: "http://127.0.0.1:1",
+        timeoutMs: 1_000,
+        abortSignal: controller.signal,
+        onRequestStart,
+      }),
+    ).rejects.toMatchObject({ kind: "cancelled" });
+    expect(onRequestStart).not.toHaveBeenCalled();
+  });
+
+  it("awaits the request-start boundary before dispatching any bytes", async () => {
+    let requestSeen = false;
+    const server = createServer((_req, res) => {
+      requestSeen = true;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "OK" } }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+    let releaseBoundary: (() => void) | undefined;
+    const boundary = new Promise<void>((resolve) => {
+      releaseBoundary = resolve;
+    });
+    try {
+      const responsePromise = callAgent("agent_x", "hi", "key", {
+        baseUrl: `http://127.0.0.1:${port}`,
+        timeoutMs: 10_000,
+        onRequestStart: () => boundary,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(requestSeen).toBe(false);
+      releaseBoundary?.();
+      await expect(responsePromise).resolves.toMatchObject({ choices: [{ message: { content: "OK" } }] });
+      expect(requestSeen).toBe(true);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rolls back the request-start boundary when cancellation fires while it is awaited", async () => {
+    let requestSeen = false;
+    const server = createServer((_req, res) => {
+      requestSeen = true;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "unexpected" } }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+    const controller = new AbortController();
+    const onRequestAbortedBeforeDispatch = vi.fn();
+    const onRequestDispatched = vi.fn();
+    try {
+      await expect(
+        callAgent("agent_x", "hi", "key", {
+          baseUrl: `http://127.0.0.1:${port}`,
+          timeoutMs: 10_000,
+          abortSignal: controller.signal,
+          onRequestStart: async () => {
+            controller.abort();
+            await Promise.resolve();
+          },
+          onRequestAbortedBeforeDispatch,
+          onRequestDispatched,
+        }),
+      ).rejects.toMatchObject({ kind: "cancelled", transient: false });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(onRequestAbortedBeforeDispatch).toHaveBeenCalledOnce();
+      expect(onRequestDispatched).not.toHaveBeenCalled();
+      expect(requestSeen).toBe(false);
     } finally {
       server.close();
     }

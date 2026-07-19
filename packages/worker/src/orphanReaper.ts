@@ -1,6 +1,11 @@
 import type { Queue, RedisClient } from "bullmq";
 import { prisma } from "./db.js";
-import { deliverTerminalSideEffects, releaseUserSlotSafely } from "./processor.js";
+import {
+  deliverTerminalSideEffects,
+  PENDING_SEARCHABLE_PDF_KIND,
+  PREVIOUS_SEARCHABLE_PDF_KIND,
+  releaseUserSlotSafely,
+} from "./processor.js";
 import { recordAuditEvent } from "./audit.js";
 import type { RunJobData } from "./queue.js";
 import type { Logger } from "./logger.js";
@@ -31,10 +36,20 @@ async function reapRun(
   logger: Logger,
   metrics: Metrics,
 ): Promise<void> {
-  await prisma.run.update({
-    where: { id: runId },
-    data: { status: "FAILED", completedAt: new Date(), errorMessage },
-  });
+  // Committed extraction crossed the agent-dispatch boundary and remains
+  // valid evidence even when the response was lost with the worker. Only
+  // the explicitly staged rows are known to be pre-dispatch and removable.
+  // Keep terminalization and that cleanup in one transaction so artifact
+  // routes never expose staging data after FAILED becomes visible.
+  await prisma.$transaction([
+    prisma.run.update({
+      where: { id: runId },
+      data: { status: "FAILED", completedAt: new Date(), errorMessage },
+    }),
+    prisma.runArtifact.deleteMany({
+      where: { runId, kind: { in: [PENDING_SEARCHABLE_PDF_KIND, PREVIOUS_SEARCHABLE_PDF_KIND] } },
+    }),
+  ]);
   metrics.runsTotal.inc({ status: "failed" });
   metrics.orphanRunsReapedTotal.inc({ previousStatus: previousStatus.toLowerCase() });
   await recordAuditEvent({
@@ -71,9 +86,17 @@ export async function runOrphanReaperSweep(
   // still legitimately executing never gets anywhere near this, and a
   // run whose worker died mid-flight has no other mechanism moving it
   // out of RUNNING at all.
+  // Explicit select, not include: the sweep only needs ids and
+  // timestamps, and `include` would drag every Run scalar along —
+  // including a retry's persisted extractedText — on every interval.
   const runningCandidates = await prisma.run.findMany({
     where: { status: "RUNNING" },
-    include: { job: { select: { id: true, name: true, timeoutSeconds: true, createdById: true } } },
+    select: {
+      id: true,
+      startedAt: true,
+      createdAt: true,
+      job: { select: { id: true, name: true, timeoutSeconds: true, createdById: true } },
+    },
   });
   for (const run of runningCandidates) {
     const staleAfterMs = run.job.timeoutSeconds * 1000 + 5 * 60_000;
@@ -106,7 +129,10 @@ export async function runOrphanReaperSweep(
       status: "PENDING",
       createdAt: { lte: new Date(now - config.ORPHAN_REAPER_PENDING_GRACE_MS) },
     },
-    include: { job: { select: { id: true, name: true, createdById: true } } },
+    select: {
+      id: true,
+      job: { select: { id: true, name: true, createdById: true } },
+    },
   });
   for (const run of pendingCandidates) {
     const bullJob = await queue.getJob(run.id);

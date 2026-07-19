@@ -171,7 +171,7 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
       return;
     }
 
-    const [ownedProjects, jobsCreated, schedulesCreated, promptVersions, teamsCreated, jobsUsingOwnedKeys] =
+    const [ownedProjects, jobsCreated, schedulesCreated, promptVersions, teamsCreated, jobsUsingOwnedKeys, attachmentsCreated] =
       await Promise.all([
         prisma.project.count({ where: { ownerId: user.id } }),
         prisma.job.count({ where: { createdById: user.id } }),
@@ -184,14 +184,18 @@ export function createUsersRouter(config: AppConfig, logger: Logger): Router {
         // every check above and then fail with a raw FK violation once
         // the cascade tries to delete that key out from under the Job.
         prisma.job.count({ where: { apiKey: { ownerUserId: user.id } } }),
+        // JobAttachment.createdBy is Restrict for the same reason —
+        // without this count the delete dies on a raw FK violation
+        // instead of the 409 this route promises.
+        prisma.jobAttachment.count({ where: { createdById: user.id } }),
       ]);
-    const blockers = ownedProjects + jobsCreated + schedulesCreated + promptVersions + teamsCreated + jobsUsingOwnedKeys;
+    const blockers = ownedProjects + jobsCreated + schedulesCreated + promptVersions + teamsCreated + jobsUsingOwnedKeys + attachmentsCreated;
     if (blockers > 0) {
       res.status(409).json({
         error:
-          jobsUsingOwnedKeys > 0 && ownedProjects + jobsCreated + schedulesCreated + promptVersions + teamsCreated === 0
+          jobsUsingOwnedKeys > 0 && ownedProjects + jobsCreated + schedulesCreated + promptVersions + teamsCreated + attachmentsCreated === 0
             ? "cannot delete — a Job still uses this user's personal API key; reassign or delete that Job first"
-            : "cannot delete — this user owns or created Projects, Jobs, Schedules, Prompt versions, or Teams; deactivate the account instead",
+            : "cannot delete — this user owns or created Projects, Jobs, Schedules, Prompt versions, Teams, or Job attachments; deactivate the account instead",
       });
       return;
     }

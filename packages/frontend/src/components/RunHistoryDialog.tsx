@@ -20,6 +20,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import HistoryIcon from "@mui/icons-material/History";
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link as RouterLink } from "react-router-dom";
@@ -38,6 +39,52 @@ interface Run {
   output: string | null;
   errorMessage: string | null;
   createdAt: string;
+}
+
+interface RunArtifact {
+  id: string;
+  kind: string;
+  filename: string;
+  mimeType: string;
+  createdAt: string;
+}
+
+// Artifacts exist only for runs of jobs with attachments (#109), so the
+// query lives in its own component mounted per-expansion — no fetch at
+// all for the common artifact-less run.
+function RunArtifactsList({ runId, runStatus }: { runId: string; runStatus: RunStatus }) {
+  // The worker writes artifacts only when the run reaches a terminal
+  // state. If the row is expanded while still PENDING/RUNNING, the empty
+  // list must not be cached forever — keying on terminal-ness makes the
+  // 5s run poll's status flip refetch this query, so the searchable-PDF
+  // links appear the moment the run finishes without collapse/reopen.
+  const terminal =
+    runStatus === "SUCCESS" || runStatus === "FAILED" || runStatus === "CANCELLED" || runStatus === "SKIPPED";
+  const artifactsQuery = useQuery({
+    queryKey: ["runs", runId, "artifacts", terminal],
+    queryFn: () => apiFetch<RunArtifact[]>(`/api/runs/${runId}/artifacts`),
+  });
+  if (!artifactsQuery.data?.length) {
+    return null;
+  }
+  return (
+    <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+      {artifactsQuery.data.map((artifact) => (
+        <Button
+          key={artifact.id}
+          size="small"
+          variant="outlined"
+          startIcon={<AttachFileIcon fontSize="small" />}
+          component="a"
+          href={`/api/runs/${runId}/artifacts/${artifact.id}`}
+          target="_blank"
+          rel="noopener"
+        >
+          {artifact.filename}
+        </Button>
+      ))}
+    </Stack>
+  );
 }
 
 // Run history + manual "Run Now" trigger for a Job (REQUIREMENTS §2.1/§8).
@@ -151,6 +198,7 @@ export function RunHistoryDialog({
                       {run.errorMessage}
                     </Alert>
                   )}
+                  <RunArtifactsList runId={run.id} runStatus={run.status} />
                   {run.output && (
                     <Box
                       sx={{

@@ -102,6 +102,34 @@ describe("runOrphanReaperSweep (issue #123)", () => {
         triggerType: "MANUAL",
         status: "RUNNING",
         startedAt: new Date(Date.now() - (330_000 + 5_000)),
+        extractedText: "committed text from a dispatched request",
+      },
+    });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf",
+        filename: "committed.searchable.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("committed artifact"),
+      },
+    });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf_pending",
+        filename: "partial-retry.searchable.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("partial retry artifact"),
+      },
+    });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf_previous",
+        filename: "abandoned-backup.searchable.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("abandoned backup artifact"),
       },
     });
 
@@ -115,6 +143,11 @@ describe("runOrphanReaperSweep (issue #123)", () => {
     expect(updated.status).toBe("FAILED");
     expect(updated.errorMessage).toMatch(/orphan reaper/i);
     expect(updated.completedAt).not.toBeNull();
+    expect(updated.extractedText).toBe("committed text from a dispatched request");
+    const artifacts = await prisma.runArtifact.findMany({ where: { runId: run.id } });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.kind).toBe("searchable_pdf");
+    expect(Buffer.from(artifacts[0]!.data).toString()).toBe("committed artifact");
 
     expect(await raw.zcard(slotKey)).toBe(0);
 

@@ -32,6 +32,19 @@ async function probeLibreChatReachable(baseUrl: string): Promise<boolean> {
   }
 }
 
+// Health, not just reachability: /healthz answering non-2xx means the
+// service is up but unwell — that must render "down", unlike the
+// LibreChat probe above where any answer proves the reachability the
+// Worker actually needs.
+async function probeOcrReachable(serviceUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(new URL("/healthz", serviceUrl), { signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // One publish pass. Exported standalone (mirrors runSchedulerTick/
 // runOrphanReaperSweep) so a test can invoke it directly.
 export async function publishComponentStatus(
@@ -47,6 +60,20 @@ export async function publishComponentStatus(
     .set(workerComponentStatusKey("librechat"), librechatUp ? "up" : "down", "EX", WORKER_COMPONENT_STATUS_TTL_SECONDS)
     .catch((err: unknown) => {
       logger.warn({ err }, "failed to publish LibreChat component status — will read as stale until it succeeds");
+    });
+
+  // The OCR pipeline service (#109) is optional and lives on an
+  // internal-only network the API cannot probe — the Worker is its only
+  // app-side caller. "unconfigured" is a real published value, not an
+  // absent key: an absent key means the WORKER isn't reporting (stale),
+  // which is a different failure than "this deployment runs without OCR".
+  const ocrStatus = config.OCR_SERVICE_URL
+    ? (await probeOcrReachable(config.OCR_SERVICE_URL)) ? "up" : "down"
+    : "unconfigured";
+  await raw
+    .set(workerComponentStatusKey("ocr"), ocrStatus, "EX", WORKER_COMPONENT_STATUS_TTL_SECONDS)
+    .catch((err: unknown) => {
+      logger.warn({ err }, "failed to publish OCR component status — will read as stale until it succeeds");
     });
 
   // A separate heartbeat, not just piggybacked on the LibreChat key:

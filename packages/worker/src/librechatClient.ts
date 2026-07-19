@@ -55,6 +55,16 @@ export interface LibreChatClientOptions {
   // timeout below (run cancellation — processor.ts). Optional so every
   // other caller/test is unaffected.
   abortSignal?: AbortSignal;
+  // Called after the combined signal is confirmed live and immediately
+  // before fetch dispatch. Awaited so the processor can atomically commit
+  // the exact extraction evidence for this request before any bytes leave.
+  onRequestStart?: () => void | Promise<void>;
+  // If cancellation/timeout fires while onRequestStart is awaited, fetch
+  // will not dispatch. Lets the processor restore the previous evidence.
+  onRequestAbortedBeforeDispatch?: () => void | Promise<void>;
+  // Called immediately after fetch has been invoked, so the processor can
+  // discard rollback-only state while the response remains in flight.
+  onRequestDispatched?: () => void | Promise<void>;
 }
 
 // The dispatcher's own timeouts, derived from the caller's budget.
@@ -97,7 +107,24 @@ export async function callAgent(
   // undici package (internal symbol mismatch).
   const dispatcher = new UndiciAgent(agentDispatcherOptions(options.timeoutMs));
   try {
-    const response = await undiciFetch(`${options.baseUrl}/api/agents/v1/chat/completions`, {
+    // fetch rejects an already-aborted signal without putting a request on
+    // the wire. Keep that case outside the request-start boundary so callers
+    // do not preserve audit evidence for content the agent never received.
+    if (signal.aborted) {
+      const kind = options.abortSignal?.aborted ? "cancelled" : "timeout";
+      throw new LibreChatError("LibreChat request aborted before dispatch", 0, kind !== "cancelled", kind);
+    }
+    await options.onRequestStart?.();
+    // The awaited evidence transaction above can consume the last few
+    // milliseconds of the budget or race a user cancellation. Recheck before
+    // fetch: an already-aborted signal is guaranteed not to put bytes on the
+    // wire, so the caller must roll the pre-dispatch evidence swap back.
+    if (signal.aborted) {
+      await options.onRequestAbortedBeforeDispatch?.();
+      const kind = options.abortSignal?.aborted ? "cancelled" : "timeout";
+      throw new LibreChatError("LibreChat request aborted before dispatch", 0, kind !== "cancelled", kind);
+    }
+    const responsePromise = undiciFetch(`${options.baseUrl}/api/agents/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -107,6 +134,11 @@ export async function callAgent(
       signal,
       dispatcher,
     });
+    // Mark the promise handled while the post-dispatch hook runs; awaiting the
+    // original promise below still propagates its rejection normally.
+    void responsePromise.catch(() => {});
+    await options.onRequestDispatched?.();
+    const response = await responsePromise;
 
     if (!response.ok) {
       // §2.1: 401/400-class failures are not retried; 5xx/network are.

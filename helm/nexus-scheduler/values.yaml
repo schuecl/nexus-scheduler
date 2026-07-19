@@ -57,6 +57,19 @@ pdfService:
     requests: { cpu: "100m", memory: "384Mi" }
     limits: { cpu: "1", memory: "1Gi" }
 
+# The OCR pipeline service (#109), deployed by the separate helm/ocr
+# chart. Point serviceUrl at its Service (e.g.
+# http://ocr.ocr-namespace.svc:4200) and add this release's namespace to
+# that chart's networkPolicy.clientNamespaces, or its ingress policy
+# will drop the worker's calls. Empty = jobs with attachments run
+# without extraction, with a warning per run.
+ocr:
+  serviceUrl: ""
+  describeImages: "false"
+  # Complete user-prompt ceiling for runs with attachments. 80k chars is
+  # roughly 20k tokens, leaving headroom in the bundled 32k-context model.
+  maxPromptChars: 80000
+
 frontend:
   replicaCount: 2
   port: 8080
@@ -72,6 +85,11 @@ ingress:
   enabled: false
   className: ""
   host: "nexus-scheduler.example.mil"
+  # Attachment uploads (#109) are base64 JSON up to ~20MB; ingress-nginx
+  # would otherwise cut them off at its 1m default. Adjust or replace for
+  # other controllers.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 21m
   tls:
     enabled: false
     secretName: ""

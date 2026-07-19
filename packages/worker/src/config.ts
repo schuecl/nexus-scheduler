@@ -13,6 +13,22 @@ const envSchema = z.object({
   // config.ts for the full rationale (same service, both processes call
   // it as clients).
   PDF_SERVICE_URL: z.string().url().default("http://localhost:4100"),
+  // OCR pipeline service (#109). Unset = jobs with attachments run
+  // without extraction (and log that they did), so the worker keeps
+  // working on stacks that don't deploy the ocr container.
+  OCR_SERVICE_URL: z.string().url().optional(),
+  // Ceiling on the complete user prompt when attachments are present,
+  // including the rendered template, attachment heading, extracted text,
+  // and any truncation marker (~4 chars/token). Upload quotas bound input
+  // FILE size, not extracted TEXT size. 80k chars is roughly 20k tokens,
+  // leaving headroom for system/tool context and output in the smallest
+  // bundled model's 32k-token context window.
+  OCR_EXTRACTED_TEXT_MAX_CHARS: z.coerce.number().int().positive().default(80_000),
+  // Ask the OCR service for vision-model descriptions of image
+  // attachments ("what is this image about") in addition to text.
+  // Not z.coerce.boolean(): that coerces the string "false" to true
+  // (JS truthiness), silently enabling the feature it should disable.
+  OCR_DESCRIBE_IMAGES: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
   // Optional — must match pdf-service's own PDF_SERVICE_SHARED_SECRET.
   // Defense-in-depth on top of NetworkPolicy; unset preserves prior
   // unauthenticated behavior.

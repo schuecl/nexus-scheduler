@@ -304,6 +304,10 @@ helm install nexus-scheduler helm/nexus-scheduler -f helm/nexus-scheduler/values
 helm install nexus-observability helm/observability -f helm/observability/values-local.yaml
 ```
 
+For the exact install order and cross-namespace values that connect the
+application, OCR, and AI-plane charts, see
+[Three-chart Kubernetes wiring](docs/three-chart-wiring.md).
+
 - PostgreSQL and Redis are bundled as first-party subcharts
   (`helm/nexus-scheduler/charts/{postgresql,redis}`) so a default
   install needs no external dependencies or network access to stand

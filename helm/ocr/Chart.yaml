@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ocr
+description: >-
+  The self-hosted OCR + document-understanding service (#109) as its
+  own chart: docling (layout/tables, OCR pinned to Tesseract in code)
+  with ocrmypdf owning the single OCR pass. Fourth member of the
+  independent-chart family (app / test-ai / observability / ocr): the
+  app's worker reaches it via OCR_SERVICE_URL, and by default a
+  NetworkPolicy admits nothing else and permits no egress — the airgap
+  claim as topology. Image must be built from docker/ocr and mirrored;
+  everything (tessdata, layout models) is baked in at build time.
+type: application
+version: 0.1.0
+appVersion: "0.1.9"

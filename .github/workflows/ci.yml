@@ -60,6 +60,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Compose and the AI-plane chart expose the same two LibreChat
+      # upload doors. Keep their OCR strategy and upload limits identical
+      # so local and Kubernetes deployments reject the same inputs.
+      - name: Check LibreChat Compose/chart config parity
+        run: npm run check:librechat-config-parity
+
       - name: Generate Prisma client
         run: npm run prisma:generate
 

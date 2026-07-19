@@ -48,6 +48,8 @@ import ShuffleIcon from "@mui/icons-material/Shuffle";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import PolicyIcon from "@mui/icons-material/Policy";
 import { useAuth } from "../context/AuthContext";
+import { Link as RouterLink } from "react-router-dom";
+import { SystemStatusSummary } from "../components/SystemStatusGraph";
 import { useSettings } from "../context/SettingsContext";
 import { useConfirm } from "../context/ConfirmContext";
 import { apiFetch } from "../api/client";
@@ -80,6 +82,17 @@ export function AdminPage() {
       <Typography variant="h4" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <AdminPanelSettingsOutlinedIcon fontSize="large" /> Admin
       </Typography>
+
+      {/* Live status at a glance — small square per component, colored
+          by the same probed/published status as the full map. Lives
+          here because infrastructure reachability is the admin's data;
+          the Dashboard stays user-facing (runs and schedules only). */}
+      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+        <SystemStatusSummary />
+        <Typography variant="body2">
+          <RouterLink to="/admin/system-map">Full map</RouterLink>
+        </Typography>
+      </Stack>
 
       <SystemSettingsPanel />
       <Divider />

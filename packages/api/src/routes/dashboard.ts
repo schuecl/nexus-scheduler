@@ -31,7 +31,16 @@ export function createDashboardRouter(): Router {
         where: { job: jobWhere },
         orderBy: { createdAt: "desc" },
         take: 10,
-        include: { job: { select: { id: true, name: true, projectId: true } } },
+        // Explicit select: Run now carries extractedText (full OCR
+        // markdown) — a broad read here would ship it 10x per
+        // dashboard load for a card that shows four fields.
+        select: {
+          id: true,
+          status: true,
+          triggerType: true,
+          createdAt: true,
+          job: { select: { id: true, name: true, projectId: true } },
+        },
       }),
       prisma.schedule.findMany({
         where: {

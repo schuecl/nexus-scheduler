@@ -74,6 +74,12 @@ export function KnowledgeBasePage() {
       })}
 
       {filtered.length === 0 && <Typography color="text.secondary">No articles match "{query}".</Typography>}
+
+      <Typography variant="body2" color="text.secondary">
+        Want the big picture? The <RouterLink to="/help/architecture">Architecture article</RouterLink>{" "}
+        documents every component and how they connect. Live component status is operational data —
+        admins can see it under Admin.
+      </Typography>
     </Stack>
   );
 }

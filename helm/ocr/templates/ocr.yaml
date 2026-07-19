@@ -1,0 +1,226 @@
+{{- define "ocr.fullname" -}}
+{{- printf "%s" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "ocr.labels" -}}
+app.kubernetes.io/part-of: nexus-scheduler-ocr
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+{{- define "ocr.image" -}}
+{{- $registry := .Values.global.imageRegistry -}}
+{{- $repo := .Values.image.repository -}}
+{{- if $registry }}{{ $repo = printf "%s/%s" $registry $repo }}{{ end -}}
+{{- if .Values.image.digest -}}
+{{ printf "%s@%s" $repo .Values.image.digest }}
+{{- else -}}
+{{ printf "%s:%s" $repo .Values.image.tag }}
+{{- end -}}
+{{- end -}}
+{{- if gt (int .Values.replicas) 1 }}
+{{- fail "replicas must be 1: the Mistral files API keeps per-pod state, so a second replica would 404 half the signed-URL lookups" }}
+{{- end }}
+{{- if lt (int64 .Values.fileStoreMaxBytes) 15728640 }}
+{{- fail "fileStoreMaxBytes must be at least 15728640 (the service's 15 MiB per-file limit)" }}
+{{- end }}
+{{- if and (not .Values.gateway.url) (or .Values.gateway.existingSecret .Values.gateway.visionModel) }}
+{{- fail "gateway.existingSecret and gateway.visionModel require gateway.url — set all three fields or leave all three empty" }}
+{{- end }}
+{{- if .Values.gateway.url }}
+{{- if not .Values.gateway.existingSecret }}
+{{- fail "gateway.url requires gateway.existingSecret (a Secret with key `apiKey`)" }}
+{{- end }}
+{{- if not .Values.gateway.visionModel }}
+{{- fail "gateway.url requires gateway.visionModel — without it the deployment would come up with image descriptions silently disabled" }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ocr.fullname" . }}
+  labels:
+    app.kubernetes.io/name: ocr
+    {{- include "ocr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ocr
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ocr
+        {{- include "ocr.labels" . | nindent 8 }}
+      {{- if .Values.metrics.annotations }}
+      # The observability chart's alloy discovers scrape targets by
+      # these annotations in its watched namespaces.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4200"
+        prometheus.io/path: /metrics
+      {{- end }}
+    spec:
+      containers:
+        - name: ocr
+          image: {{ include "ocr.image" . }}
+          env:
+            - name: IMAGE_DPI
+              value: {{ .Values.imageDpi | quote }}
+            - name: OCR_FILE_STORE_MAX_BYTES
+              value: {{ int64 .Values.fileStoreMaxBytes | quote }}
+            {{- if .Values.gateway.url }}
+            - name: GATEWAY_URL
+              value: {{ .Values.gateway.url | quote }}
+            - name: VISION_MODEL
+              value: {{ .Values.gateway.visionModel | quote }}
+            - name: GATEWAY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gateway.existingSecret }}
+                  key: apiKey
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 4200
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ocr.fullname" . }}
+  labels:
+    {{- include "ocr.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: ocr
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 4200
+      targetPort: http
+{{- if .Values.networkPolicy.enabled }}
+---
+# The airgap posture as topology (same philosophy as the app chart's
+# pdf-service policy): nothing reaches this pod except its clients,
+# and it reaches nothing except (optionally) the model gateway for
+# image descriptions. DNS egress is allowed for service resolution.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ocr.fullname" . }}
+  labels:
+    {{- include "ocr.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ocr
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        {{- if .Values.networkPolicy.clientPeers }}
+        {{- range $peer := .Values.networkPolicy.clientPeers }}
+        - podSelector:
+            {{- if $peer.podMatchLabels }}
+            matchLabels:
+              {{- toYaml $peer.podMatchLabels | nindent 14 }}
+            {{- else }}
+            {}
+            {{- end }}
+        {{- range $peer.namespaces }}
+        # Namespace and pod selectors in one peer are ANDed. Each client
+        # class gets its own peer so Worker and LibreChat labels are ORed.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+          {{- if $peer.podMatchLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $peer.podMatchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- else }}
+        {{- if .Values.networkPolicy.clientPodMatchLabels }}
+        - podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.clientPodMatchLabels | nindent 14 }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+        {{- range .Values.networkPolicy.clientNamespaces }}
+        # namespaceSelector and podSelector inside ONE peer AND together;
+        # as separate peers Kubernetes ORs them and every pod in the
+        # namespace would be allowed regardless of clientPodMatchLabels.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+          {{- if $.Values.networkPolicy.clientPodMatchLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $.Values.networkPolicy.clientPodMatchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- range .Values.metrics.scraperNamespaces }}
+        # Metrics scrapers are a separate peer: reusing the application
+        # client selector would require Alloy to carry worker labels.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+          {{- if $.Values.metrics.scraperPodMatchLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $.Values.metrics.scraperPodMatchLabels | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      ports:
+        - port: http
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- if .Values.gateway.url }}
+    # Destination selector/port come from gateway.egress — the policy
+    # cannot derive them from gateway.url, so a gateway that is not the
+    # default litellm:4000 must set both alongside the URL.
+    - to:
+        {{- if .Values.gateway.egress.namespaceMatchLabels }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.gateway.egress.namespaceMatchLabels | nindent 14 }}
+          podSelector:
+        {{- else }}
+        # Explicit {} — a null namespaceSelector would silently restrict
+        # the peer to this release's namespace, breaking the documented
+        # default of reaching litellm in any namespace.
+        - namespaceSelector: {}
+          podSelector:
+        {{- end }}
+            matchLabels:
+              {{- toYaml .Values.gateway.egress.podMatchLabels | nindent 14 }}
+      ports:
+        - port: {{ .Values.gateway.egress.port }}
+    {{- end }}
+{{- end }}

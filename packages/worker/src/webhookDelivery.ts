@@ -36,7 +36,19 @@ export async function deliverWebhooksForRun(
   }
 
   const [run, job] = await Promise.all([
-    prisma.run.findUniqueOrThrow({ where: { id: runId } }),
+    // Explicit select: the webhook payload is metadata + output — never
+    // the run's OCR extractedText.
+    prisma.run.findUniqueOrThrow({
+      where: { id: runId },
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        output: true,
+        errorMessage: true,
+      },
+    }),
     prisma.job.findUniqueOrThrow({ where: { id: jobId } }),
   ]);
 

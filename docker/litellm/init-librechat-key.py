@@ -7,13 +7,21 @@
 # UI at :4000/ui). Safe to re-run: no-ops if the key already exists.
 import json
 import os
-import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
-BASE = "http://litellm:4000"
+# Overridable for environments where the gateway is not literally
+# "litellm" (the Helm chart uses release-scoped service names).
+BASE = os.environ.get("LITELLM_URL", "http://litellm:4000")
 MASTER = os.environ["LITELLM_MASTER_KEY"]
 LIBRECHAT_KEY = os.environ["LITELLM_LIBRECHAT_KEY"]
+# Optional: the OCR service's vision-description key. Without
+# provisioning here, setting LITELLM_OCR_KEY + OCR_DESCRIBE_IMAGES=true
+# would hand the OCR service a key the gateway rejects — and
+# _describe_image is deliberately best-effort, so that auth failure
+# would surface only as silently missing descriptions.
+OCR_KEY = os.environ.get("LITELLM_OCR_KEY", "")
 
 
 def call(path, payload=None):
@@ -28,39 +36,47 @@ def call(path, payload=None):
     return urllib.request.urlopen(req, timeout=15)
 
 
-try:
-    resp = json.load(call("/key/info?key=" + LIBRECHAT_KEY))
-    # A key provisioned before key_type existed here is default-type —
-    # it can reach LiteLLM's management routes, which the master-key
-    # separation exists to prevent. Migrate it in place rather than
-    # treating it as compliant.
-    routes = (resp.get("info") or {}).get("allowed_routes") or []
-    if routes == ["llm_api_routes"]:
-        print("librechat virtual key already exists (llm_api-only) — nothing to do")
-        sys.exit(0)
-    call(
-        "/key/update",
-        {"key": LIBRECHAT_KEY, "allowed_routes": ["llm_api_routes"]},
-    )
-    print("librechat virtual key existed with management access — restricted to llm_api routes")
-    sys.exit(0)
-except urllib.error.HTTPError as e:
-    # LiteLLM answers 4xx for an unknown key; anything else is a real
-    # failure worth surfacing.
-    if e.code >= 500:
-        raise
+def ensure_llm_api_key(key: str, alias: str) -> None:
+    try:
+        # quote(): a key containing URL-reserved characters (+ & # %) would
+        # otherwise change meaning in the query string and break idempotence.
+        resp = json.load(call("/key/info?key=" + urllib.parse.quote(key, safe="")))
+        # A key provisioned before key_type existed here is default-type —
+        # it can reach LiteLLM's management routes, which the master-key
+        # separation exists to prevent. Migrate it in place rather than
+        # treating it as compliant.
+        routes = (resp.get("info") or {}).get("allowed_routes") or []
+        if routes == ["llm_api_routes"]:
+            print(f"{alias} virtual key already exists (llm_api-only) — nothing to do")
+            return
+        call(
+            "/key/update",
+            {"key": key, "allowed_routes": ["llm_api_routes"]},
+        )
+        print(f"{alias} virtual key existed with management access — restricted to llm_api routes")
+        return
+    except urllib.error.HTTPError as e:
+        # LiteLLM answers 4xx for an unknown key; anything else is a real
+        # failure worth surfacing.
+        if e.code >= 500:
+            raise
 
-call(
-    "/key/generate",
-    {
-        "key": LIBRECHAT_KEY,
-        "key_alias": "librechat",
-        "user_id": "librechat",
-        # LLM-only: a default-type key can also reach LiteLLM's
-        # management routes (BerriAI/litellm#19492), which would hand
-        # LibreChat gateway-admin ability the master-key separation
-        # exists to prevent.
-        "key_type": "llm_api",
-    },
-)
-print("created the librechat virtual key (alias: librechat, llm_api-only)")
+    call(
+        "/key/generate",
+        {
+            "key": key,
+            "key_alias": alias,
+            "user_id": alias,
+            # LLM-only: a default-type key can also reach LiteLLM's
+            # management routes (BerriAI/litellm#19492), which would hand
+            # the consumer gateway-admin ability the master-key
+            # separation exists to prevent.
+            "key_type": "llm_api",
+        },
+    )
+    print(f"created the {alias} virtual key (alias: {alias}, llm_api-only)")
+
+
+ensure_llm_api_key(LIBRECHAT_KEY, "librechat")
+if OCR_KEY:
+    ensure_llm_api_key(OCR_KEY, "ocr")

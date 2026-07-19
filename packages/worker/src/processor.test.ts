@@ -129,11 +129,22 @@ function waitForJobOutcome(worker: Worker<RunJobData>, jobId: string): Promise<"
   });
 }
 
+async function waitForCondition(check: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() >= deadline) {
+      throw new Error(`condition not met within ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 describe("processRun (via createRunProcessor)", () => {
   let queue: Queue<RunJobData>;
   let worker: Worker<RunJobData> | undefined;
   let metrics: Metrics;
   let libreChatServer: Server | undefined;
+  let ocrServer: Server | undefined;
 
   beforeEach(async () => {
     await resetDb();
@@ -151,6 +162,11 @@ describe("processRun (via createRunProcessor)", () => {
     if (libreChatServer) {
       const s = libreChatServer;
       libreChatServer = undefined;
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    }
+    if (ocrServer) {
+      const s = ocrServer;
+      ocrServer = undefined;
       await new Promise<void>((resolve) => s.close(() => resolve()));
     }
   });
@@ -188,6 +204,174 @@ describe("processRun (via createRunProcessor)", () => {
     const events = await prisma.auditEvent.findMany({ where: { correlationId: run.id, action: "run.complete" } });
     expect(events).toHaveLength(1);
     expect(events[0]?.result).toBe("SUCCESS");
+  });
+
+  it("persists searchable PDFs one attachment at a time instead of retaining the whole batch", async () => {
+    const { server, baseUrl } = await listenLibreChat(() => ({
+      status: 200,
+      body: { choices: [{ message: { content: "documents read" }, finish_reason: "stop" }] },
+    }));
+    libreChatServer = server;
+    const { job, user } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id);
+    await prisma.jobAttachment.createMany({
+      data: [
+        {
+          jobId: job.id,
+          filename: "one.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 3,
+          data: Buffer.from("one"),
+          createdById: user.id,
+        },
+        {
+          jobId: job.id,
+          filename: "two.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 3,
+          data: Buffer.from("two"),
+          createdById: user.id,
+        },
+      ],
+    });
+
+    let ocrCalls = 0;
+    let markSecondStarted: (() => void) | undefined;
+    const secondStarted = new Promise<void>((resolve) => {
+      markSecondStarted = resolve;
+    });
+    let releaseSecond: (() => void) | undefined;
+    const secondRelease = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    ocrServer = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        ocrCalls += 1;
+        const call = ocrCalls;
+        const reply = () => {
+          const pdf = Buffer.from(`searchable-${call}`).toString("base64");
+          res.writeHead(200, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              markdown: `extracted-${call}`,
+              searchable_pdf_base64: pdf,
+              descriptions: [],
+              meta: { ocr_reported: 1 },
+            }),
+          );
+        };
+        if (call === 1) {
+          reply();
+        } else {
+          markSecondStarted?.();
+          void secondRelease.then(reply);
+        }
+      });
+    });
+    await new Promise<void>((resolve) => ocrServer!.listen(0, "127.0.0.1", resolve));
+    const { port } = ocrServer.address() as AddressInfo;
+
+    worker = createRunProcessor(
+      connection,
+      {
+        ...config,
+        LIBRECHAT_BASE_URL: baseUrl,
+        OCR_SERVICE_URL: `http://127.0.0.1:${port}`,
+        OCR_DESCRIBE_IMAGES: false,
+        OCR_EXTRACTED_TEXT_MAX_CHARS: 400_000,
+      },
+      logger,
+      metrics,
+    );
+    const bullJob = await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 1 });
+    const outcomePromise = waitForJobOutcome(worker, bullJob.id!);
+
+    await secondStarted;
+    try {
+      const artifactsDuringSecondOcr = await prisma.runArtifact.findMany({ where: { runId: run.id } });
+      expect(artifactsDuringSecondOcr).toHaveLength(1);
+      expect(artifactsDuringSecondOcr[0]?.kind).toBe("searchable_pdf_pending");
+      expect(artifactsDuringSecondOcr[0]?.filename).toBe("one.pdf.searchable.pdf");
+      expect(Buffer.from(artifactsDuringSecondOcr[0]!.data).toString()).toBe("searchable-1");
+      expect((await prisma.run.findUniqueOrThrow({ where: { id: run.id } })).extractedText).toBeNull();
+    } finally {
+      releaseSecond?.();
+    }
+
+    expect(await outcomePromise).toBe("completed");
+    expect(await prisma.runArtifact.count({ where: { runId: run.id } })).toBe(2);
+    expect(await prisma.runArtifact.count({ where: { runId: run.id, kind: "searchable_pdf" } })).toBe(2);
+    expect((await prisma.run.findUniqueOrThrow({ where: { id: run.id } })).extractedText).toContain("extracted-2");
+  });
+
+  it("preserves evidence from a dispatched attempt when replacement OCR fails before dispatch", async () => {
+    const { server, baseUrl, callCount } = await listenLibreChat(() => ({
+      status: 503,
+      body: { error: "agent unavailable after accepting the request" },
+    }));
+    libreChatServer = server;
+    const { job, user } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id);
+    await prisma.jobAttachment.create({
+      data: {
+        jobId: job.id,
+        filename: "evidence.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 8,
+        data: Buffer.from("evidence"),
+        createdById: user.id,
+      },
+    });
+
+    let ocrCalls = 0;
+    ocrServer = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        ocrCalls += 1;
+        if (ocrCalls === 1) {
+          res.writeHead(200, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              markdown: "first dispatched extraction",
+              searchable_pdf_base64: Buffer.from("first searchable PDF").toString("base64"),
+              descriptions: [],
+              meta: { ocr_reported: 1 },
+            }),
+          );
+        } else {
+          res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "ocr unavailable" }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => ocrServer!.listen(0, "127.0.0.1", resolve));
+    const { port } = ocrServer.address() as AddressInfo;
+
+    worker = createRunProcessor(
+      connection,
+      {
+        ...config,
+        LIBRECHAT_BASE_URL: baseUrl,
+        OCR_SERVICE_URL: `http://127.0.0.1:${port}`,
+        OCR_DESCRIBE_IMAGES: false,
+        OCR_EXTRACTED_TEXT_MAX_CHARS: 400_000,
+      },
+      logger,
+      metrics,
+    );
+    await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 2 });
+    await waitForCondition(async () => {
+      const current = await prisma.run.findUniqueOrThrow({ where: { id: run.id }, select: { status: true } });
+      return ocrCalls === 2 && current.status === "FAILED";
+    });
+
+    expect(callCount()).toBe(1);
+    expect(ocrCalls).toBe(2);
+    const updated = await prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+    expect(updated.status).toBe("FAILED");
+    expect(updated.extractedText).toContain("first dispatched extraction");
+    const artifacts = await prisma.runArtifact.findMany({ where: { runId: run.id } });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.kind).toBe("searchable_pdf");
+    expect(Buffer.from(artifacts[0]!.data).toString()).toBe("first searchable PDF");
   });
 
   it("marks a run FAILED without retrying on a non-transient (4xx) LibreChat error", async () => {
@@ -311,6 +495,59 @@ describe("processRun (via createRunProcessor)", () => {
     const events = await prisma.auditEvent.findMany({ where: { correlationId: run.id, action: "run.complete" } });
     expect(events).toHaveLength(1);
     expect(events[0]?.result).toBe("SUCCESS");
+  });
+
+  it("preserves committed evidence but clears staging when a retry is cancelled before it starts", async () => {
+    const { server, baseUrl, callCount } = await listenLibreChat(() => ({
+      status: 200,
+      body: { choices: [{ message: { content: "should never be seen" }, finish_reason: "stop" }] },
+    }));
+    libreChatServer = server;
+    const { job } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id);
+    await prisma.run.update({ where: { id: run.id }, data: { extractedText: "stale text" } });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf",
+        filename: "stale.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("stale"),
+      },
+    });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf_pending",
+        filename: "replacement.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("replacement"),
+      },
+    });
+    await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf_previous",
+        filename: "abandoned-backup.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("abandoned backup"),
+      },
+    });
+
+    worker = createRunProcessor(connection, { ...config, LIBRECHAT_BASE_URL: baseUrl }, logger, metrics);
+    const raw = (await worker.client) as unknown as RawTestClient;
+    await raw.sadd(RUN_CANCEL_REQUESTED_KEY, run.id);
+
+    const bullJob = await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 1 });
+    await waitForJobOutcome(worker, bullJob.id!);
+
+    expect(callCount()).toBe(0);
+    const updated = await prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+    expect(updated.status).toBe("CANCELLED");
+    expect(updated.extractedText).toBe("stale text");
+    expect(await prisma.runArtifact.count({ where: { runId: run.id, kind: "searchable_pdf" } })).toBe(1);
+    expect(await prisma.runArtifact.count({ where: { runId: run.id, kind: "searchable_pdf_pending" } })).toBe(0);
+    expect(await prisma.runArtifact.count({ where: { runId: run.id, kind: "searchable_pdf_previous" } })).toBe(0);
   });
 
   // Regression tests for issue #124: a worker that acquires a run's

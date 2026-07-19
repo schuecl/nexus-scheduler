@@ -13,6 +13,7 @@ export interface KbArticle {
 }
 
 export const KB_ARTICLES: KbArticle[] = [
+
   {
     slug: "overview",
     title: "What is Nexus Scheduler?",
@@ -628,48 +629,62 @@ signing-secret rotation.
   },
   {
     slug: "architecture",
-    title: "Architecture: live system map",
+    title: "Architecture & data flow",
     category: "Architecture",
-    summary: "Which components are set up, and which connections are working right now.",
+    summary: "How the components fit together and who talks to whom.",
     content: `
-This page answers "which components are set up, and which connections are
-working right now" — normally something you'd have to piece together from
-compose files, Helm values, and logs. The live diagram above this text
-(rendered by the app, not part of this article) shows every component this
-deployment actually depends on and whether it's currently reachable.
+This article documents the system's shape: which components exist, who
+talks to whom, and why. It is deliberately **static** — documentation for
+understanding, not monitoring. Live reachability ("is Redis up right
+now") is operational data owned by platform admins: see **Admin → System
+Map** in this app, and the Grafana dashboards for history and alerting.
 
-## How it's determined
+## Component flow
 
-Two different mechanisms feed the same diagram, because reachability isn't
-always knowable from one side:
+\`\`\`mermaid
+flowchart TB
+  Browser --> Nginx[nginx] --> API
+  API -->|"jobs, runs, audit"| PG[(Postgres)]
+  API -->|enqueue runs| R[(Redis)]
+  API -->|report downloads| PDF[PDF Service]
+  W[Worker] -->|"pick up runs, cancel flags,<br/>status publish"| R
+  W -->|"runs, audit, extracted text"| PG
+  W -->|"email report PDFs"| PDF
+  W -->|agent calls| LC[LibreChat]
+  W -->|job-attachment OCR| OCR[OCR Service]
+  LC -->|"chat uploads (built-in OCR config)"| OCR
+  LC -->|model calls| LL[LiteLLM] --> OL[Ollama]
+\`\`\`
 
-- **Postgres, Redis, and the PDF service** are probed directly by the API
-  on every page load — there's exactly one true status per link, so the
-  API checking it once is enough.
-- **LibreChat**, and the Worker's own liveness, can only be checked by the
-  Worker itself (nothing else in this app calls LibreChat directly). The
-  Worker publishes what it finds to Redis every 30 seconds with a short
-  expiry. If the Worker crashes, is restarted, or is scaled to zero, that
-  published status simply expires — the diagram shows **"No recent
-  report"** rather than a stale last-known-good value that might no longer
-  be true.
+## Who talks to whom, and why
 
-## Reading the colors
+- **nginx** is the single entry point: TLS termination and body-size
+  limits, proxying to the API and the frontend bundle.
+- The **API** owns Postgres (jobs, runs, audit trail), enqueues runs into
+  Redis, and calls the PDF service for on-demand report downloads. It
+  never calls LibreChat or the OCR service itself.
+- The **Worker** picks runs up from Redis, extracts job attachments
+  through the **OCR service** (the text goes into the agent prompt; the
+  searchable PDF is kept as a run artifact), then calls **LibreChat**'s
+  Agents API to execute the run. It writes results and audit events back
+  to Postgres and renders email-report PDFs via the PDF service.
+- **LibreChat** routes model calls through **LiteLLM** (the gateway that
+  owns keys, quotas, and model routing) to **Ollama**. Chat uploads use
+  the same OCR service via LibreChat's built-in OCR support — so both
+  doors, scheduler jobs and ad-hoc chat, share one OCR pipeline.
+- The **OCR service** and the model plane have no egress: everything
+  above runs air-gapped.
 
-- **Green** — reachable right now.
-- **Red** — configured, but the last check failed.
-- **Grey ("No recent report")** — no reachability data has arrived
-  recently. For the Worker-reported components, this almost always means
-  the Worker process itself isn't currently running or hasn't completed a
-  publish cycle yet, not that LibreChat is actually down.
+## Two doors into OCR
 
-## What isn't on this map yet
+| | Scheduler job | LibreChat chat |
+|---|---|---|
+| Files per request | up to 10, 50MB total | up to 10 per message, 15MB each |
+| Results kept | extracted text + searchable PDF on the run (auditable) | conversation only |
+| Best for | recurring/batch document work | quick ad-hoc questions |
 
-This is deliberately scoped to the components this deployment actually
-talks to today. A model gateway (e.g. LiteLLM) sitting behind LibreChat,
-and an OCR pipeline, are both planned but not yet wired into the app as
-direct dependencies — see the open architecture work for where those
-stand before expecting to see them here.
+Details, setup, and troubleshooting: see **Document OCR & attachments**
+in this Knowledge Base.
 `,
   },
   {
@@ -1049,6 +1064,152 @@ to a list of recipients. Requires SMTP to be configured
   and cost on the run record, not the organization-wide dashboard.
 
 See also [Runs, output & PDF reports](/help/runs).
+`,
+  },
+
+  {
+    slug: "ocr",
+    title: "Document OCR & attachments",
+    category: "Modules",
+    summary: "Attach documents to Jobs, get extracted text to your agent, and wire LibreChat chat uploads through the same pipeline.",
+    content: `
+Nexus Scheduler ships a **self-hosted, fully offline OCR pipeline**: one
+Tesseract pass (via OCRmyPDF \`--skip-text\`) plus docling for layout and
+tables. Digital PDFs pass through with **zero** OCR cost — only pages
+without a text layer are recognized. Nothing is ever downloaded at
+runtime; all models are baked into the OCR service image.
+
+## Architecture
+
+How a document flows, whichever door it enters through:
+
+\`\`\`mermaid
+flowchart LR
+  B1[Browser] -->|"job attachments<br/>10 files / 50 MB"| NS[Nexus Scheduler] --> W[Worker]
+  B2[Browser] -->|"'Upload as Text'<br/>up to 10 files per message, 15MB each"| LC[LibreChat]
+  W -->|one request per document| OCR
+  LC -->|built-in OCR config| OCR
+  subgraph OCR ["OCR service — ocr-net (isolated, no internet egress)"]
+    direction TB
+    I[img2pdf] --> O["OCRmyPDF --skip-text<br/>Tesseract runs ONCE, only on<br/>pages with no text layer"]
+    O --> D["docling (do_ocr=False)<br/>layout + tables, no second OCR pass"]
+  end
+  OCR --> MD["markdown → agent input"]
+  OCR --> PDF["searchable PDF → audit artifact"]
+\`\`\`
+
+The extracted markdown goes to the model; the searchable PDF (your
+original pages plus an invisible text layer) is kept as the audit
+artifact. The model itself is reached through LibreChat → LiteLLM →
+Ollama — the OCR service never talks to the internet, and only the
+Worker and LibreChat can talk to it.
+
+**Which door should you use?**
+
+| | Scheduler job | LibreChat chat |
+|---|---|---|
+| Capacity | up to 10 files / 50 MB per job | up to 10 files per message, 15MB each |
+| Repeatability | Run Now or any schedule, same attachments every run | one-off |
+| Record | extracted text + searchable PDF on every run, audit-logged | conversation context only |
+| Best for | recurring document workloads, anything you must audit | quick "what does this say?" questions |
+
+There are two ways to use it.
+
+## 1. Job attachments (scheduled / repeatable)
+
+1. Open a Job on its Project page and click **Files**.
+2. Upload PDF, PNG, JPEG, TIFF, BMP or WebP — up to 15&nbsp;MB per file,
+   10 files / 50&nbsp;MB per Job.
+3. Run the Job (**Run Now** or a schedule). Before the agent is called,
+   every attachment is extracted and the markdown is appended to the
+   prompt — the agent sees text, never the binary.
+4. On the finished run you get:
+   - the **extracted text** stored on the run record,
+   - a **searchable PDF** per attachment (your original pages plus an
+     invisible text layer) as a downloadable artifact,
+   - the agent's answer, informed by the documents.
+
+Every upload, delete, and artifact download is audit-logged. If the OCR
+service is not deployed, Jobs with attachments still run — without
+extraction, and each run logs a warning saying so.
+
+## 2. LibreChat chat uploads (ad-hoc Q&A)
+
+LibreChat's built-in OCR support can point at this same pipeline, so a
+file attached in chat is extracted into the conversation context — any
+text model can then answer questions about it (the bundled local models
+cannot see images, but they read extracted text just fine).
+
+Configuration (already wired in this repo's compose stack —
+\`docker/librechat/librechat.yaml\`):
+
+\`\`\`yaml
+ocr:
+  strategy: "mistral_ocr"
+  baseURL: "http://ocr:4200/v1"
+  apiKey: "network-isolated-no-key"
+  mistralModel: "nexus-ocr"
+\`\`\`
+
+Why it works: LibreChat's \`mistral_ocr\` strategy speaks the Mistral
+OCR API, and the OCR service implements that exact surface —
+\`POST /v1/files\`, \`GET /v1/files/{id}/url\`, \`POST /v1/ocr\`,
+\`DELETE /v1/files/{id}\`. The "signed URL" it returns is a \`data:\` URL,
+so no network fetch ever happens; remote URLs are rejected outright. The
+apiKey is a placeholder — access control is the OCR network itself
+(internal-only; LibreChat is a member), not a credential. Note:
+\`custom_ocr\` appears in LibreChat's config schema but current builds
+implement no strategy for it — use \`mistral_ocr\`.
+
+To use it in chat: attach a file with the paperclip and choose **Upload
+as Text**. The extracted markdown lands in the conversation context.
+
+## Kubernetes
+
+Deploy the \`helm/ocr\` chart, then point the app chart's worker at it
+(\`ocr.serviceUrl\`) and add one OCR-chart \`networkPolicy.clientPeers\`
+entry for the Worker's namespace/labels and another for LibreChat's. The
+separate selectors matter because Worker and LibreChat do not share labels.
+
+\`\`\`yaml
+networkPolicy:
+  clientPeers:
+    - name: worker
+      namespaces: [nexus-scheduler]
+      podMatchLabels:
+        app.kubernetes.io/name: nexus-scheduler
+        app.kubernetes.io/component: worker
+    - name: librechat
+      namespaces: [test-ai]
+      podMatchLabels:
+        app.kubernetes.io/name: librechat
+\`\`\`
+
+For the bundled \`helm/test-ai\`
+LibreChat, set \`librechat.ocr.baseUrl\` to the OCR Service's cluster URL
+including \`/v1\`; the chart renders the same \`mistral_ocr\` block shown
+above. The app chart's \`ocr.maxPromptChars\` caps the complete user prompt
+(rendered template plus extracted documents); its 80,000-character default
+leaves headroom in the bundled model's 32k-token context. If Grafana Alloy
+runs in a separate \`observability\` namespace,
+allow it independently from application callers:
+
+\`\`\`yaml
+metrics:
+  scraperNamespaces: [observability]
+  scraperPodMatchLabels:
+    app.kubernetes.io/name: alloy
+\`\`\`
+
+## Seeing it work
+
+- The [Architecture & data flow](/help/architecture) article shows where the
+  OCR service sits in the system. Whether it's deployed and reachable
+  *right now* is on the admin System Map (Admin area) — grey "Not
+  configured" there means \`OCR_SERVICE_URL\` isn't set on the Worker.
+- The Grafana dashboard **OCR Service — Document Extraction** shows
+  requests, pages OCR'd vs passed through (the \`--skip-text\`
+  dividend), file types, pages per document, and stage latencies.
 `,
   },
 ];

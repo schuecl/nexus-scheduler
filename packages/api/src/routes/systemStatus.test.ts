@@ -80,12 +80,14 @@ afterAll(async () => {
 });
 
 let userCounter = 0;
-async function agentFor() {
+// Admin by default: the endpoint is admin-gated (live infrastructure
+// reachability is operational data, not something every user sees).
+async function agentFor(role: "ADMIN" | "EDITOR" = "ADMIN") {
   userCounter += 1;
   const email = `system-status-user-${userCounter}@example.test`;
   const password = "correct-horse-battery-staple";
   await prisma.user.create({
-    data: { email, authSource: "LOCAL", role: "EDITOR", active: true, passwordHash: bcrypt.hashSync(password, 12) },
+    data: { email, authSource: "LOCAL", role, active: true, passwordHash: bcrypt.hashSync(password, 12) },
   });
   const agent = request.agent(app);
   const res = await agent.post("/auth/local-login").send({ email, password });
@@ -97,6 +99,12 @@ describe("GET /api/system-status (issue #131)", () => {
   it("rejects an unauthenticated request with 401", async () => {
     const res = await request(app).get("/api/system-status");
     expect(res.status).toBe(401);
+  });
+
+  it("rejects a non-admin user with 403", async () => {
+    const agent = await agentFor("EDITOR");
+    const res = await agent.get("/api/system-status");
+    expect(res.status).toBe(403);
   });
 
   it("reports postgres/redis/pdf-service as up (all reachable in this environment) and worker-owned links as stale when nothing has been published", async () => {
@@ -111,6 +119,17 @@ describe("GET /api/system-status (issue #131)", () => {
     expect(byId["pdf-service"]).toBe("up");
     expect(byId.worker).toBe("stale");
     expect(byId.librechat).toBe("stale");
+    expect(byId.ocr).toBe("stale");
+  });
+
+  it("reflects a worker-published 'unconfigured' status for the optional OCR service", async () => {
+    const agent = await agentFor();
+    await directRedis.set(workerComponentStatusKey("ocr"), "unconfigured", "EX", 90);
+
+    const res = await agent.get("/api/system-status");
+
+    const byId = Object.fromEntries((res.body.components as Array<{ id: string; status: string }>).map((c) => [c.id, c.status]));
+    expect(byId.ocr).toBe("unconfigured");
   });
 
   it("reflects a worker-published 'down' status for LibreChat", async () => {

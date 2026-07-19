@@ -19,6 +19,7 @@ import { createProjectPromptsRouter, createPromptsRouter } from "./routes/prompt
 import { createApiKeysRouter } from "./routes/apiKeys.js";
 import { createJobSchedulesRouter, createSchedulesRouter } from "./routes/schedules.js";
 import { createJobRunsRouter, createRunsRouter } from "./routes/runs.js";
+import { createJobAttachmentsRouter } from "./routes/attachments.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js";
 import { createSettingsRouter } from "./routes/settings.js";
@@ -58,7 +59,16 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   // Security headers baseline — REQUIREMENTS.md §10 (OWASP hardening).
   app.use(helmet());
   app.use(cors({ origin: false })); // same-origin via nginx in production; adjust for local dev if needed
-  app.use(express.json({ limit: "1mb" }));
+  // Attachment uploads are base64 JSON: a 15MB file is ~20MB encoded,
+  // which the global 1mb parser would reject before the route's own
+  // size checks ever ran. The attachments route brings its own 21mb
+  // parser — but AFTER its auth/access middleware, so an unauthenticated
+  // request never gets a 21MB body buffered. The global parser must
+  // therefore skip that path (express.json parses a body only once, so
+  // whichever runs first wins).
+  const jsonParser = express.json({ limit: "1mb" });
+  const attachmentsPath = /^\/api\/jobs\/[^/]+\/attachments\/?$/;
+  app.use((req, res, next) => (attachmentsPath.test(req.path) ? next() : jsonParser(req, res, next)));
   app.use(
     pinoHttp({
       logger,
@@ -109,6 +119,7 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/prompts", createPromptsRouter());
   app.use("/api/jobs/:jobId/schedules", createJobSchedulesRouter());
   app.use("/api/jobs/:jobId/runs", createJobRunsRouter(runsQueue));
+  app.use("/api/jobs/:jobId/attachments", createJobAttachmentsRouter());
   app.use("/api/jobs", createJobsRouter());
   app.use("/api/schedules", createSchedulesRouter());
   app.use("/api/runs", createRunsRouter(config, redisClient));

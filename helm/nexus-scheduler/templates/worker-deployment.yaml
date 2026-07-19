@@ -56,6 +56,17 @@ spec:
               value: {{ .Values.librechat.baseUrl | quote }}
             - name: PDF_SERVICE_URL
               value: "http://{{ include "nexus-scheduler.fullname" . }}-pdf-service:{{ .Values.pdfService.port }}"
+            {{- if .Values.ocr.serviceUrl }}
+            # The OCR pipeline service (#109), deployed by the separate
+            # helm/ocr chart; jobs with attachments run without extraction
+            # (with a warning) when unset.
+            - name: OCR_SERVICE_URL
+              value: {{ .Values.ocr.serviceUrl | quote }}
+            - name: OCR_DESCRIBE_IMAGES
+              value: {{ .Values.ocr.describeImages | quote }}
+            - name: OCR_EXTRACTED_TEXT_MAX_CHARS
+              value: {{ int64 .Values.ocr.maxPromptChars | quote }}
+            {{- end }}
             {{- if .Values.librechat.tls.caBundle }}
             # Node's fetch() (this app's HTTP client for every LibreChat
             # call) honors this process-wide with no application code

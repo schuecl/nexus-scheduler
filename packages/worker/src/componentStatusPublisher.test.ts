@@ -85,6 +85,39 @@ describe("publishComponentStatus (issue #131)", () => {
     expect(await raw.get(workerComponentStatusKey("librechat"))).toBe("up");
   });
 
+  it("publishes 'unconfigured' for OCR when OCR_SERVICE_URL is unset", async () => {
+    const { server, baseUrl } = await listenServer((res) => res.writeHead(200).end("ok"));
+    stubServer = server;
+    const config = { LIBRECHAT_BASE_URL: baseUrl } as WorkerConfig;
+
+    await publishComponentStatus(queue, config, logger);
+
+    const raw = (await queue.client) as unknown as RawTestClient;
+    expect(await raw.get(workerComponentStatusKey("ocr"))).toBe("unconfigured");
+  });
+
+  it("publishes 'up' for OCR when its /healthz answers 2xx", async () => {
+    const { server, baseUrl } = await listenServer((res) => res.writeHead(200).end("ok"));
+    stubServer = server;
+    const config = { LIBRECHAT_BASE_URL: baseUrl, OCR_SERVICE_URL: baseUrl } as WorkerConfig;
+
+    await publishComponentStatus(queue, config, logger);
+
+    const raw = (await queue.client) as unknown as RawTestClient;
+    expect(await raw.get(workerComponentStatusKey("ocr"))).toBe("up");
+  });
+
+  it("publishes 'down' for OCR when /healthz answers non-2xx — health, not mere reachability", async () => {
+    const { server, baseUrl } = await listenServer((res) => res.writeHead(503).end("unwell"));
+    stubServer = server;
+    const config = { LIBRECHAT_BASE_URL: baseUrl, OCR_SERVICE_URL: baseUrl } as WorkerConfig;
+
+    await publishComponentStatus(queue, config, logger);
+
+    const raw = (await queue.client) as unknown as RawTestClient;
+    expect(await raw.get(workerComponentStatusKey("ocr"))).toBe("down");
+  });
+
   it("publishes 'down' when LibreChat is unreachable", async () => {
     // Nothing listening on this port.
     const config = { LIBRECHAT_BASE_URL: "http://127.0.0.1:1" } as WorkerConfig;

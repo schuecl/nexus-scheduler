@@ -16,6 +16,15 @@ import { getPublicAppSettings } from "./settings.js";
 import type { AppConfig } from "../config.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 
+export function encodeRfc5987Filename(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+const TERMINAL_RUN_STATUSES = ["SUCCESS", "FAILED", "CANCELLED", "SKIPPED"] as const;
+
 // Mounted at /api/jobs/:jobId/runs (mergeParams) — same access convention
 // as Schedules: READ to view history, EDIT to trigger a manual run
 // (REQUIREMENTS §2.1/§2.3).
@@ -27,6 +36,24 @@ export function createJobRunsRouter(queue: Queue<RunJobData>): Router {
       where: { jobId: req.params.jobId },
       orderBy: { createdAt: "desc" },
       take: 100,
+      // Everything except extractedText: the run history for a job with
+      // attachments would otherwise serialize every run's full OCR
+      // markdown ×100 rows. The single-run endpoint still returns it.
+      select: {
+        id: true,
+        jobId: true,
+        scheduleId: true,
+        triggerType: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        completedAt: true,
+        promptTokens: true,
+        completionTokens: true,
+        computedCost: true,
+        output: true,
+        errorMessage: true,
+      },
     });
     res.json(runs);
   }));
@@ -104,7 +131,7 @@ export function createRunsRouter(config: AppConfig, redisClient: Redis): Router 
     const user = req.session.user!;
     const run = await prisma.run.findUnique({
       where: { id: req.params.id },
-      include: { job: { select: { name: true } } },
+      select: { id: true, status: true, job: { select: { name: true } } },
     });
     if (!run) {
       res.status(404).json({ error: "run not found" });
@@ -139,13 +166,101 @@ export function createRunsRouter(config: AppConfig, redisClient: Redis): Router 
   // data, never stored as a binary. Carries the same branding and
   // system-wide classification banner as the web UI, plus the source
   // Project's classification label (if any) as a secondary marking.
+  // Artifacts produced by the OCR pipeline (#109) — today the
+  // searchable PDF (original scan + invisible text layer), the
+  // audit-trail rendition of what the agent was given to read.
+  router.get("/:id/artifacts", requireAuth, requireRunAccess("READ"), asyncHandler(async (req, res) => {
+    const artifacts = await prisma.runArtifact.findMany({
+      // The worker persists one artifact at a time to keep memory bounded,
+      // under a distinct pending kind until the agent-dispatch boundary.
+      // Require both a terminal run and the committed kind: neither an
+      // in-flight prior attempt nor a crash-left staging row is visible.
+      where: {
+        runId: req.params.id,
+        kind: "searchable_pdf",
+        run: { status: { in: [...TERMINAL_RUN_STATUSES] } },
+      },
+      select: { id: true, kind: true, filename: true, mimeType: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+    res.json(artifacts);
+  }));
+
+  router.get("/:id/artifacts/:artifactId", requireAuth, requireRunAccess("READ"), asyncHandler(async (req, res) => {
+    const artifact = await prisma.runArtifact.findFirst({
+      where: {
+        id: req.params.artifactId,
+        runId: req.params.id,
+        kind: "searchable_pdf",
+        run: { status: { in: [...TERMINAL_RUN_STATUSES] } },
+      },
+    });
+    if (!artifact) {
+      res.status(404).json({ error: "artifact not found" });
+      return;
+    }
+    // Same data-access audit trail as the run-PDF download below: the
+    // artifact is OCR-derived document content, so who fetched it must
+    // be recorded.
+    const user = req.session.user!;
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "run.artifact_download",
+      targetType: "run",
+      targetId: req.params.id,
+      targetName: artifact.filename,
+      category: "data_access",
+      result: "SUCCESS",
+      details: { artifactId: artifact.id, kind: artifact.kind },
+    });
+    res.setHeader("Content-Type", artifact.mimeType);
+    // Uploads reject control characters, but rows can predate that
+    // rule — strip anything header-hostile here too, or setHeader
+    // throws and the artifact becomes undownloadable. Non-Latin names
+    // (an emoji, CJK) are legal uploads but illegal raw header values:
+    // RFC 5987 form — an ASCII fallback plus filename* carrying the
+    // percent-encoded real name — keeps both the download and the
+    // original name working.
+    const safeName = artifact.filename.replace(/["\u0000-\u001f\u007f]/g, "");
+    const asciiFallback = safeName.replace(/[^\u0020-\u007e]/g, "_");
+    // encodeURIComponent leaves these RFC 5987-excluded characters
+    // untouched, so escape them explicitly rather than emitting an
+    // invalid filename* value that clients may discard.
+    const encodedName = encodeRfc5987Filename(safeName);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`,
+    );
+    res.send(Buffer.from(artifact.data));
+  }));
+
   router.get("/:id/pdf", requireAuth, requireRunAccess("READ"), asyncHandler(async (req, res) => {
     const user = req.session.user!;
+    // Explicit select: the report renders run metadata + output, never
+    // extractedText — `include` would read a multi-MB OCR document into
+    // API memory on every PDF download for nothing.
     const run = await prisma.run.findUnique({
       where: { id: req.params.id },
-      include: {
+      select: {
+        id: true,
+        triggerType: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        completedAt: true,
+        promptTokens: true,
+        completionTokens: true,
+        computedCost: true,
+        output: true,
+        errorMessage: true,
         job: {
-          include: { project: { include: { classificationLabel: true } } },
+          select: {
+            name: true,
+            project: { select: { classificationLabel: true } },
+          },
         },
       },
     });

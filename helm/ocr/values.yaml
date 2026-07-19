@@ -1,0 +1,97 @@
+global:
+  imageRegistry: ""
+
+image:
+  # Built from docker/ocr — not published upstream; build and push to
+  # your (mirrored) registry, then set repository/tag/digest here.
+  repository: nexus-scheduler-ocr
+  tag: dev
+  digest: ""
+
+replicas: 1
+
+resources:
+  requests: {cpu: 500m, memory: 1Gi}
+  limits: {memory: 2Gi}
+
+# DPI assumed for images that carry no DPI metadata (photos, PNGs) —
+# without it ocrmypdf rejects them outright.
+imageDpi: 300
+
+# Aggregate retained bytes for LibreChat's Mistral-compatible upload
+# store. Keep this comfortably below the pod memory limit so Docling,
+# Torch, active conversion buffers, and signed-URL base64 have room.
+# Must be at least the 15 MiB per-file limit. When live uploads fill the
+# budget, new uploads receive 503 until a client deletes one; an accepted
+# file ID is never evicted before its one-hour TTL.
+fileStoreMaxBytes: 268435456
+
+# Optional vision-model descriptions of image inputs, via the model
+# gateway (the test-ai chart's litellm). All three must be set — the
+# chart fails at render time on a partial configuration, because a
+# missing visionModel would deploy fine and just silently never
+# describe anything. existingSecret needs key `apiKey` (an llm_api
+# virtual key is enough).
+gateway:
+  url: ""
+  visionModel: ""
+  existingSecret: ""
+  # Where the NetworkPolicy lets the pod's gateway egress go. Must
+  # describe the pods gateway.url actually resolves to — the policy
+  # cannot derive a selector from a URL.
+  egress:
+    podMatchLabels:
+      app.kubernetes.io/name: litellm
+    namespaceMatchLabels: {}
+    port: 4000
+
+# The service exposes Prometheus metrics on /metrics (same port). These
+# annotations let the observability chart's annotation-driven discovery
+# scrape it. Scrapers use their own NetworkPolicy peers so their labels
+# are not ANDed with the application worker labels below.
+metrics:
+  annotations: true
+  # Namespace names whose metrics scrapers may reach /metrics. Empty =
+  # no cross-namespace scraper ingress. Add the observability namespace
+  # here; do not add it to networkPolicy.clientNamespaces.
+  scraperNamespaces: []
+  # The bundled observability chart runs Grafana Alloy under this label.
+  # Change it when using a different annotation-driven scraper.
+  scraperPodMatchLabels:
+    app.kubernetes.io/name: alloy
+
+networkPolicy:
+  # The airgap posture: deny all ingress except from pods labelled as
+  # allowed clients, deny all egress except (optionally) the gateway.
+  # Requires a CNI that enforces NetworkPolicy; on clusters without
+  # one this renders but does nothing — same caveat as pdf-service.
+  enabled: true
+  # Preferred production form: one selector/namespace set per client
+  # class. Worker and LibreChat carry different labels, so collapsing
+  # them into one selector denies one of the two advertised OCR paths.
+  # Each peer also applies to matching pods in the OCR namespace itself.
+  # Example:
+  # clientPeers:
+  #   - name: worker
+  #     namespaces: [nexus-scheduler]
+  #     podMatchLabels:
+  #       app.kubernetes.io/name: nexus-scheduler
+  #       app.kubernetes.io/component: worker
+  #   - name: librechat
+  #     namespaces: [test-ai]
+  #     podMatchLabels:
+  #       app.kubernetes.io/name: librechat
+  clientPeers: []
+  # Backward-compatible single-selector form, used only when clientPeers
+  # is empty.
+  # Namespaces allowed to call the OCR API (the app's worker/LibreChat).
+  # Metrics scrapers belong in metrics.scraperNamespaces instead. Empty
+  # = same-namespace application clients only.
+  clientNamespaces: []
+  # Restrict same-namespace ingress to pods with these labels — the
+  # app chart labels its worker pods
+  # {app.kubernetes.io/name: nexus-scheduler,
+  #  app.kubernetes.io/component: worker}. Empty = any pod
+  # in this namespace may call the service — set this in production so
+  # an unrelated same-namespace workload can't submit documents.
+  clientPodMatchLabels: {}

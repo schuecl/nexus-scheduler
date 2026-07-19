@@ -4,6 +4,8 @@ import { prisma } from "./db.js";
 import { RUNS_QUEUE_NAME, type RunJobData } from "./queue.js";
 import { callAgent, describeUnexecutedToolCall, extractTokenUsage, LibreChatError } from "./librechatClient.js";
 import { renderPromptTemplate } from "./promptTemplate.js";
+import { extractAttachment, OcrError } from "./ocrClient.js";
+import { AttachmentPromptBudgetError, buildAttachmentPrompt } from "./attachmentPrompt.js";
 import { computeCost } from "./costCalculator.js";
 import { deliverWebhooksForRun } from "./webhookDelivery.js";
 import { sendRunNotificationEmail } from "./notifications.js";
@@ -20,6 +22,9 @@ import type { Metrics } from "./metrics.js";
 // always fails would simply have no series at all — while staying a single
 // bounded label value rather than a hole in the data.
 const UNKNOWN_MODEL = "unknown";
+export const SEARCHABLE_PDF_KIND = "searchable_pdf";
+export const PENDING_SEARCHABLE_PDF_KIND = "searchable_pdf_pending";
+export const PREVIOUS_SEARCHABLE_PDF_KIND = "searchable_pdf_previous";
 
 // BullMQ's own `concurrency` option enforces the *global* ceiling
 // (§2.1); the per-user layer on top (concurrency.ts) needs a handle to
@@ -186,6 +191,12 @@ async function processRun(
   // however long was left on a run that is no longer even executing.
   if (await isCancelRequested(redisClient, runId)) {
     await clearCancelRequest(redisClient, runId);
+    // A crashed pre-dispatch attempt can leave staging artifacts. Remove
+    // those, but preserve committed extraction from any earlier attempt
+    // whose agent request crossed the dispatch boundary.
+    await prisma.runArtifact.deleteMany({
+      where: { runId, kind: { in: [PENDING_SEARCHABLE_PDF_KIND, PREVIOUS_SEARCHABLE_PDF_KIND] } },
+    });
     logger.info({ runId }, "run cancelled before it started");
     await markRunCancelled(
       runId,
@@ -237,6 +248,32 @@ async function processRun(
   metrics.queueWait.observe((Date.now() - bullJob.timestamp) / 1000);
 
   const stopRunTimer = metrics.runDuration.startTimer();
+  // New extraction stays staged until the next agent request crosses
+  // its dispatch boundary. This preserves evidence from an earlier
+  // dispatched retry if replacement OCR later fails or is cancelled.
+  let agentInvoked = false;
+  let evidenceSwapPrepared = false;
+  const previousExtractedText = run.extractedText;
+  const rollbackEvidenceSwap = async () => {
+    if (!evidenceSwapPrepared) return;
+    await prisma.$transaction([
+      prisma.runArtifact.deleteMany({ where: { runId, kind: SEARCHABLE_PDF_KIND } }),
+      prisma.runArtifact.updateMany({
+        where: { runId, kind: PREVIOUS_SEARCHABLE_PDF_KIND },
+        data: { kind: SEARCHABLE_PDF_KIND },
+      }),
+      prisma.run.update({ where: { id: runId }, data: { extractedText: previousExtractedText } }),
+    ]);
+    evidenceSwapPrepared = false;
+  };
+  const clearPreAgentExtraction = async () => {
+    if (!agentInvoked) {
+      await rollbackEvidenceSwap();
+      await prisma.runArtifact.deleteMany({
+        where: { runId, kind: { in: [PENDING_SEARCHABLE_PDF_KIND, PREVIOUS_SEARCHABLE_PDF_KIND] } },
+      });
+    }
+  };
   try {
     await prisma.run.update({ where: { id: runId }, data: { status: "RUNNING", startedAt: new Date() } });
 
@@ -261,6 +298,168 @@ async function processRun(
         variableValues,
       );
 
+      // Registered before extraction, not just the agent call: a live
+      // cancel must abort an in-flight OCR request too — one slow
+      // attachment could otherwise hold a cancelled run (and its
+      // concurrency slot) for the entire remaining job budget, because
+      // the durable-flag check only runs between attachments.
+      const cancelController = registerActiveRun(runId);
+
+      // #109: OCR every attachment before the agent call. The agent gets
+      // extracted markdown (tables/reading order intact), the run record
+      // gets the text and one searchable-PDF artifact per attachment —
+      // auditable, and nothing binary ever goes to LibreChat.
+      //
+      // One deadline covers OCR *and* the agent call: without it, a run
+      // with attachments could overshoot its configured timeout by the
+      // whole OCR budget, outliving its concurrency-slot TTL.
+      const runDeadlineMs = Date.now() + run.job.timeoutSeconds * 1000;
+      let promptWithAttachments = renderedPrompt;
+      let nextExtractedText: string | null = null;
+      // A hard crash can leave only staging rows. They never describe a
+      // dispatched request, so a retry can discard them without touching
+      // the last committed evidence.
+      await prisma.runArtifact.deleteMany({
+        where: { runId, kind: { in: [PENDING_SEARCHABLE_PDF_KIND, PREVIOUS_SEARCHABLE_PDF_KIND] } },
+      });
+      // Metadata only — the Bytes column is fetched one attachment at a
+      // time inside the loop, so a run holds at most one document in
+      // memory rather than the whole per-job quota at once.
+      const attachments = await prisma.jobAttachment.findMany({
+        where: { jobId: run.jobId },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, filename: true, mimeType: true },
+      });
+      if (attachments.length > 0) {
+        if (!config.OCR_SERVICE_URL) {
+          logger.warn({ runId, count: attachments.length }, "job has attachments but OCR_SERVICE_URL is not configured; running without extraction");
+        } else {
+          // Sequential, one request per attachment: /process handles a
+          // single document per call, and the OCR service is CPU-bound —
+          // parallel requests would just contend.
+          const sections: string[] = [];
+          let ocrPages = 0;
+          for (const a of attachments) {
+            // A cancel that lands mid-extraction would otherwise go
+            // unnoticed until every OCR request finished — the abort
+            // machinery (registerActiveRun) only guards the agent call.
+            // Checking the durable flag per attachment bounds the delay
+            // to one OCR request.
+            if (await isCancelRequested(redisClient, runId)) {
+              await clearCancelRequest(redisClient, runId);
+              throw new LibreChatError("run cancelled during attachment extraction", 0, false, "cancelled");
+            }
+            // Deadline spent → this run has timed out; clamping each
+            // remaining request to a floor instead would let N slow
+            // attachments overshoot timeoutSeconds by N floors.
+            const ocrBudgetMs = runDeadlineMs - Date.now();
+            if (ocrBudgetMs <= 0) {
+              throw new Error(`run timed out during attachment extraction (${run.job.timeoutSeconds}s budget spent before ${a.filename})`);
+            }
+            const withData = await prisma.jobAttachment.findUnique({
+              where: { id: a.id },
+              select: { data: true },
+            });
+            if (!withData) {
+              // Deleted between listing and extraction — skip it.
+              logger.warn({ runId, filename: a.filename }, "attachment removed mid-run, skipping");
+              continue;
+            }
+            const stopOcrTimer = metrics.ocrExtractionDuration.startTimer();
+            let ocr;
+            try {
+              ocr = await extractAttachment(
+                config.OCR_SERVICE_URL,
+                { filename: a.filename, mimeType: a.mimeType, data: Buffer.from(withData.data) },
+                { describe: config.OCR_DESCRIBE_IMAGES, timeoutMs: ocrBudgetMs, abortSignal: cancelController.signal },
+              );
+              stopOcrTimer({ outcome: "success" });
+            } catch (err) {
+              stopOcrTimer({ outcome: "failure" });
+              // A cancel that landed while this request was in flight
+              // must win over the request's own failure — otherwise the
+              // run terminally FAILs (or retries) despite the user's
+              // cancel.
+              if (await isCancelRequested(redisClient, runId)) {
+                await clearCancelRequest(redisClient, runId);
+                throw new LibreChatError("run cancelled during attachment extraction", 0, false, "cancelled");
+              }
+              // A 4xx from the OCR service is deterministic — the same
+              // bytes meet the same validator on every retry (observed:
+              // a 422 for an invalid image burned all three attempts).
+              // Fail the run immediately; 5xx/network stays retryable.
+              // 408 is the service hitting the budget WE sent it — the
+              // same timeout as our own fetch abort, just won by the
+              // server's clock. Transient like any timeout, not a
+              // deterministic client error.
+              if (err instanceof OcrError && err.status >= 400 && err.status < 500 && err.status !== 408) {
+                throw new LibreChatError(err.message, err.status, false, "client_error");
+              }
+              throw err;
+            }
+            let section = `### ${a.filename}\n${ocr.markdown.trim()}`;
+            if (ocr.descriptions.length > 0) {
+              section += "\n\nImage descriptions:\n" + ocr.descriptions.map((d) => `- ${d}`).join("\n");
+            }
+            sections.push(section);
+            // Persist each searchable PDF before moving to the next
+            // attachment. Keeping every base64 result and then decoding
+            // them together briefly held both representations of the
+            // entire 50 MiB job quota in a 512 MiB worker. This keeps the
+            // live binary footprint to one attachment. A later failure is
+            // safe: these rows use a staging kind hidden from the API. The
+            // dispatch boundary atomically promotes the complete set; the
+            // catch path or next retry removes any partial set.
+            await prisma.runArtifact.create({
+              data: {
+                runId,
+                kind: PENDING_SEARCHABLE_PDF_KIND,
+                filename: `${a.filename}.searchable.pdf`,
+                mimeType: "application/pdf",
+                data: Buffer.from(ocr.searchablePdfBase64, "base64"),
+              },
+            });
+            ocrPages += ocr.ocrReported;
+          }
+          const originalExtractedText = sections.join("\n\n");
+          let attachmentPrompt: ReturnType<typeof buildAttachmentPrompt>;
+          try {
+            attachmentPrompt = buildAttachmentPrompt(
+              renderedPrompt,
+              originalExtractedText,
+              config.OCR_EXTRACTED_TEXT_MAX_CHARS,
+            );
+          } catch (err) {
+            if (err instanceof AttachmentPromptBudgetError) {
+              // Retrying cannot make a deterministic prompt-size mismatch
+              // smaller. Surface it as a client/configuration failure rather
+              // than burning every configured attempt.
+              throw new LibreChatError(err.message, 0, false, "client_error");
+            }
+            throw err;
+          }
+          const extractedText = attachmentPrompt.extractedText;
+          // The configured ceiling covers the complete user message, not
+          // only OCR output: the rendered template consumes the same model
+          // context. The truncation marker is included inside that ceiling.
+          if (attachmentPrompt.truncated) {
+            logger.warn(
+              {
+                runId,
+                extractedChars: originalExtractedText.length,
+                attachmentCharBudget: attachmentPrompt.attachmentCharBudget,
+                promptChars: attachmentPrompt.prompt.length,
+                limit: config.OCR_EXTRACTED_TEXT_MAX_CHARS,
+              },
+              "extracted text exceeds the remaining prompt budget — truncating before the agent call",
+            );
+          }
+          promptWithAttachments = attachmentPrompt.prompt;
+          nextExtractedText = extractedText;
+          logger.info({ runId, attachments: attachments.length, ocrReported: ocrPages }, "attachments extracted via OCR service");
+        }
+      }
+
       const apiKey = decryptSecret(run.job.apiKey.encryptedKey, config.API_KEY_ENCRYPTION_KEY);
 
       // Re-checked here (not just once, above) to close most of the gap
@@ -273,16 +472,63 @@ async function processRun(
         await clearCancelRequest(redisClient, runId);
         throw new LibreChatError("run cancelled before the agent call started", 0, false, "cancelled");
       }
-      const cancelController = registerActiveRun(runId);
-
+      // Same principle as the per-attachment check above: if extraction
+      // consumed the whole budget, the run is out of time — a floor
+      // here would grant the agent call a second life past the timeout.
+      const agentBudgetMs = runDeadlineMs - Date.now();
+      if (agentBudgetMs <= 0) {
+        // transient: a fresh attempt gets a fresh deadline, so BullMQ's
+        // configured retries apply — non-transient here would turn one
+        // slow-OCR attempt into a terminal FAILED on the spot.
+        throw new LibreChatError(
+          `run timed out during attachment extraction (${run.job.timeoutSeconds}s budget spent before the agent call)`,
+          0,
+          true,
+          "timeout",
+        );
+      }
+      // cancelController was registered above, before extraction — the
+      // same controller now guards the agent call.
       const stopLibrechatTimer = metrics.librechatCallDuration.startTimer();
       let response;
       try {
         try {
-          response = await callAgent(run.job.agentId, renderedPrompt, apiKey, {
+          response = await callAgent(run.job.agentId, promptWithAttachments, apiKey, {
             baseUrl: config.LIBRECHAT_BASE_URL,
-            timeoutMs: run.job.timeoutSeconds * 1000,
+            // Remaining budget under the shared run deadline — OCR above
+            // already spent part of it. Never the full timeout again.
+            timeoutMs: agentBudgetMs,
             abortSignal: cancelController.signal,
+            // callAgent checks the combined signal immediately before
+            // dispatch and awaits this boundary. A cancellation
+            // that already aborted the controller therefore leaves the
+            // flag false, so the catch path removes OCR evidence for a
+            // request that never could have reached the agent.
+            onRequestStart: async () => {
+              // Replace evidence only when this attempt is ready to send.
+              // The transaction prevents terminal artifact routes from
+              // observing a mixed old/new set if the worker fails here.
+              await prisma.$transaction([
+                prisma.runArtifact.updateMany({
+                  where: { runId, kind: SEARCHABLE_PDF_KIND },
+                  data: { kind: PREVIOUS_SEARCHABLE_PDF_KIND },
+                }),
+                prisma.runArtifact.updateMany({
+                  where: { runId, kind: PENDING_SEARCHABLE_PDF_KIND },
+                  data: { kind: SEARCHABLE_PDF_KIND },
+                }),
+                prisma.run.update({ where: { id: runId }, data: { extractedText: nextExtractedText } }),
+              ]);
+              evidenceSwapPrepared = true;
+            },
+            onRequestAbortedBeforeDispatch: async () => {
+              await rollbackEvidenceSwap();
+            },
+            onRequestDispatched: async () => {
+              agentInvoked = true;
+              evidenceSwapPrepared = false;
+              await prisma.runArtifact.deleteMany({ where: { runId, kind: PREVIOUS_SEARCHABLE_PDF_KIND } });
+            },
           });
           // Labels are only known once the response is in hand: which model
           // served this is decided by the Agent inside LibreChat, not by us.
@@ -313,7 +559,6 @@ async function processRun(
           throw err;
         }
       } finally {
-        unregisterActiveRun(runId);
         // Idempotent: a durable request only ever reaches here when the
         // live pub/sub abort fired without going through either
         // isCancelRequested check above — clear it so it doesn't outlive
@@ -409,6 +654,7 @@ async function processRun(
       // (issue #111).
       if (err instanceof LibreChatError && err.kind === "cancelled") {
         logger.info({ runId }, "run cancelled mid-flight");
+        await clearPreAgentExtraction();
         await markRunCancelled(runId, run.job.name, run.jobId, run.startedAt, stopRunTimer, config, logger, metrics);
         return; // swallow — BullMQ marks the job completed, not failed/retried
       }
@@ -417,6 +663,7 @@ async function processRun(
       const errorMessage = err instanceof Error ? err.message : "unknown error";
 
       if (!transient || isFinalAttempt) {
+        await clearPreAgentExtraction();
         metrics.runsTotal.inc({ status: "failed" });
         // Only on the terminal attempt. Observing every failed attempt would
         // fill the histogram with the duration of retries rather than the
@@ -449,10 +696,20 @@ async function processRun(
         }
       }
 
+      // Incremental OCR artifact writes deliberately trade one large
+      // in-memory batch for bounded per-attachment memory. If extraction
+      // failed before the agent request started, remove any partial rows
+      // during the retry delay as well as on terminal failure. A hard
+      // crash is covered by the retry preflight cleanup above.
+      await clearPreAgentExtraction();
       logger.warn({ runId, errorMessage, attempt: bullJob.attemptsMade + 1 }, "run failed, may retry");
       throw err; // rethrow so BullMQ applies the configured retry/backoff (§2.1)
     }
   } finally {
+    // Unregistered here (not in the agent-call finally): the controller
+    // is registered before extraction, so an extraction-phase throw
+    // must not leak it in the active-run map.
+    unregisterActiveRun(runId);
     await releaseUserSlotSafely(redisClient, userId, runId, logger);
   }
 }

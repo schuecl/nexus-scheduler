@@ -23,7 +23,25 @@ export async function sendRunNotificationEmail(
     where: { id: jobId },
     include: { createdBy: true, project: { include: { classificationLabel: true } } },
   });
-  const run = await prisma.run.findUniqueOrThrow({ where: { id: runId } });
+  // Explicit select: the email/PDF uses run metadata + output only —
+  // without it, every notification for a run with attachments would
+  // read the full OCR extractedText into worker memory.
+  const run = await prisma.run.findUniqueOrThrow({
+    where: { id: runId },
+    select: {
+      id: true,
+      triggerType: true,
+      status: true,
+      createdAt: true,
+      startedAt: true,
+      completedAt: true,
+      promptTokens: true,
+      completionTokens: true,
+      computedCost: true,
+      output: true,
+      errorMessage: true,
+    },
+  });
 
   const shouldNotify =
     (run.status === "SUCCESS" && job.notifyOnSuccess) || (run.status === "FAILED" && job.notifyOnFailure);

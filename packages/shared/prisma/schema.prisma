@@ -57,6 +57,7 @@ model User {
   teamsCreated       Team[]
 
   @@map("users")
+  jobAttachments JobAttachment[]
 }
 
 model Team {
@@ -303,6 +304,7 @@ model Job {
   schedules      Schedule[]
   runs           Run[]
   webhookLinks   JobWebhookDestination[]
+  attachments    JobAttachment[]
 
   @@index([projectId])
   @@index([promptId])
@@ -386,11 +388,65 @@ model Run {
   computedCost     Decimal?    @db.Decimal(12, 6)
   output           String?
   errorMessage     String?
+  // Text extracted from the job's attachments by the OCR service
+  // (#109) before the Agents API was called — part of the run record
+  // so what the agent actually received is auditable.
+  extractedText    String?
   createdAt        DateTime    @default(now())
+
+  artifacts        RunArtifact[]
 
   @@index([jobId])
   @@index([scheduleId])
   @@map("runs")
+}
+
+// ---------------------------------------------------------------------------
+// Job attachments + run artifacts (#109 — self-hosted OCR pipeline)
+// ---------------------------------------------------------------------------
+
+// A document or image attached to a Job. The worker sends these through
+// the OCR service before every run and hands the extracted text to the
+// agent; the file itself never goes to LibreChat.
+model JobAttachment {
+  id          String   @id @default(uuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  // Stored inline: dev-scale documents with a 15MB request cap plus a
+  // per-job count/aggregate quota enforced at upload (attachment.ts
+  // schema constants). A volume/object-store backend can replace this
+  // without changing the API surface.
+  data        Bytes
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([jobId])
+  @@map("job_attachments")
+}
+
+// Artifacts produced during a run — today the searchable PDF the OCR
+// pipeline emits (original scan + invisible text layer), kept as the
+// audit-trail rendition of what was read.
+model RunArtifact {
+  id        String   @id @default(uuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  // "searchable_pdf" once the agent request crosses its dispatch
+  // boundary; "searchable_pdf_pending" and "searchable_pdf_previous"
+  // are worker-internal transaction/rollback state and are never exposed
+  // by the artifact API.
+  kind      String
+  filename  String
+  mimeType  String
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+  @@map("run_artifacts")
 }
 
 // ---------------------------------------------------------------------------

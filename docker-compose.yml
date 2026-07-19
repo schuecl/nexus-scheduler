@@ -228,7 +228,13 @@ services:
         read_only: true
     ports:
       - "${LITELLM_PORT:-4000}:4000"
-    mem_limit: 1g
+    networks:
+      - default
+      - ocr-net
+    # 2g, not 1g: observed pinned at 1000MiB/1GiB under normal run
+    # traffic — Prisma + proxy workers thrash at the boundary and every
+    # request slows down.
+    mem_limit: 2g
     healthcheck:
       # /health/readiness (not /health/liveliness): readiness includes
       # the DB connection, and litellm-init + LibreChat gate on this
@@ -259,6 +265,11 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_LIBRECHAT_KEY: ${LITELLM_LIBRECHAT_KEY}
+      # Optional: provisions the OCR service's vision-description key
+      # (same value the ocr service receives as GATEWAY_KEY) — without
+      # this the gateway would reject the key and descriptions would
+      # silently come back empty.
+      LITELLM_OCR_KEY: ${LITELLM_OCR_KEY:-}
     volumes:
       - type: bind
         source: ./docker/litellm/init-librechat-key.py
@@ -277,6 +288,11 @@ services:
   # running.
   librechat:
     image: registry.librechat.ai/danny-avila/librechat-dev:latest
+    # default for the app/gateway, ocr-net for chat-upload OCR
+    # (librechat.yaml ocr.strategy custom_ocr -> http://ocr:4200).
+    networks:
+      - default
+      - ocr-net
     depends_on:
       librechat-mongo:
         condition: service_healthy
@@ -325,6 +341,39 @@ services:
     ports:
       - "${LIBRECHAT_PORT:-3080}:3080"
     mem_limit: 1536m
+
+
+  # OCR + document understanding (#109): docling (layout/tables, OCR
+  # pinned to Tesseract in code) + ocrmypdf (the single OCR pass and
+  # the searchable-PDF audit artifact). Everything is baked into the
+  # image — language data, layout models — and the service sits on an
+  # internal-only network: it can be reached by the api/worker but has
+  # no route out of the compose network at all, which is the airgap
+  # claim enforced rather than assumed. The optional image-description
+  # step talks to the litellm gateway (also on the internal network)
+  # with its own virtual key; leave the key unset and it is skipped.
+  ocr:
+    build:
+      context: ./docker/ocr
+    networks:
+      - ocr-net
+    environment:
+      IMAGE_DPI: "300"
+      OCR_FILE_STORE_MAX_BYTES: ${OCR_FILE_STORE_MAX_BYTES:-268435456}
+      OCR_MAX_PROCESS_SECONDS: ${OCR_MAX_PROCESS_SECONDS:-900}
+      GATEWAY_URL: http://litellm:4000
+      GATEWAY_KEY: ${LITELLM_OCR_KEY:-}
+      VISION_MODEL: ${OCR_VISION_MODEL:-}
+      # Default for LibreChat chat uploads (the Mistral /v1/ocr path,
+      # which carries no per-request describe flag). The worker's
+      # scheduled-run path passes its own ?describe per call.
+      OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   migrate:
     build:
@@ -411,6 +460,11 @@ services:
       # few tokens/sec can't serve 25 concurrent runs anyway. Override
       # in .env if your machine can take more.
       GLOBAL_MAX_CONCURRENT_RUNS: ${GLOBAL_MAX_CONCURRENT_RUNS:-5}
+      # OCR pipeline (#109) — the worker extracts attachment text here
+      # before every agent call.
+      OCR_SERVICE_URL: http://ocr:4200
+      OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
+      OCR_EXTRACTED_TEXT_MAX_CHARS: ${OCR_EXTRACTED_TEXT_MAX_CHARS:-80000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -420,6 +474,21 @@ services:
         condition: service_completed_successfully
       pdf-service:
         condition: service_healthy
+      # The OCR service blocks on docling model load before uvicorn
+      # listens; without this gate the worker could pick up persisted
+      # attachment runs in that window and burn their retries on
+      # connection errors.
+      ocr:
+        condition: service_healthy
+      # And the OCR virtual key must exist at the gateway before any
+      # run can ask for image descriptions — _describe_image is
+      # deliberately best-effort, so a run racing the provisioner would
+      # silently succeed WITHOUT descriptions rather than fail.
+      litellm-init:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - ocr-net
     mem_limit: 1g
 
   frontend:
@@ -438,6 +507,12 @@ services:
       - api
       - frontend
     mem_limit: 128m
+
+networks:
+  # Internal-only: members can talk to each other, but the network has
+  # no gateway out — the ocr service lives only here.
+  ocr-net:
+    internal: true
 
 volumes:
   postgres-data:

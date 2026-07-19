@@ -32,6 +32,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import HistoryIcon from "@mui/icons-material/History";
 import WebhookIcon from "@mui/icons-material/Webhook";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
@@ -41,6 +42,7 @@ import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 import { PromptDetailDialog } from "../components/PromptDetailDialog";
 import { ScheduleManagerDialog } from "../components/ScheduleManagerDialog";
+import { JobAttachmentsDialog } from "../components/JobAttachmentsDialog";
 import { JobWebhooksDialog } from "../components/JobWebhooksDialog";
 import { RunHistoryDialog } from "../components/RunHistoryDialog";
 import { JobNotificationsDialog } from "../components/JobNotificationsDialog";
@@ -824,6 +826,7 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
   const [editForm, setEditForm] = useState<JobFormValues>(BLANK_JOB_FORM);
   const [scheduleJob, setScheduleJob] = useState<Job | null>(null);
   const [webhooksJobId, setWebhooksJobId] = useState<string | null>(null);
+  const [attachmentsJobId, setAttachmentsJobId] = useState<string | null>(null);
   const [runsJobId, setRunsJobId] = useState<string | null>(null);
   const [notificationsJob, setNotificationsJob] = useState<Job | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -932,6 +935,13 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
                 </Button>
                 <Button size="small" startIcon={<WebhookIcon fontSize="small" />} onClick={() => setWebhooksJobId(job.id)}>
                   Webhooks
+                </Button>
+                <Button
+                  size="small"
+                  startIcon={<AttachFileIcon fontSize="small" />}
+                  onClick={() => setAttachmentsJobId(job.id)}
+                >
+                  Files
                 </Button>
                 <Button size="small" startIcon={<NotificationsIcon fontSize="small" />} onClick={() => setNotificationsJob(job)}>
                   Notify
@@ -1054,6 +1064,13 @@ function ProjectJobsPanel({ projectId, canEdit }: { projectId: string; canEdit: 
       )}
       {webhooksJobId && (
         <JobWebhooksDialog jobId={webhooksJobId} onClose={() => setWebhooksJobId(null)} />
+      )}
+      {attachmentsJobId && (
+        <JobAttachmentsDialog
+          jobId={attachmentsJobId}
+          canEdit={canEdit}
+          onClose={() => setAttachmentsJobId(null)}
+        />
       )}
       {runsJobId && (
         <RunHistoryDialog jobId={runsJobId} canRun={canEdit} onClose={() => setRunsJobId(null)} />

@@ -45,6 +45,17 @@ export function createMetrics(queue: Queue<RunJobData>) {
     registers: [register],
   });
 
+  // OCR pre-extraction (#109) sits between run pickup and the agent call;
+  // without its own timer it is indistinguishable from agent latency in
+  // run_duration. Per-attachment observation, labelled by outcome.
+  const ocrExtractionDuration = new Histogram({
+    name: "nexus_scheduler_ocr_extraction_seconds",
+    help: "Duration of one attachment's OCR extraction via the OCR service, by outcome",
+    labelNames: ["outcome"] as const, // success | failure
+    buckets: [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
+    registers: [register],
+  });
+
   // LibreChatError is raised and retried but never counted, so timeouts,
   // rate limits and upstream failures are invisible — they surface only as a
   // generic run failure, long after the useful signal is gone.
@@ -218,6 +229,7 @@ export function createMetrics(queue: Queue<RunJobData>) {
     register,
     runsTotal,
     librechatCallDuration,
+    ocrExtractionDuration,
     librechatErrorsTotal,
     runTokensTotal,
     runCostTotal,

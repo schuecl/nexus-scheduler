@@ -202,11 +202,26 @@ describe("project tenancy", () => {
 // these assert exactly that boundary rather than a status change that
 // belongs to the Worker (covered end to end in packages/worker's own
 // processor.test.ts).
-describe("run cancellation (issue #111)", () => {
-  async function makeRunFixture() {
+async function makeRunFixture() {
+  const { user, email, password } = await makeLocalUser();
+  const agent = await agentFor(email, password);
+  const project = await prisma.project.create({ data: { name: "Run Test", ownerId: user.id, visibility: "PRIVATE" } });
+  const prompt = await prisma.prompt.create({ data: { projectId: project.id, name: "Prompt" } });
+  await prisma.promptVersion.create({
+    data: { promptId: prompt.id, versionNumber: 1, content: "hi", createdById: user.id },
+  });
+  const apiKey = await makeApiKeyForUser(user.id);
+  const job = await prisma.job.create({
+    data: { projectId: project.id, name: "Job", promptId: prompt.id, agentId: "agent-1", apiKeyId: apiKey.id, createdById: user.id },
+  });
+  return { agent, job };
+}
+
+describe("attachment upload size ceiling (#109)", () => {
+  it("answers an over-limit body with 413, not a masked 500", async () => {
     const { user, email, password } = await makeLocalUser();
     const agent = await agentFor(email, password);
-    const project = await prisma.project.create({ data: { name: "Cancel Test", ownerId: user.id, visibility: "PRIVATE" } });
+    const project = await prisma.project.create({ data: { name: "Attach 413", ownerId: user.id, visibility: "PRIVATE" } });
     const prompt = await prisma.prompt.create({ data: { projectId: project.id, name: "Prompt" } });
     await prisma.promptVersion.create({
       data: { promptId: prompt.id, versionNumber: 1, content: "hi", createdById: user.id },
@@ -215,8 +230,62 @@ describe("run cancellation (issue #111)", () => {
     const job = await prisma.job.create({
       data: { projectId: project.id, name: "Job", promptId: prompt.id, agentId: "agent-1", apiKeyId: apiKey.id, createdById: user.id },
     });
-    return { agent, job };
-  }
+
+    // Larger than the route's 21mb parser limit: body-parser throws
+    // entity.too.large BEFORE the handler's own explicit 413 check can
+    // run, so this exercises the errorHandler mapping.
+    const oversized = "A".repeat(22 * 1024 * 1024);
+    const res = await agent
+      .post(`/api/jobs/${job.id}/attachments`)
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ filename: "big.pdf", mimeType: "application/pdf", dataBase64: oversized }));
+    expect(res.status).toBe(413);
+    expect(res.body.error).toMatch(/too large/);
+  });
+});
+
+describe("run artifacts (#109)", () => {
+  it("hides staged artifacts until the run is terminal and emits an RFC 5987-safe filename", async () => {
+    const { agent, job } = await makeRunFixture();
+    const run = await prisma.run.create({ data: { jobId: job.id, triggerType: "MANUAL", status: "RUNNING" } });
+    const artifact = await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf",
+        filename: "résumé's (final)*.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("pdf"),
+      },
+    });
+    const pendingArtifact = await prisma.runArtifact.create({
+      data: {
+        runId: run.id,
+        kind: "searchable_pdf_pending",
+        filename: "replacement.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("pending"),
+      },
+    });
+
+    const stagedList = await agent.get(`/api/runs/${run.id}/artifacts`);
+    expect(stagedList.status).toBe(200);
+    expect(stagedList.body).toEqual([]);
+    expect((await agent.get(`/api/runs/${run.id}/artifacts/${artifact.id}`)).status).toBe(404);
+
+    await prisma.run.update({ where: { id: run.id }, data: { status: "SUCCESS", completedAt: new Date() } });
+    const terminalList = await agent.get(`/api/runs/${run.id}/artifacts`);
+    expect(terminalList.body).toHaveLength(1);
+    expect(terminalList.body[0].id).toBe(artifact.id);
+    expect((await agent.get(`/api/runs/${run.id}/artifacts/${pendingArtifact.id}`)).status).toBe(404);
+    const download = await agent.get(`/api/runs/${run.id}/artifacts/${artifact.id}`);
+    expect(download.status).toBe(200);
+    expect(download.headers["content-disposition"]).toContain(
+      "filename*=UTF-8''r%C3%A9sum%C3%A9%27s%20%28final%29%2A.pdf",
+    );
+  });
+});
+
+describe("run cancellation (issue #111)", () => {
 
   it("records a cancellation request for a pending run without writing its status", async () => {
     const { agent, job } = await makeRunFixture();

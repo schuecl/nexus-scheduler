@@ -69,7 +69,16 @@ export function createAdminReportsRouter(config: AppConfig): Router {
 
     const runs = await prisma.run.findMany({
       where: { createdAt: { gte: from, lte: to } },
-      include: {
+      // Explicit select: Run carries extractedText (full OCR markdown),
+      // and this export is unbounded by date range — a broad read would
+      // materialize every run's document text just to emit ten columns.
+      select: {
+        createdAt: true,
+        status: true,
+        triggerType: true,
+        promptTokens: true,
+        completionTokens: true,
+        computedCost: true,
         job: {
           select: {
             name: true,
