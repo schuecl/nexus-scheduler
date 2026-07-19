@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    setupFiles: ["../../vitest.dbGuard.ts"],
     // webhookDelivery.test.ts and processor.test.ts both reset the
     // *entire* shared test Postgres database in their own beforeEach —
     // running test files concurrently races one file's reset against

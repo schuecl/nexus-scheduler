@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    setupFiles: ["../../vitest.dbGuard.ts"],
     // access.test.ts, audit.test.ts, authz.test.ts, sessionFixation.test.ts,
     // routes.integration.test.ts, and promptVersionConcurrency.test.ts all
     // reset shared tables (users, projects, api keys, ...) in the same real
