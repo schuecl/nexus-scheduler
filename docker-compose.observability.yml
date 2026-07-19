@@ -114,12 +114,12 @@ services:
     mem_limit: 256m
 
 
-  # Docker Desktop (macOS/Windows) fallback for per-container CPU/memory:
-  # cAdvisor cannot see the VM's cgroups through the bind mounts there, so
-  # the Infrastructure/Overview container panels read "No data". This
-  # exporter gets the same numbers from the Docker Engine API over the
-  # socket and emits them under the cAdvisor metric names the panels
-  # already query. Profile-gated OFF by default — on a Linux host cAdvisor
+  # Docker Desktop (macOS/Windows) fallback for per-container CPU/memory
+  # and OOM kills: cAdvisor cannot see the VM's cgroups (or kernel log)
+  # through the bind mounts there, so the Infrastructure/Overview
+  # container panels read "No data". This exporter gets the same numbers
+  # from the Docker Engine API over the socket (stats + oom events) and
+  # emits them under the cAdvisor metric names the panels already query. Profile-gated OFF by default — on a Linux host cAdvisor
   # works and running both would double-count. Enable with:
   #   docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d
   container-stats-exporter:

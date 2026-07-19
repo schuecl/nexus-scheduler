@@ -441,7 +441,7 @@
     {
       "type": "timeseries",
       "title": "OOM kills",
-      "description": "Requires Alloy to read /dev/kmsg \u2014 see the devices: entry in docker-compose.observability.yml. Any non-zero value means a container was killed for memory. Note: OOM-kill events come only from cAdvisor (kernel log) \u2014 the Docker Desktop fallback exporter does not report them.",
+      "description": "Any non-zero value means a container was killed for memory. On Linux hosts the metric comes from cAdvisor reading the kernel log \u2014 see the /dev/kmsg devices: entry in docker-compose.observability.yml. On Docker Desktop the container-stats-exporter (docker-desktop profile) emits the same counter from Docker Engine oom events, so this panel works in both environments.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"

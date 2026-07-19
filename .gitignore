@@ -24,3 +24,6 @@ packages/e2e/test-results/
 # Local secrets generated for docker-compose
 docker/generated/
 docker/librechat/.env
+
+# Python bytecode (observability exporters are stdlib scripts)
+__pycache__/

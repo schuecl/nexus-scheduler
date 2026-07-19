@@ -9,7 +9,13 @@
 #
 #   container_memory_working_set_bytes{name}
 #   container_cpu_usage_seconds_total{name}
+#   container_oom_events_total{name}
 #   container_stats_exporter_up
+#
+# OOM kills come from the Engine events API (/events, event=oom), counted
+# since exporter start — cAdvisor's kernel-log source is equally invisible
+# on Docker Desktop, so without this the Infrastructure dashboard's OOM
+# panel could never populate there (issue #126).
 #
 # It is profile-gated OFF by default: on a Linux host cAdvisor works and
 # running both would double-count every sum by (name). Enable it only on
@@ -21,6 +27,8 @@ import http.client
 import json
 import os
 import socket
+import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
@@ -29,6 +37,18 @@ DOCKER_SOCK = os.environ.get("DOCKER_SOCK", "/var/run/docker.sock")
 # workloads into dashboards served with anonymous admin is not okay.
 COMPOSE_PROJECT = os.environ.get("COMPOSE_PROJECT", "nexus-scheduler")
 PORT = int(os.environ.get("PORT", "9101"))
+# OOM events are counted from process start, incrementally: each scrape
+# queries only the window since the previous one and folds new events
+# into these tallies, so scrape cost stays proportional to what happened
+# since the last scrape instead of growing with process age. The counter
+# stays monotonic for as long as the exporter lives; a restart is an
+# ordinary counter reset that increase()/rate() already handle.
+# Windows overlap by up to a second (the events API takes whole-second
+# bounds), so _oom_last_nano deduplicates boundary events by their
+# nanosecond timestamp. HTTPServer serves requests serially — no lock.
+_oom_counts = {}
+_oom_since = int(time.time())
+_oom_last_nano = 0
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -53,6 +73,66 @@ def docker_get(path):
         conn.close()
 
 
+def docker_get_ndjson(path):
+    # /events responds with one JSON object per line (and closes the
+    # stream itself once `until` is in the past), unlike every other
+    # endpoint this exporter touches.
+    conn = UnixHTTPConnection(DOCKER_SOCK)
+    try:
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        events = []
+        for line in resp.read().splitlines():
+            if not line.strip():
+                continue
+            try:
+                events.append(json.loads(line))
+            except ValueError:
+                continue
+        return events
+    finally:
+        conn.close()
+
+
+def oom_counts():
+    # cAdvisor's container_oom_events_total comes from the kernel log,
+    # which is just as invisible on Docker Desktop as the cgroup tree —
+    # the Engine's event stream is the platform-independent source for
+    # the same fact (State.OOMKilled flips are also visible there as
+    # discrete `oom` events, one per kill).
+    #
+    # Keyed by container NAME, not Actor.ID, on purpose: it mirrors
+    # cAdvisor's `name` label, which is what the dashboard's
+    # sum by (name)(increase(...)) queries aggregate on — a compose
+    # service that gets recreated keeps its kill history under the one
+    # series an operator is actually watching.
+    global _oom_since, _oom_last_nano
+    filters = urllib.parse.quote(
+        json.dumps(
+            {
+                "type": ["container"],
+                "event": ["oom"],
+                "label": [f"com.docker.compose.project={COMPOSE_PROJECT}"],
+            }
+        )
+    )
+    until = max(int(time.time()), _oom_since)
+    events = docker_get_ndjson(
+        f"/events?since={_oom_since}&until={until}&filters={filters}"
+    )
+    prev_high_water = _oom_last_nano
+    for event in events:
+        nano = event.get("timeNano") or 0
+        if nano <= prev_high_water:
+            continue  # replayed by the one-second window overlap
+        name = ((event.get("Actor") or {}).get("Attributes") or {}).get("name")
+        if name:
+            _oom_counts[name] = _oom_counts.get(name, 0) + 1
+            _oom_last_nano = max(_oom_last_nano, nano)
+    _oom_since = until
+    return dict(_oom_counts)
+
+
 def esc(v):
     return str(v).replace("\\", "\\\\").replace('"', '\\"')
 
@@ -62,9 +142,9 @@ def render():
         "# TYPE container_stats_exporter_up gauge",
         "# TYPE container_memory_working_set_bytes gauge",
         "# TYPE container_cpu_usage_seconds_total counter",
+        "# TYPE container_oom_events_total counter",
     ]
     try:
-        import urllib.parse
         filters = urllib.parse.quote(json.dumps({"label": [f"com.docker.compose.project={COMPOSE_PROJECT}"]}))
         containers = docker_get(f"/containers/json?filters={filters}")
     except OSError:
@@ -72,6 +152,22 @@ def render():
         return "\n".join(lines) + "\n"
 
     lines.append("container_stats_exporter_up 1")
+
+    try:
+        ooms = oom_counts()
+    except OSError:
+        # Events endpoint down: keep reporting what's already been
+        # counted — a counter that dips to zero and back reads as a
+        # reset plus phantom kills to increase().
+        ooms = dict(_oom_counts)
+    # Zero-seed every running container so the OOM panel gets a real
+    # series (a flat 0) instead of "No data" — an absent series and "no
+    # kills yet" must not look identical, that ambiguity is issue #126.
+    for c in containers:
+        name = (c.get("Names") or ["/?"])[0].lstrip("/")
+        ooms.setdefault(name, 0)
+    for name, count in sorted(ooms.items()):
+        lines.append(f'container_oom_events_total{{name="{esc(name)}"}} {count}')
     for c in containers:
         name = (c.get("Names") or ["/?"])[0].lstrip("/")
         try:
