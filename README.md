@@ -194,6 +194,106 @@ ANTHROPIC_API_KEY=
 
 </details>
 
+### OCR for attachments and chat uploads (optional)
+
+Scanned PDFs and photos carry no text until something reads them. The
+`ocr` service does that for **both** callers — Nexus Scheduler job
+attachments and LibreChat chat uploads — and is part of the default
+Compose stack, so `docker compose up` already starts it.
+
+```
+  browser ──▶ nginx ──┬──▶ librechat ──▶ POST /v1/ocr ────┐
+                      │      (Mistral OCR API shape)      │
+                      │                                   ▼
+                      └──▶ api ──▶ postgres          ┌─────────┐
+                                      │             │   ocr   │  ocr-net
+                                      │  at run time│  :4200  │  internal:true
+                                      └──▶ worker ──▶└────┬────┘  (no internet)
+                                        POST /process       │
+                                                            │ only if descriptions
+                                                            ▼   are enabled
+                                                    litellm ──▶ ollama
+```
+
+Text extraction runs entirely inside the container — Tesseract, OCRmyPDF
+and docling, with the language data and layout models baked into the
+image. Nothing is fetched at runtime, and `ocr-net` is declared
+`internal: true`, so the service has no route off the host. The only
+outbound call is the optional image *description* step, which is a real
+model call and therefore goes through the LiteLLM gateway.
+
+A PDF that already has a text layer costs no OCR at all — `ocrmypdf
+--skip-text` passes those pages straight through, so only genuinely
+scanned pages reach Tesseract.
+
+#### How each caller reaches it
+
+**Nexus Scheduler attachments** — the worker calls `POST /process` per
+attachment, using `OCR_SERVICE_URL` (preset to `http://ocr:4200`). Left
+empty, jobs with attachments still run, with a warning per run and no
+extracted text.
+
+**LibreChat chat uploads** — configured in
+`docker/librechat/librechat.yaml`:
+
+```yaml
+ocr:
+  strategy: "mistral_ocr"          # presents our service as Mistral's OCR API
+  baseURL: "http://ocr:4200/v1"
+  apiKey: "network-isolated-no-key"
+  mistralModel: "nexus-ocr"
+```
+
+LibreChat has no "point at my own OCR service" strategy — its
+`custom_ocr` is documented upstream as *Planned* — so the service
+implements the Mistral OCR API shape instead. Nothing leaves the host:
+`baseURL` is the local container.
+
+#### Knobs
+
+Every one is an env var with a working default; set them in `.env`.
+
+| env var | default | affects |
+|---|---|---|
+| `IMAGE_DPI` | `300` | both — photos and PNGs often carry no DPI, and OCRmyPDF refuses input without one |
+| `OCR_MAX_PROCESS_SECONDS` | `900` | both — hard ceiling on one extraction. Raise for large scans on CPU |
+| `OCR_FILE_MAX_BYTES` | 15 MiB | both — per-upload limit, returned as 413 |
+| `OCR_FILE_STORE_MAX_BYTES` | 256 MiB | LibreChat uploads — total retained bytes in the file store |
+| `OCR_PROCESS_MAX_FILES` | `10` | Nexus attachments — files per `/process` call |
+| `OCR_PROCESS_MAX_TOTAL_BYTES` | 50 MiB | Nexus attachments — total bytes per call |
+| `OCR_DESCRIBE_IMAGES` | `false` | both, in Compose — see below |
+| `OCR_DESCRIBE_MIN_BUDGET_S` | `60` | descriptions — floor below which the step is skipped rather than started and abandoned |
+| `LITELLM_OCR_KEY`, `OCR_VISION_MODEL` | empty | descriptions — the gateway key and model |
+
+`OCR_EXTRACTED_TEXT_MAX_CHARS` is a **worker** setting, not a service
+one: it caps how much extracted text is appended to the prompt.
+
+#### Optional: image descriptions
+
+OCR reads text; it cannot say what a photo *is*. Setting
+`OCR_VISION_MODEL` and `LITELLM_OCR_KEY` alongside
+`OCR_DESCRIBE_IMAGES=true` adds a one-paragraph description from a
+multimodal model via the gateway.
+
+The model must actually be multimodal. The default set (`gemma3:1b`,
+`codegemma:2b`, `phi4-mini-reasoning`) is text-only, and pointing at one
+fails quietly — descriptions are best-effort, so the symptom is missing
+descriptions plus gateway 400s in the logs, not an error.
+
+Unset (the default), no gateway call is ever made and extraction is
+text-only.
+
+#### On Kubernetes
+
+Do not use this file. The OCR service is its own chart —
+see [`helm/ocr/README.md`](helm/ocr/README.md) for install and wiring,
+and [Three-chart Kubernetes wiring](docs/three-chart-wiring.md) for the
+order the three charts go in. One difference worth knowing: on
+Kubernetes the two callers have **separate** description switches
+(`ocr.describeImages` in the app chart, `gateway.describeImages` in the
+OCR chart), because they are separate releases. In Compose one service
+instance serves both, so `OCR_DESCRIBE_IMAGES` covers both.
+
 ### Observability stack (optional)
 
 The app ships Prometheus metrics; this brings up somewhere to put them —
@@ -249,16 +349,6 @@ Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
 (`5432`/`6379`) via a local `.env` in that package, or export them in
 your shell.
 
-
-### Running a single package against the Compose infra
-
-```bash
-npm run dev --workspace=packages/api      # or packages/worker, packages/frontend
-```
-
-Point `DATABASE_URL`/`REDIS_URL` at the Compose-exposed ports
-(`5432`/`6379`) via a local `.env` in that package, or export them in
-your shell.
 
 ## Configuration
 

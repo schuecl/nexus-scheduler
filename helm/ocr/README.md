@@ -23,6 +23,35 @@ namespaces, separate lifecycles. Nothing here templates across
 releases; every connection is a values-level URL plus a NetworkPolicy
 peer, so each side can be upgraded or replaced alone.
 
+## Topology
+
+```
+  ┌───────────────────┐         ┌───────────────────┐
+  │ nexus-scheduler   │         │  librechat        │
+  │   worker          │         │   (chat uploads)  │
+  └─────────┬─────────┘         └─────────┬─────────┘
+            │ POST /process                │ POST /v1/ocr
+            │ ?describe=                   │ (Mistral OCR API shape)
+            └──────────────┬───────────────┘
+                           ▼
+                  ┌──────────────────┐
+                  │   ocr  :4200     │   NetworkPolicy: only the peers
+                  │  tesseract       │   you admit reach it; egress is
+                  │  ocrmypdf        │   DNS + the gateway, nothing else
+                  │  docling         │
+                  └────────┬─────────┘
+                           │ only when descriptions are enabled
+                           ▼
+                  ┌──────────────────┐
+                  │ litellm gateway  │──▶ vision model
+                  └──────────────────┘
+```
+
+Text extraction never leaves the pod — Tesseract, OCRmyPDF and docling,
+with language data and layout models baked into the image. The single
+outbound call is the optional image *description*, which is a real model
+call and so goes through the gateway.
+
 ## 0. Build and stage the image (airgap first)
 
 The OCR image is **not published anywhere** — build it from the repo
@@ -275,9 +304,23 @@ kubectl -n ocr run probe --rm -it --image=busybox --restart=Never \
 ## Compose parity
 
 The Compose stack wires all of this in `docker-compose.yml` +
-`docker/librechat/librechat.yaml` + `docker/litellm/config.yaml`, with
-the same knobs as env vars: `OCR_FILE_STORE_MAX_BYTES`,
-`OCR_EXTRACTED_TEXT_MAX_CHARS`, `OCR_DESCRIBE_IMAGES`,
-`OCR_VISION_MODEL`, `OLLAMA_PULL_MODELS` (see `.env.example`). Keep the
-two in sync — the compose/chart parity guard (issue #149) exists
+`docker/librechat/librechat.yaml` + `docker/litellm/config.yaml`. The
+root README's **OCR for attachments and chat uploads** section documents
+it end to end — topology, both callers, and the same knob table as above.
+
+Every value in this chart has a Compose env var of the same name
+(`imageDpi` → `IMAGE_DPI`, `fileMaxBytes` → `OCR_FILE_MAX_BYTES`, and so
+on), with one deliberate difference: **descriptions have two switches on
+Kubernetes and one in Compose**. The app chart's `ocr.describeImages`
+covers scheduler attachments and this chart's `gateway.describeImages`
+covers LibreChat uploads, because they are separate releases; in Compose
+a single service instance serves both, so `OCR_DESCRIBE_IMAGES` covers
+both.
+
+`OCR_EXTRACTED_TEXT_MAX_CHARS` and `OLLAMA_PULL_MODELS` appear in
+`.env.example` but are **not** OCR-service settings — the first is a
+worker limit on how much extracted text reaches the prompt, the second
+belongs to the AI plane.
+
+Keep the two in sync — the compose/chart parity guard (#149) exists
 because they drift.
