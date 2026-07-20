@@ -150,10 +150,9 @@ secrets:
   # so rotating it here and rolling the Deployment is how an operator
   # recovers admin access.)
   appSecretName: "nexus-scheduler-app"
-  # Keys expected: OIDC_CLIENT_SECRET. Must exist even with
-  # oidc.enabled=false — it's envFrom'd unconditionally, and a missing
-  # Secret is a CreateContainerConfigError, not a soft default. Any
-  # placeholder value is fine until OIDC is actually enabled.
+  # Keys expected: OIDC_CLIENT_SECRET. Only mounted when oidc.issuerUrl is
+  # set — an SSO-less install does not need this Secret to exist at all
+  # (api-deployment.yaml gates the secretRef on the same condition).
   oidcSecretName: "nexus-scheduler-oidc"
   # DATABASE_URL/REDIS_URL are no longer separate pre-composed secrets —
   # the app builds both itself at pod start from
