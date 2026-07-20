@@ -19,23 +19,42 @@ let client: Client | undefined;
 // true if a failed discovery here crashes startup before the HTTP
 // server ever starts listening.
 export async function initOidcClient(config: AppConfig, logger: Logger): Promise<Client | undefined> {
-  if (!config.OIDC_ISSUER_URL || !config.OIDC_CLIENT_ID || !config.OIDC_REDIRECT_URI) {
+  const { OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URI } = config;
+
+  if (!OIDC_ISSUER_URL || !OIDC_CLIENT_ID || !OIDC_REDIRECT_URI) {
     logger.warn("OIDC not configured — only local-account login (if enabled) will work");
     return undefined;
   }
 
+  // Issuer/client ID/redirect URI are set but the secret isn't — this
+  // is not "unconfigured," it's misconfigured. Compose's api service
+  // sets the first three unconditionally, so this is the actual
+  // default state until an operator finishes creating the Keycloak
+  // client (issue #198): without this check the token exchange is
+  // attempted anyway, with an undefined client_secret, and fails only
+  // after the user has already authenticated at Keycloak — while the
+  // app silently falls back to local BOOTSTRAP_ADMIN_EMAIL login as if
+  // nothing were wrong.
+  if (!OIDC_CLIENT_SECRET) {
+    logger.error(
+      { issuer: OIDC_ISSUER_URL },
+      "OIDC_ISSUER_URL is set but OIDC_CLIENT_SECRET is missing — SSO is configured but the token exchange will fail after the user authenticates at Keycloak. Set OIDC_CLIENT_SECRET to the confidential client's secret, or unset OIDC_ISSUER_URL to run local-only.",
+    );
+    return undefined;
+  }
+
   try {
-    const issuer = await Issuer.discover(config.OIDC_ISSUER_URL);
+    const issuer = await Issuer.discover(OIDC_ISSUER_URL);
     client = new issuer.Client({
-      client_id: config.OIDC_CLIENT_ID,
-      client_secret: config.OIDC_CLIENT_SECRET,
-      redirect_uris: [config.OIDC_REDIRECT_URI],
+      client_id: OIDC_CLIENT_ID,
+      client_secret: OIDC_CLIENT_SECRET,
+      redirect_uris: [OIDC_REDIRECT_URI],
       response_types: ["code"],
     });
     return client;
   } catch (err) {
     logger.error(
-      { err, issuer: config.OIDC_ISSUER_URL },
+      { err, issuer: OIDC_ISSUER_URL },
       "OIDC discovery failed — SSO login is unavailable until this is fixed; local-account login (if enabled) still works",
     );
     return undefined;
