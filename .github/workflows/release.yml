@@ -101,7 +101,7 @@ jobs:
             helm push "${chart}-${{ steps.version.outputs.version }}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: helm-chart
           path: "*.tgz"
