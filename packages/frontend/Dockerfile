@@ -5,7 +5,7 @@
 # equivalents where available (Node build stage, nginx-unprivileged
 # runtime stage) and apply the applicable DISA STIG baseline.
 
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 
 # See packages/api/Dockerfile for why this is needed — building
