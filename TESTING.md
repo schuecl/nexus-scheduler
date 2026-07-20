@@ -29,6 +29,7 @@ DATABASE_URL="postgresql://t:t@localhost:5544/nexus_test" \
 
 DATABASE_URL="postgresql://t:t@localhost:5544/nexus_test" \
 REDIS_URL="redis://localhost:6380" \
+API_TEST_REDIS_URL="redis://localhost:6380" \
   npx vitest run --root packages/api
 
 DATABASE_URL="postgresql://t:t@localhost:5544/nexus_test" \
@@ -39,9 +40,13 @@ docker rm -f test-pg test-redis
 ```
 
 The worker's test files intentionally use `WORKER_TEST_REDIS_URL` for
-their test-only Redis override; the running worker uses `REDIS_URL`.
-CI needs no override because its disposable Redis listens on the
-tests' default port, `6379`.
+their test-only Redis override, and several api test files use
+`API_TEST_REDIS_URL` the same way; the running services use
+`REDIS_URL`. CI needs neither override because its disposable Redis
+listens on the tests' default port, `6379`.
+
+`make test-api` / `make test-worker` / `make test` run this exact
+pattern — containers, ports, overrides, and teardown included.
 
 CI does the equivalent with service containers (db name `ci`).
 
