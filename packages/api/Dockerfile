@@ -6,7 +6,7 @@
 # DISA STIG hardening baseline before this goes anywhere near production.
 # This base image is a placeholder to get the scaffold building/running.
 
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 
 # Prisma's schema/query engine binaries are linked against OpenSSL and
@@ -39,7 +39,7 @@ RUN npm run build --workspace=packages/api
 # (express, @prisma/client, bullmq, ...) are unaffected.
 RUN npm prune --omit=dev
 
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # See the build stage above — @prisma/client needs OpenSSL present at
