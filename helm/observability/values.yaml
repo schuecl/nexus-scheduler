@@ -12,8 +12,31 @@
 # `helm template --set global.imageRegistry=registry.example.internal`
 global:
   # Prepended to every image repository below when set (mirror hostname,
-  # no trailing slash).
+  # no trailing slash). Repositories that already carry a registry host
+  # are left alone, so setting this never produces mirror/ghcr.io/... .
   imageRegistry: ""
+  # Pull secret(s) for an authenticated mirror. Applied to every pod in
+  # this chart.
+  imagePullSecrets: []
+  # Emitted as `seccompProfile.type` on every pod and container. Pod
+  # Security Admission "restricted" — the default on TKG and many
+  # hardened clusters — rejects any workload without it. Blank it only
+  # if your policy engine forbids the field outright.
+  seccompProfile: RuntimeDefault
+  # Applied to all three PVCs when set. Leave empty to use whatever the
+  # cluster's default StorageClass is: this chart deliberately does not
+  # pin a class, because the right one differs on every distribution.
+  # If the cluster has NO default class, install fails fast with the
+  # list of classes that do exist rather than leaving pods Pending.
+  storageClassName: ""
+  # Applied to every pod in this chart. tolerations matter most for the
+  # Alloy DaemonSet: on Tanzu (and most managed distributions) control-
+  # plane nodes are tainted, so without a toleration those nodes get no
+  # Alloy pod and contribute no metrics and no logs — silently.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  priorityClassName: ""
 
 alloy:
   image:
@@ -41,6 +64,11 @@ alloy:
   # panels, mirroring the Compose stack's host job. Disable if node
   # metrics already come from elsewhere.
   hostMetrics: true
+  # The UID baked into the upstream image. Overridable because a PSP or
+  # policy engine that pins runAsUser to a range will reject anything
+  # outside it, and there is otherwise no way to move it.
+  securityContext:
+    runAsUser: 473
 
 mimir:
   image:
@@ -48,8 +76,15 @@ mimir:
     tag: "2.14.2"
     digest: ""
   persistence:
+    # false runs on an emptyDir instead of a PVC — for clusters with no
+    # dynamic provisioning at all. Metrics do not survive a restart.
+    enabled: true
     size: 10Gi
+    # Empty means "use the cluster's default StorageClass". Nothing is
+    # pinned here on purpose; see global.storageClassName.
     storageClassName: ""
+  securityContext:
+    runAsUser: 10001
   # Metric retention before blocks are deleted.
   retention: 15d
   resources:
@@ -62,8 +97,11 @@ loki:
     tag: "3.4.2"
     digest: ""
   persistence:
+    enabled: true
     size: 10Gi
     storageClassName: ""
+  securityContext:
+    runAsUser: 10001
   retention: 168h
   resources:
     requests: {cpu: 100m, memory: 256Mi}
@@ -84,6 +122,8 @@ grafana:
     enabled: true
     size: 2Gi
     storageClassName: ""
+  securityContext:
+    runAsUser: 472
   service:
     type: ClusterIP
     port: 3000
@@ -122,6 +162,9 @@ integrations:
 # reuses the gateway's image (python3 + stdlib script from a ConfigMap).
 litellmExporter:
   enabled: false
+  # nobody: the exporter is a mounted script that needs no identity.
+  securityContext:
+    runAsUser: 65534
   image:
     repository: ghcr.io/berriai/litellm-database
     tag: main-stable
