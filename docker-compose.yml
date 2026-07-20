@@ -428,6 +428,13 @@ services:
       OIDC_ISSUER_URL: http://keycloak:8080/realms/nexus-scheduler
       OIDC_CLIENT_ID: nexus-scheduler
       OIDC_REDIRECT_URI: http://localhost:${APP_PORT:-8080}/auth/callback
+      # Blank until you create a confidential client for "nexus-scheduler"
+      # in the Keycloak admin console (:8081) and paste its secret here —
+      # no realm is pre-provisioned (see the keycloak service above), so
+      # there is nothing to match by default. Without this set, OIDC
+      # discovery is skipped and the API logs why (issue #198); local
+      # login (BOOTSTRAP_ADMIN_EMAIL below) always keeps working.
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
       LIBRECHAT_BASE_URL: ${LIBRECHAT_BASE_URL}
