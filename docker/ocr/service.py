@@ -111,10 +111,21 @@ IMAGE_TYPES = {"image/png", "image/jpeg", "image/tiff", "image/bmp", "image/webp
 IMG2PDF_TRANSCODE_TYPES = {"image/bmp", "image/webp"}
 PDF_TYPE = "application/pdf"
 # Shared public ceilings for scheduler attachments, LibreChat uploads,
-# and the direct OCR routes.
-_FILE_MAX_BYTES = 15 * 1024 * 1024
-_PROCESS_MAX_FILES = 10
-_PROCESS_MAX_TOTAL_BYTES = 50 * 1024 * 1024
+# and the direct OCR routes. Overridable because these are the limits a
+# deployment actually collides with — a large scanned drawing exceeds
+# 15 MiB, and a job with many attachments exceeds ten — and the only
+# alternative to an env var is rebuilding the image, which an airgapped
+# site cannot do casually. The defaults are unchanged.
+_FILE_MAX_BYTES = int(os.environ.get("OCR_FILE_MAX_BYTES", str(15 * 1024 * 1024)))
+_PROCESS_MAX_FILES = int(os.environ.get("OCR_PROCESS_MAX_FILES", "10"))
+_PROCESS_MAX_TOTAL_BYTES = int(os.environ.get("OCR_PROCESS_MAX_TOTAL_BYTES", str(50 * 1024 * 1024)))
+if _PROCESS_MAX_TOTAL_BYTES < _FILE_MAX_BYTES:
+    # Otherwise a single permitted file is rejected by the aggregate limit,
+    # and the 413 names the wrong ceiling.
+    raise RuntimeError(
+        f"OCR_PROCESS_MAX_TOTAL_BYTES ({_PROCESS_MAX_TOTAL_BYTES}) must be at least "
+        f"OCR_FILE_MAX_BYTES ({_FILE_MAX_BYTES})",
+    )
 _FILE_MAX_B64_CHARS = 4 * ((_FILE_MAX_BYTES + 2) // 3)
 # Multipart boundaries/headers and the small JSON/data-URL wrapper need
 # bounded headroom beyond the actual file bytes. This is a wire limit,
@@ -630,7 +641,11 @@ _FILE_STORE_MAX = 64
 # chat uploads within a predictable slice of the chart's 2 GiB pod limit.
 _FILE_STORE_MAX_BYTES = int(os.environ.get("OCR_FILE_STORE_MAX_BYTES", str(256 * 1024 * 1024)))
 if _FILE_STORE_MAX_BYTES < _FILE_MAX_BYTES:
-    raise RuntimeError("OCR_FILE_STORE_MAX_BYTES must be at least 15728640")
+    # Derived, not literal: the per-file limit is configurable now, so a
+    # hardcoded 15728640 here would be wrong the moment it is raised.
+    raise RuntimeError(
+        f"OCR_FILE_STORE_MAX_BYTES must be at least OCR_FILE_MAX_BYTES ({_FILE_MAX_BYTES})",
+    )
 
 
 def _file_store_gc_locked() -> int:

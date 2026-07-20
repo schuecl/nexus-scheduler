@@ -358,9 +358,14 @@ services:
     networks:
       - ocr-net
     environment:
-      IMAGE_DPI: "300"
+      IMAGE_DPI: ${IMAGE_DPI:-300}
       OCR_FILE_STORE_MAX_BYTES: ${OCR_FILE_STORE_MAX_BYTES:-268435456}
+      # Hard ceiling on one extraction; a large scan on CPU can exceed the
+      # 900s default. The remaining three are returned to callers as 413.
       OCR_MAX_PROCESS_SECONDS: ${OCR_MAX_PROCESS_SECONDS:-900}
+      OCR_FILE_MAX_BYTES: ${OCR_FILE_MAX_BYTES:-15728640}
+      OCR_PROCESS_MAX_FILES: ${OCR_PROCESS_MAX_FILES:-10}
+      OCR_PROCESS_MAX_TOTAL_BYTES: ${OCR_PROCESS_MAX_TOTAL_BYTES:-52428800}
       GATEWAY_URL: http://litellm:4000
       GATEWAY_KEY: ${LITELLM_OCR_KEY:-}
       VISION_MODEL: ${OCR_VISION_MODEL:-}
@@ -368,6 +373,7 @@ services:
       # which carries no per-request describe flag). The worker's
       # scheduled-run path passes its own ?describe per call.
       OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
+      OCR_DESCRIBE_MIN_BUDGET_S: ${OCR_DESCRIBE_MIN_BUDGET_S:-60}
     mem_limit: 2g
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/healthz')"]

@@ -19,8 +19,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if gt (int .Values.replicas) 1 }}
 {{- fail "replicas must be 1: the Mistral files API keeps per-pod state, so a second replica would 404 half the signed-URL lookups" }}
 {{- end }}
-{{- if lt (int64 .Values.fileStoreMaxBytes) 15728640 }}
-{{- fail "fileStoreMaxBytes must be at least 15728640 (the service's 15 MiB per-file limit)" }}
+{{- if lt (int64 .Values.fileStoreMaxBytes) (int64 .Values.fileMaxBytes) }}
+{{- fail "fileStoreMaxBytes must be at least fileMaxBytes — the store has to hold at least one file of the maximum permitted size" }}
+{{- end }}
+{{- if lt (int64 .Values.processMaxTotalBytes) (int64 .Values.fileMaxBytes) }}
+{{- fail "processMaxTotalBytes must be at least fileMaxBytes — otherwise a single permitted file is rejected by the aggregate limit, and the 413 names the wrong ceiling" }}
+{{- end }}
+{{- if and .Values.gateway.describeImages (not .Values.gateway.url) }}
+{{- fail "gateway.describeImages requires gateway.url — descriptions are produced by calling the gateway, so this would deploy fine and silently never describe anything" }}
 {{- end }}
 {{- if and (not .Values.gateway.url) (or .Values.gateway.existingSecret .Values.gateway.visionModel) }}
 {{- fail "gateway.existingSecret and gateway.visionModel require gateway.url — set all three fields or leave all three empty" }}
@@ -68,6 +74,14 @@ spec:
               value: {{ .Values.imageDpi | quote }}
             - name: OCR_FILE_STORE_MAX_BYTES
               value: {{ int64 .Values.fileStoreMaxBytes | quote }}
+            - name: OCR_MAX_PROCESS_SECONDS
+              value: {{ .Values.maxProcessSeconds | quote }}
+            - name: OCR_FILE_MAX_BYTES
+              value: {{ int64 .Values.fileMaxBytes | quote }}
+            - name: OCR_PROCESS_MAX_FILES
+              value: {{ .Values.processMaxFiles | quote }}
+            - name: OCR_PROCESS_MAX_TOTAL_BYTES
+              value: {{ int64 .Values.processMaxTotalBytes | quote }}
             {{- if .Values.gateway.url }}
             - name: GATEWAY_URL
               value: {{ .Values.gateway.url | quote }}
@@ -78,6 +92,15 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.gateway.existingSecret }}
                   key: apiKey
+            # The only control for the /v1/ocr path (LibreChat chat uploads):
+            # that request shape carries no per-request describe flag, so
+            # without this a fully configured gateway still never describes a
+            # chat upload. Rendered inside the gateway block because the
+            # service ignores both of these with no gateway to call.
+            - name: OCR_DESCRIBE_IMAGES
+              value: {{ .Values.gateway.describeImages | quote }}
+            - name: OCR_DESCRIBE_MIN_BUDGET_S
+              value: {{ .Values.gateway.minBudgetSeconds | quote }}
             {{- end }}
           ports:
             - name: http

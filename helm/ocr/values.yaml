@@ -25,6 +25,17 @@ imageDpi: 300
 # budget, new uploads receive 503 until a client deletes one; an accepted
 # file ID is never evicted before its one-hour TTL.
 fileStoreMaxBytes: 268435456
+# Hard ceiling on a single extraction. A large scanned document on CPU can
+# exceed the 900s default, and the alternative to raising it is editing the
+# input. Keep it below any ingress/proxy timeout in front of the service.
+maxProcessSeconds: 900
+# Request ceilings, returned to callers as 413. Raise fileMaxBytes for large
+# scans; processMaxFiles/processMaxTotalBytes bound a single /process call (a
+# scheduler job with several attachments). Both fileStoreMaxBytes above and
+# processMaxTotalBytes must be at least fileMaxBytes.
+fileMaxBytes: 15728640
+processMaxFiles: 10
+processMaxTotalBytes: 52428800
 
 # Optional vision-model descriptions of image inputs, via the model
 # gateway (the test-ai chart's litellm). All three must be set — the
@@ -36,6 +47,16 @@ gateway:
   url: ""
   visionModel: ""
   existingSecret: ""
+  # Describe images for LibreChat chat uploads. Their Mistral-shaped request
+  # carries no per-request describe flag, so this is the only control for
+  # that path — without it a fully configured gateway still never describes a
+  # chat upload. Nexus Scheduler attachments are unaffected: the worker
+  # passes ?describe= per call, set by the app chart's ocr.describeImages.
+  describeImages: false
+  # Descriptions run after OCR and docling. When a caller passes a tight
+  # budget_seconds most of it is already spent by then; below this floor the
+  # describe stage is skipped rather than started and abandoned.
+  minBudgetSeconds: 60
   # Where the NetworkPolicy lets the pod's gateway egress go. Must
   # describe the pods gateway.url actually resolves to — the policy
   # cannot derive a selector from a URL.
