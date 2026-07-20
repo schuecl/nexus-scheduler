@@ -5,7 +5,7 @@
 # Node image where available, run in FIPS mode, and apply the applicable
 # DISA STIG hardening baseline. This is a placeholder base image.
 
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 
 # See packages/api/Dockerfile for why this is needed — same Prisma/
@@ -40,7 +40,7 @@ RUN npm run build --workspace=packages/worker
 # hoisted root tree, not nested per-workspace node_modules).
 RUN npm prune --omit=dev
 
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # See the build stage above — @prisma/client needs OpenSSL present at
