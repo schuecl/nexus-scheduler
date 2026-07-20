@@ -22,6 +22,10 @@ spec:
         prometheus.io/port: {{ .Values.api.port | quote }}
     spec:
       serviceAccountName: {{ include "nexus-scheduler.serviceAccountName" . }}
+      {{- with .Values.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

@@ -301,6 +301,8 @@ kubectl -n ocr run probe --rm -it --image=busybox --restart=Never \
 # ^ must TIME OUT from an unlabelled pod; only worker/librechat peers get through.
 ```
 
+**A TLS error naming a host you don't recognize when `gateway.url` points outside the cluster:** this is usually DNS, not TLS. On a cluster whose nodes carry a corporate search domain that resolves a wildcard, Kubernetes' default `ndots:5` tries the search list before the real host for any name with fewer than 5 dots — silently hijacking it. Confirm with `getent hosts <gateway host>` vs `getent hosts <gateway host>.` inside the pod (the trailing dot bypasses the search list); if they differ, set `global.dnsConfig` (unset by default) to `ndots: 1` in `values.yaml`.
+
 ## Compose parity
 
 The Compose stack wires all of this in `docker-compose.yml` +

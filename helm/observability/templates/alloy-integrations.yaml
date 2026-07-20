@@ -85,6 +85,7 @@ spec:
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       {{- include "observability.scheduling" . | nindent 6 }}
+      {{- include "observability.dnsConfig" . | nindent 6 }}
       securityContext:
         {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.alloy.securityContext.runAsUser) | nindent 8 }}
       containers:

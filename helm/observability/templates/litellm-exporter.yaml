@@ -40,6 +40,7 @@ spec:
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       {{- include "observability.scheduling" . | nindent 6 }}
+      {{- include "observability.dnsConfig" . | nindent 6 }}
       # The upstream image runs as root, which "restricted" rejects. The
       # exporter is a single mounted script that reads the gateway over
       # HTTP and writes nothing, so any UID works.

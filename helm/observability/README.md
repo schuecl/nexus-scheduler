@@ -444,6 +444,9 @@ for a broken install.
 | `up{service="ocr"} == 0` | The OCR chart's NetworkPolicy — set its `metrics.scraperNamespaces` |
 | Series arrive with empty `service` | The pod lacks `app.kubernetes.io/component` / `name` |
 | Doubled samples | Another Prometheus scrapes the same targets. Pick one collector |
+| Remote write / scrape target fails TLS verification against a hostname that looks right | Corporate DNS search domain with a wildcard — see below |
+
+**TLS error naming a host you don't recognize (e.g. `*.traefik.default` when you expected a public registry or GitHub raw content):** this is usually DNS, not TLS. If the cluster's nodes carry a search domain that resolves a wildcard, Kubernetes' default `ndots:5` tries every outbound hostname with fewer than 5 dots against the search list *before* the real one — silently resolving it to an internal host that presents its own certificate. Confirm with `getent hosts <host>` vs `getent hosts <host>.` (trailing dot bypasses the search list) inside the pod; if those differ, set `global.dnsConfig` (unset by default, see `values.yaml`) to `ndots: 1`. Safe for this chart — every in-cluster lookup goes through explicit search-list entries regardless of `ndots`.
 
 Useful commands:
 

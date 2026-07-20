@@ -5,6 +5,19 @@
 # preserved across upgrades) unless you point at existing ones.
 global:
   imageRegistry: ""
+  # Unset by default — no behavior change. See templates/_helpers.tpl's
+  # test-ai.dnsConfig comment (issue #215): on a cluster whose nodes
+  # carry a corporate search domain that resolves a wildcard, the
+  # default ndots:5 silently hijacks outbound pulls (Ollama's model
+  # registry, LiteLLM's cost-map fetch, LibreChat's image) to an
+  # internal host, surfacing as a confusing TLS error rather than a DNS
+  # one. ndots:1 is safe here: in-cluster Service names are still
+  # resolved correctly through the explicit search entries.
+  #   dnsConfig:
+  #     options:
+  #       - name: ndots
+  #         value: "1"
+  dnsConfig: {}
 
 ollama:
   image:

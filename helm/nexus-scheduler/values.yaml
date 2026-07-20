@@ -267,6 +267,22 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
+# Passthrough for every pod's dnsConfig (issue #215). Unset by default —
+# no behavior change. On a cluster whose nodes carry a corporate search
+# domain that resolves a wildcard (common on air-gapped/hardened
+# clusters), the default ndots:5 makes every outbound hostname with
+# fewer than 5 dots (registry.example.com, raw.githubusercontent.com,
+# ...) tried against the search list FIRST — silently hijacking it to
+# an internal host instead of the real one, surfacing as a confusing
+# TLS certificate error rather than a DNS error. ndots:1 is safe here:
+# in-cluster Service names are still resolved correctly through the
+# explicit search entries regardless of ndots.
+#   dnsConfig:
+#     options:
+#       - name: ndots
+#         value: "1"
+dnsConfig: {}
+
 # Observability. The api, worker and pdf-service all expose Prometheus metrics
 # (the frontend is an nginx serving static assets and has none), but only the
 # api and worker can be collected in Kubernetes — pdf-service is unreachable by

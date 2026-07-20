@@ -37,6 +37,14 @@ global:
   tolerations: []
   affinity: {}
   priorityClassName: ""
+  # Applied to every pod in this chart. See templates/_helpers.tpl's
+  # observability.dnsConfig comment (issue #215) for why ndots:1 is the
+  # usual fix on a cluster with a wildcard corporate search domain:
+  #   dnsConfig:
+  #     options:
+  #       - name: ndots
+  #         value: "1"
+  dnsConfig: {}
 
 alloy:
   image:

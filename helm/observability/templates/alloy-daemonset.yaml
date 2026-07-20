@@ -24,6 +24,7 @@ spec:
       serviceAccountName: {{ include "observability.fullname" . }}-alloy
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       {{- include "observability.scheduling" . | nindent 6 }}
+      {{- include "observability.dnsConfig" . | nindent 6 }}
       securityContext:
         # The image runs as its own non-root user; fsGroup makes the
         # storage emptyDir writable for it (same class of failure the

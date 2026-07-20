@@ -54,6 +54,10 @@ spec:
         app.kubernetes.io/name: litellm-postgres
         {{- include "test-ai.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgres
           image: {{ include "test-ai.image" (dict "root" $ "image" .Values.litellmPostgres.image) }}
@@ -134,6 +138,10 @@ spec:
         # updates to a running container.
         checksum/config: {{ include "test-ai.litellmConfig" . | sha256sum | trunc 32 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: litellm
           image: {{ include "test-ai.image" (dict "root" $ "image" .Values.litellm.image) }}
@@ -252,6 +260,10 @@ spec:
       labels:
         {{- include "test-ai.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       restartPolicy: OnFailure
       containers:
         - name: init

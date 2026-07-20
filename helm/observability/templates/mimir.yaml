@@ -89,6 +89,7 @@ spec:
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       {{- include "observability.scheduling" . | nindent 6 }}
+      {{- include "observability.dnsConfig" . | nindent 6 }}
       securityContext:
         # The image runs as a non-root user; without fsGroup the PVC's
         # root-owned mount point is unwritable and the pod never comes up.

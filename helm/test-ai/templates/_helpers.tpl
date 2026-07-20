@@ -46,3 +46,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ randAlphaNum 64 | sha256sum | trunc (int .len) }}
 {{- end -}}
 {{- end -}}
+
+{{- /* Passthrough dnsConfig for every pod in this chart (issue #215).
+       Unset by default. On a cluster whose nodes carry a corporate
+       search domain that resolves a wildcard, the default ndots:5
+       makes an outbound registry/model-catalog hostname (fewer than 5
+       dots) tried against the search list first — silently hijacked to
+       an internal host instead of the real one, surfacing as a
+       confusing TLS certificate error rather than a DNS error. This is
+       the chart where that bit hardest: Ollama's model pulls, the
+       LiteLLM cost-map fetch, and LibreChat's image all go outbound. */ -}}
+{{- define "test-ai.dnsConfig" -}}
+{{- with .Values.global.dnsConfig }}
+dnsConfig:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}

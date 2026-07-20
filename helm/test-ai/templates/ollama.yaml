@@ -22,6 +22,10 @@ spec:
         app.kubernetes.io/name: ollama
         {{- include "test-ai.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ollama
           image: {{ include "test-ai.image" (dict "root" $ "image" .Values.ollama.image) }}
@@ -107,6 +111,10 @@ spec:
         app.kubernetes.io/component: ollama-pull
         {{- include "test-ai.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       restartPolicy: OnFailure
       containers:
         - name: pull

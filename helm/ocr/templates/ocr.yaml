@@ -66,6 +66,10 @@ spec:
         prometheus.io/path: /metrics
       {{- end }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ocr
           image: {{ include "ocr.image" . }}

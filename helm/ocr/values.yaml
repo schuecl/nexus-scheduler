@@ -1,5 +1,19 @@
 global:
   imageRegistry: ""
+  # Unset by default — no behavior change. On a cluster whose nodes
+  # carry a corporate search domain that resolves a wildcard (common on
+  # air-gapped/hardened clusters), the default ndots:5 makes an outbound
+  # hostname with fewer than 5 dots (the gateway.url host, for example)
+  # tried against the search list first — silently hijacked to an
+  # internal host instead of the real one, surfacing as a confusing TLS
+  # certificate error rather than a DNS error (issue #215). ndots:1 is
+  # safe here: this chart has no in-cluster DNS lookups that need the
+  # search list.
+  #   dnsConfig:
+  #     options:
+  #       - name: ndots
+  #         value: "1"
+  dnsConfig: {}
 
 image:
   # Built from docker/ocr — not published upstream; build and push to

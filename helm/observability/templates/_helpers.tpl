@@ -121,3 +121,18 @@ affinity:
 priorityClassName: {{ . }}
 {{- end }}
 {{- end -}}
+
+{{- /* Passthrough dnsConfig for every pod in the chart (issue #215).
+       Unset by default. On a cluster whose nodes carry a corporate
+       search domain that resolves a wildcard, the default ndots:5
+       makes every outbound hostname with fewer than 5 dots tried
+       against the search list first — silently hijacked to an
+       internal host instead of the real one. ndots:1 is safe here:
+       this chart's in-cluster targets are Service DNS names, matched
+       by the explicit search entries regardless of ndots. */ -}}
+{{- define "observability.dnsConfig" -}}
+{{- with .Values.global.dnsConfig }}
+dnsConfig:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}

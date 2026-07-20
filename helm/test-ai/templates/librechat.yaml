@@ -65,6 +65,10 @@ spec:
         app.kubernetes.io/name: mongo
         {{- include "test-ai.labels" . | nindent 8 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: mongo
           image: {{ include "test-ai.image" (dict "root" $ "image" .Values.mongo.image) }}
@@ -150,6 +154,10 @@ spec:
         # running container.
         checksum/config: {{ include "test-ai.librechatConfig" . | sha256sum | trunc 32 }}
     spec:
+      {{- with .Values.global.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # The PVC mounts below mask the image's node-owned (uid 1000)
       # directories; without fsGroup the volume root is root-owned and
       # LibreChat starts with EACCES on its own upload/log paths.
