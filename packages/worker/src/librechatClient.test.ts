@@ -1,5 +1,58 @@
+import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
-import { describeUnexecutedToolCall, extractTokenUsage } from "./librechatClient.js";
+import { agentDispatcherOptions, callAgent, describeUnexecutedToolCall, extractTokenUsage } from "./librechatClient.js";
+
+describe("agentDispatcherOptions (issue #127)", () => {
+  // undici's default headersTimeout is 300s and LibreChat's
+  // non-streaming Agents endpoint sends nothing until generation
+  // finishes — without an explicit dispatcher every agent call was
+  // silently capped at 5 minutes no matter the run's budget.
+  it("derives both timeouts from the caller's budget, slightly above it", () => {
+    expect(agentDispatcherOptions(600_000)).toEqual({ headersTimeout: 601_000, bodyTimeout: 601_000 });
+  });
+});
+
+describe("callAgent dispatcher wiring (issue #127)", () => {
+  it("survives a server that sends headers only after a delay (no bytes at all until then)", async () => {
+    const server = createServer((req, res) => {
+      // Nothing — not even headers — for 1.5s, like a model mid-generation.
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            choices: [{ message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+          }),
+        );
+      }, 1_500);
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const response = await callAgent("agent_x", "hi", "key", {
+        baseUrl: `http://127.0.0.1:${port}`,
+        timeoutMs: 10_000,
+      });
+      expect(response.choices[0]?.message?.content).toBe("OK");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("still classifies budget expiry as a timeout, not a network error", async () => {
+    const server = createServer(() => {
+      // never responds
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      await expect(
+        callAgent("agent_x", "hi", "key", { baseUrl: `http://127.0.0.1:${port}`, timeoutMs: 500 }),
+      ).rejects.toMatchObject({ kind: "timeout", transient: true });
+    } finally {
+      server.close();
+    }
+  });
+});
 
 describe("describeUnexecutedToolCall", () => {
   it("returns null when there are no tool calls", () => {

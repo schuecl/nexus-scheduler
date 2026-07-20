@@ -75,6 +75,11 @@ COPY --from=build /app/packages/pdf/dist packages/pdf/dist
 COPY --from=build /app/packages/pdf/node_modules packages/pdf/node_modules
 COPY --from=build /app/packages/worker/package.json packages/worker/package.json
 COPY --from=build /app/packages/worker/dist packages/worker/dist
+# The worker pins undici@^6 (root hoists a different major for another
+# dependent), so npm nests the worker's copy under its own
+# node_modules — without this line the image silently resolves the
+# root's undici instead of the version this package declares.
+COPY --from=build /app/packages/worker/node_modules packages/worker/node_modules
 
 USER nexus
 EXPOSE 3001

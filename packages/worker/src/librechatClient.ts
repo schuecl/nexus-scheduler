@@ -1,3 +1,4 @@
+import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
 import type {
   LibreChatChatCompletionRequest,
   LibreChatChatCompletionResponse,
@@ -56,6 +57,20 @@ export interface LibreChatClientOptions {
   abortSignal?: AbortSignal;
 }
 
+// The dispatcher's own timeouts, derived from the caller's budget.
+// Exported for tests. Without an explicit dispatcher, undici's DEFAULT
+// headersTimeout (300s) silently caps every call: LibreChat's
+// non-streaming Agents endpoint sends no bytes — not even headers —
+// until the model has finished generating, so any completion slower
+// than 5 minutes died as an opaque transient "fetch failed" regardless
+// of the run's own timeoutSeconds (issue #127). Set slightly ABOVE the
+// budget so the AbortController below (which fires exactly at the
+// budget and classifies cleanly as "timeout") always wins the race —
+// the dispatcher timeouts are a backstop, not the enforcement.
+export function agentDispatcherOptions(timeoutMs: number): { headersTimeout: number; bodyTimeout: number } {
+  return { headersTimeout: timeoutMs + 1_000, bodyTimeout: timeoutMs + 1_000 };
+}
+
 export async function callAgent(
   agentId: string,
   prompt: string,
@@ -76,8 +91,13 @@ export async function callAgent(
   // any other abort.
   const signal = options.abortSignal ? AbortSignal.any([controller.signal, options.abortSignal]) : controller.signal;
 
+  // undici's fetch + a per-call Agent, not Node's global fetch: the
+  // dispatcher option is how the header/body timeouts are raised, and
+  // Node's built-in fetch rejects an Agent constructed from the npm
+  // undici package (internal symbol mismatch).
+  const dispatcher = new UndiciAgent(agentDispatcherOptions(options.timeoutMs));
   try {
-    const response = await fetch(`${options.baseUrl}/api/agents/v1/chat/completions`, {
+    const response = await undiciFetch(`${options.baseUrl}/api/agents/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -85,6 +105,7 @@ export async function callAgent(
       },
       body: JSON.stringify(body),
       signal,
+      dispatcher,
     });
 
     if (!response.ok) {
@@ -121,6 +142,9 @@ export async function callAgent(
     );
   } finally {
     clearTimeout(timeout);
+    // Immediate teardown, not close(): the call is over either way, and
+    // destroy() can't be stalled by a socket the server never finishes.
+    void dispatcher.destroy();
   }
 }
 
