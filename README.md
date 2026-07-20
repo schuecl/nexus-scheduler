@@ -228,10 +228,28 @@ scanned pages reach Tesseract.
 
 #### How each caller reaches it
 
-**Nexus Scheduler attachments** — the worker calls `POST /process` per
-attachment, using `OCR_SERVICE_URL` (preset to `http://ocr:4200`). Left
-empty, jobs with attachments still run, with a warning per run and no
-extracted text.
+**Nexus Scheduler attachments** — the worker calls `POST /process` once
+per attachment. Configured on the `worker` service in
+`docker-compose.yml`, already wired:
+
+```yaml
+worker:
+  environment:
+    OCR_SERVICE_URL: http://ocr:4200
+    OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
+    OCR_EXTRACTED_TEXT_MAX_CHARS: ${OCR_EXTRACTED_TEXT_MAX_CHARS:-80000}
+```
+
+`OCR_SERVICE_URL` is the only required one — left empty, Jobs with
+attachments still run, with a warning per run and no extracted text.
+`OCR_EXTRACTED_TEXT_MAX_CHARS` caps how much extracted text is appended
+to the prompt, so a long document cannot crowd out the prompt itself.
+
+Attach files to a Job on its Project page under **Files**; the extracted
+markdown is appended to the prompt before the agent is called, and both
+the text and a searchable PDF are kept on the run record. See the in-app
+Knowledge Base article **Document OCR & attachments** for the full
+walkthrough.
 
 **LibreChat chat uploads** — configured in
 `docker/librechat/librechat.yaml`:

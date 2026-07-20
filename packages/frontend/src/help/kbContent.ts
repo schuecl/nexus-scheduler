@@ -1118,8 +1118,10 @@ There are two ways to use it.
 ## 1. Job attachments (scheduled / repeatable)
 
 1. Open a Job on its Project page and click **Files**.
-2. Upload PDF, PNG, JPEG, TIFF, BMP or WebP — up to 15&nbsp;MB per file,
-   10 files / 50&nbsp;MB per Job.
+2. Upload PDF, PNG, JPEG, TIFF, BMP or WebP — by default up to
+   15&nbsp;MB per file, 10 files / 50&nbsp;MB per Job. Those are
+   **defaults, not hard limits**: an operator can raise them (see
+   *Limits and tuning* below) without rebuilding anything.
 3. Run the Job (**Run Now** or a schedule). Before the agent is called,
    every attachment is extracted and the markdown is appended to the
    prompt — the agent sees text, never the binary.
@@ -1163,6 +1165,63 @@ implement no strategy for it — use \`mistral_ocr\`.
 
 To use it in chat: attach a file with the paperclip and choose **Upload
 as Text**. The extracted markdown lands in the conversation context.
+
+## Image descriptions (optional)
+
+OCR reads text. It cannot tell you what a photograph *is* — a diagram, a
+whiteboard, a damaged part. Turning on **image descriptions** adds a
+one-paragraph summary from a multimodal model, appended to the extracted
+text so the agent gets both.
+
+This is the one part of the pipeline that calls a model. Extraction is
+local and deterministic; descriptions go out through the LiteLLM gateway,
+same as any other model call.
+
+Two things to know before enabling it:
+
+- **The model must actually be multimodal.** The bundled local models
+  (\`gemma3:1b\`, \`codegemma:2b\`, \`phi4-mini-reasoning\`) are text-only.
+  Pointing at one does not fail loudly — descriptions are best-effort, so
+  you get silently missing descriptions and gateway 400s in the logs.
+- **Each door has its own switch.** Scheduler attachments and LibreChat
+  chat uploads are enabled independently, because LibreChat's request
+  shape carries no per-request flag. In Compose one service instance
+  serves both, so a single variable covers them; on Kubernetes they are
+  separate releases and therefore separate settings.
+
+| | Compose | Kubernetes |
+|---|---|---|
+| Scheduler attachments | \`OCR_DESCRIBE_IMAGES\` | \`ocr.describeImages\` (app chart) |
+| LibreChat chat uploads | \`OCR_DESCRIBE_IMAGES\` | \`gateway.describeImages\` (OCR chart) |
+
+Left off (the default), no gateway call is ever made and extraction stays
+text-only.
+
+## Limits and tuning
+
+Every limit below is a **default an operator can change**, in Compose via
+an environment variable and on Kubernetes via the OCR chart's values. None
+require rebuilding the image.
+
+| What | Compose | Chart value | Default |
+|---|---|---|---|
+| Per-file upload size | \`OCR_FILE_MAX_BYTES\` | \`fileMaxBytes\` | 15 MB |
+| Files per Job run | \`OCR_PROCESS_MAX_FILES\` | \`processMaxFiles\` | 10 |
+| Total bytes per Job run | \`OCR_PROCESS_MAX_TOTAL_BYTES\` | \`processMaxTotalBytes\` | 50 MB |
+| LibreChat upload store | \`OCR_FILE_STORE_MAX_BYTES\` | \`fileStoreMaxBytes\` | 256 MB |
+| Time limit on one extraction | \`OCR_MAX_PROCESS_SECONDS\` | \`maxProcessSeconds\` | 900 s |
+| Scan resolution | \`IMAGE_DPI\` | \`imageDpi\` | 300 |
+
+**When you would change these.** A large scanned drawing exceeds 15 MB —
+raise the per-file limit. A long document on CPU-only hardware takes more
+than 15 minutes — raise the time limit. Uploading a file over the limit
+returns a clear "too large" error rather than failing halfway through, so
+the symptom names the cause.
+
+Two of these are linked and the deployment refuses inconsistent values:
+the LibreChat upload store and the per-run total must each be at least as
+large as a single permitted file, otherwise one allowed file would be
+rejected by an aggregate limit and the error would name the wrong ceiling.
 
 ## Kubernetes
 
