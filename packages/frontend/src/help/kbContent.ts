@@ -348,7 +348,10 @@ Per Job, you can turn on an email when a run succeeds and/or fails:
 ## Webhooks
 
 A Job can also \`POST\` its result (status, output, timing, run ID) to an
-internal system on completion and/or failure. For security, webhook
+internal system on completion and/or failure. For the payload format,
+signature verification, and retry behaviour, see
+[Webhooks: setup, payload & verifying signatures](/help/webhooks).
+For security, webhook
 destinations aren't arbitrary URLs — they're chosen from an
 **admin-maintained allow-list** (see [Admin settings](/help/admin)), and
 payloads are signed (HMAC) so the receiver can verify they're genuine.
@@ -562,6 +565,9 @@ this one configuration.
 
 ## Syslog / SIEM forwarding
 
+Full walkthrough, message format, and transport trade-offs:
+[Syslog & SIEM forwarding](/help/syslog).
+
 Optionally mirror the audit trail to an external syslog server (with TLS
 support), for deployments that centralize logging in a SIEM.
 
@@ -570,7 +576,8 @@ support), for deployments that centralize logging in a SIEM.
 Configure a recurring (weekly/monthly) usage-summary PDF — run counts,
 success/failure rates, token usage, cost — emailed to a list of
 recipients, over the same SMTP configuration above. On-demand export
-doesn't require this to be turned on.
+doesn't require this to be turned on. See
+[Usage, cost & reporting](/help/usage-cost).
 
 ## Users & roles
 
@@ -590,7 +597,15 @@ is about sharing, a role is about what you're allowed to do at all.
 Set the internal per-token cost rate (prompt vs. completion tokens) used
 to compute each run's cost — a global default, with optional per-agent
 overrides. Rates apply going forward only: changing a rate never rewrites
-the cost already recorded on past runs.
+the cost already recorded on past runs. See
+[Usage, cost & reporting](/help/usage-cost).
+
+## Consent banner
+
+Show a notice on the login page — a consent-to-monitor statement,
+acceptable-use notice, or classification warning — optionally requiring
+explicit acceptance before the sign-in form appears, with acceptance
+audit-logged. See [Login consent banner](/help/consent-banner).
 
 ## Classification labels
 
@@ -600,6 +615,9 @@ Prompts. This is separate from the system-wide banner above — labels mark
 individual objects; the banner marks the whole deployment.
 
 ## Webhook destinations
+
+Setup walkthrough and what receivers must do:
+[Webhooks: setup, payload & verifying signatures](/help/webhooks).
 
 Maintain the allow-list of internal endpoints a Job's webhook delivery can
 target (see [Jobs, notifications & webhooks](/help/jobs)) — destinations
@@ -706,6 +724,331 @@ rejecting the key (expired or revoked) and paused schedules that depend on
 it rather than letting them keep failing silently. Add a working
 replacement key, then re-enable the paused schedules. See
 [API Keys](/help/api-keys).
+`,
+  },
+  {
+    slug: "webhooks",
+    title: "Webhooks: setup, payload & verifying signatures",
+    category: "Modules",
+    summary: "Send run results to another system, and prove the request really came from Nexus Scheduler.",
+    content: `
+When a run reaches a terminal state, Nexus Scheduler can POST the result
+to a URL you control — a ticketing system, a chat bridge, your own
+service. Every delivery is **HMAC-signed**, so the receiver can prove it
+came from here and was not tampered with in transit.
+
+## 1. An admin adds the destination
+
+Webhook URLs are **admin-managed on purpose**. Anyone able to point a
+webhook anywhere could use this app to reach internal services it can see
+and they cannot. So the destination list *is* the allow-list, and Job
+owners choose from it rather than typing URLs.
+
+**Admin → Webhook destinations → New**:
+
+| Field | Notes |
+|---|---|
+| Name | What Job owners see in the picker |
+| URL | Where deliveries are POSTed |
+| Extra headers | Optional. Merged into every delivery — e.g. an auth token the receiver expects |
+| Notify on Success / Failure / Cancelled | Which run outcomes this destination receives |
+| Active | Inactive destinations deliver nothing and disappear from the Job picker |
+
+Two things to know:
+
+- **The outcome toggles live on the destination, not the Job.** A
+  "success-only" destination stays success-only for every Job attached to
+  it. This is separate from a Job's *email* notification settings, which
+  have their own Success/Failure switches.
+- \`Content-Type\` and \`X-Nexus-Signature\` **cannot be overridden** by
+  the extra-headers map — the sender fixes both.
+
+Saving returns the **HMAC secret in plaintext exactly once**. Copy it
+then and hand it to whoever operates the receiving endpoint; it is never
+shown again. If it is lost or leaked, use **Rotate secret** — which also
+shows the new value only once.
+
+Use **Send test** to fire a sample delivery before wiring up a Job.
+
+## 2. A Job owner attaches it
+
+Open the Job → **Webhooks** and tick the destinations you want. A Job
+with nothing ticked sends nothing.
+
+## 3. What arrives
+
+\`POST\` to your URL, \`Content-Type: application/json\`:
+
+| Header | Value |
+|---|---|
+| \`X-Nexus-Signature\` | \`sha256=<hex>\` — HMAC-SHA256 of the **raw request body**. Note the \`sha256=\` prefix; it is part of the value |
+
+\`\`\`json
+{
+  "runId": "3f8a1c92-5d4e-4b7a-9c31-0e2f6a8b4d15",
+  "jobId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "jobName": "Nightly incident summary",
+  "status": "SUCCESS",
+  "startedAt": "2026-07-20T02:00:04.812Z",
+  "completedAt": "2026-07-20T02:01:37.106Z",
+  "output": "## Summary\\n\\nThree incidents were opened overnight...",
+  "errorMessage": null
+}
+\`\`\`
+
+\`status\` is one of \`SUCCESS\`, \`FAILED\`, \`CANCELLED\` — only terminal
+states are ever delivered. On a failure \`output\` is typically \`null\`
+and \`errorMessage\` carries the reason.
+
+The payload is **metadata plus the run's output only**. Text extracted
+from attachments by OCR is deliberately not included, so a webhook cannot
+become a side channel for document contents.
+
+## 4. Verifying the signature
+
+Strip the \`sha256=\` prefix, compute HMAC-SHA256 over the **raw body
+bytes** — not a re-serialized object, or whitespace differences change
+the digest — and compare **in constant time**.
+
+\`\`\`js
+import crypto from "node:crypto";
+
+// express: app.use(express.raw({ type: "application/json" }))
+function verify(rawBody, headerValue, secret) {
+  const received = (headerValue ?? "").replace(/^sha256=/, "");
+  const expected = crypto.createHmac("sha256", secret)
+                         .update(rawBody)
+                         .digest("hex");
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(received, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+\`\`\`
+
+Reject anything that does not match: either the wrong secret or a
+modified body. Treat both as hostile.
+
+## What to expect operationally
+
+- **Delivery never affects the run.** A receiver that is down, slow, or
+  erroring does not fail the Job, does not re-run it, and does not change
+  the stored result.
+- **10-second timeout** per attempt, with **two short retries** (about 2s
+  then 5s later). This covers a brief blip, not an outage — there is no
+  long-tail retry queue, so a receiver down for minutes loses those
+  deliveries.
+- Make your receiver **idempotent on \`runId\`**: a response we never saw
+  (timeout after you processed it) is retried.
+- Delivery outcomes are **audit-logged**, so a receiver that quietly
+  stopped accepting shows up in the audit trail.
+
+## Troubleshooting
+
+| Symptom | Usual cause |
+|---|---|
+| Nothing arrives | The destination is not ticked on the Job, is inactive, or its outcome toggle for that status is off |
+| Signature never matches | Comparing against the full \`sha256=…\` value, or hashing a re-serialized body instead of the raw bytes |
+| Lost the secret | **Rotate secret** — the old one stops working immediately |
+| Duplicate deliveries | A retry after a timeout. De-duplicate on \`runId\` |
+| Receiver sees no auth header | Extra headers are set per destination by an admin, not per Job |
+
+See also [Jobs, notifications & webhooks](/help/jobs).
+`,
+  },
+
+  {
+    slug: "syslog",
+    title: "Syslog & SIEM forwarding",
+    category: "Admin",
+    summary: "Mirror the audit trail to a SIEM over UDP, TCP, or TCP+TLS, and what the messages look like.",
+    content: `
+Every audit event — logins, permission changes, schedule approvals, run
+completions — is stored in Postgres. Syslog forwarding **mirrors** those
+same events to a SIEM as they happen. It is a mirror, not a move: turning
+it off loses nothing from the in-app audit trail.
+
+## Configuring it
+
+**Admin → Syslog**:
+
+| Field | Notes |
+|---|---|
+| Enabled | Off by default |
+| Host | Hostname or IP. Anything resolvable from the app — not just localhost |
+| Port | Conventionally 514 (UDP), 601 (TCP), 6514 (TCP+TLS) — any port works |
+| Transport | UDP or TCP |
+| Use TLS | TCP only (RFC 5425). Not available over UDP |
+| CA certificate | Upload when the receiver's certificate chains to a private CA |
+
+**Test connection** sends a real message before you save. Use it — a
+wrong port on UDP fails silently forever otherwise, because UDP has no
+acknowledgement.
+
+Choosing a transport:
+
+- **UDP** — fire-and-forget. Lowest overhead, no delivery guarantee, and
+  a message larger than the network's limit is simply lost.
+- **TCP** — acknowledged, and long messages are framed correctly
+  (RFC 6587 octet-counting), so nothing is truncated mid-event.
+- **TCP + TLS** — the same, encrypted. Use this if the audit trail
+  crosses any untrusted network.
+
+## What a message looks like
+
+RFC 5424, facility \`local0\`, with the structured data a SIEM can index
+on rather than regex out of a text blob:
+
+\`\`\`
+<134>1 2026-07-20T02:01:37.106Z nexus-01 nexus-scheduler-worker 42 run.complete [nexusAudit@32473 eventId="9c1f..." actorType="SERVICE" actorEmail="system:scheduler" targetType="run" targetId="3f8a1c92..." result="SUCCESS" correlationId="3f8a1c92..."] run.complete success (actor=system:scheduler, target=run:3f8a1c92...)
+\`\`\`
+
+Reading the header: \`<134>\` is facility 16 (local0) × 8 + severity 6;
+\`1\` is the syslog version; then timestamp, hostname, **APP-NAME**
+(\`nexus-scheduler-api\` or \`-worker\`, so you can tell which service
+emitted it), PID, and **MSGID** — the audit action itself, e.g.
+\`run.complete\`, \`user.login\`, \`schedule.approve\`.
+
+Severity is meaningful, not fixed:
+
+| Severity | When |
+|---|---|
+| 4 — warning | The action **failed** |
+| 5 — notice | Security-relevant categories (auth, permissions) |
+| 6 — informational | Everything else |
+
+That distinction is the one signal a SIEM can alert on without parsing
+the message body, so a failed login does not blend in with a successful
+read.
+
+\`SD-ID\` is \`nexusAudit@32473\`. That enterprise number is IANA's
+documentation/example PEN — if your SIEM cares about enterprise-ID
+uniqueness, substitute your organization's registered PEN.
+
+## What to expect
+
+- Forwarding is **best-effort**: a syslog receiver being down never fails
+  a user action or a run. The event is still written to the database.
+- Oversized messages are truncated to stay within limits rather than
+  dropped.
+- The audit trail in the app remains the system of record.
+
+## Testing it locally
+
+The Compose stack includes a \`syslog-test\` receiver with three
+listeners — \`514\`/UDP, \`601\`/TCP, and \`6514\`/TCP+TLS. Point Admin →
+Syslog at host \`syslog-test\`, pick a port, and watch delivered messages
+with \`docker compose logs -f syslog-test\`. For the TLS listener, upload
+\`docker/generated/syslog-test-certs/ca.pem\` as the CA certificate.
+
+See also [Admin settings](/help/admin).
+`,
+  },
+
+  {
+    slug: "consent-banner",
+    title: "Login consent banner",
+    category: "Admin",
+    summary: "Show a notice before sign-in, optionally requiring explicit acceptance, with acceptance audit-logged.",
+    content: `
+An optional notice shown **before authentication** — a consent-to-monitor
+statement, an acceptable-use notice, a classification warning. Configured
+in **Admin → Consent banner**.
+
+## The two modes
+
+**Informational** — the notice appears above the sign-in form. Users read
+it and sign in as normal. Nothing is recorded.
+
+**Require Accept/Reject** — the sign-in form is **not shown at all**
+until the user accepts. Accepting reveals the form and is **audit-logged**
+with who accepted and when. Rejecting leads to a dead-end page with no
+way onward.
+
+Use the second mode when you need to be able to demonstrate that a user
+was shown a notice and agreed to it before being given access.
+
+## Configuring it
+
+| Field | Notes |
+|---|---|
+| Enabled | Off by default |
+| Title | Heading shown above the body |
+| Body | The notice itself |
+| Require Accept/Reject | Off = informational; on = gate the sign-in form |
+
+## What to expect
+
+- **It re-shows on every visit to the login page**, not once per user.
+  That is deliberate: consent-to-monitor notices are expected to be
+  presented each time, not remembered and skipped.
+- It applies to the **login page**, so it is shown before either sign-in
+  method — SSO or local password.
+- The break-glass local admin sees it too. Enabling Accept/Reject does
+  not create a lockout risk, but it does mean an admin recovering access
+  in a hurry must still accept.
+- Acceptance is written to the audit trail and mirrors to syslog like any
+  other audit event (see [Syslog & SIEM forwarding](/help/syslog)).
+
+See also [Admin settings](/help/admin).
+`,
+  },
+
+  {
+    slug: "usage-cost",
+    title: "Usage, cost & reporting",
+    category: "Admin",
+    summary: "See what runs are consuming, set the rates that price it, and export or schedule reports.",
+    content: `
+Every run records the tokens it used. Priced against rates you configure,
+that becomes a spend figure per run, per job, and per period.
+
+## 1. Set the rates
+
+**Admin → Cost rates**. Rates are per **million tokens**, entered
+separately for prompt and completion because providers price them
+differently.
+
+Leave **Agent ID** blank to set a global default; add an Agent-specific
+rate to override it for that agent. A run is priced with the most
+specific rate that matches.
+
+Without any rate configured, token counts are still recorded — you simply
+get usage without a currency figure.
+
+## 2. Read the usage dashboard
+
+**Admin → Usage** shows totals over a period: runs, prompt and completion
+tokens, and computed cost, broken down so you can see which jobs are
+responsible.
+
+## 3. Export
+
+Two formats, both from the same view:
+
+- **CSV** — for a spreadsheet or a chargeback pipeline.
+- **PDF** — a branded report carrying your product name, logo, accent
+  colour, and classification banner if one is configured.
+
+## 4. Recurring report emails
+
+**Admin → Recurring usage reports** sends the same report on a schedule
+to a list of recipients. Requires SMTP to be configured
+([Admin settings](/help/admin)).
+
+## What to expect
+
+- **Token counts can be missing.** They come from the model provider's
+  usage data via LibreChat. Some deployments return zeros or nothing at
+  all for headless API-key calls — in that case the run is recorded with
+  no token count rather than a fabricated one, and it contributes nothing
+  to cost.
+- **Cost is computed at run time** using the rate in force then. Changing
+  a rate later does not retroactively reprice past runs, which is what
+  you want for an auditable record.
+- Usage is **admin-scoped** — ordinary users see their own runs' tokens
+  and cost on the run record, not the organization-wide dashboard.
+
+See also [Runs, output & PDF reports](/help/runs).
 `,
   },
 ];
