@@ -1,0 +1,28 @@
+# Local/dev cluster overrides (issue #146). The chart is already
+# single-replica by design; what a laptop install actually needs to
+# change is volume sizes, retention, and pointing Alloy at the
+# namespace the app chart went into:
+#
+#   helm install nexus-observability helm/observability \
+#     -f helm/observability/values-local.yaml
+#
+# Images pull from their public registries (grafana/*) — this file is
+# for connected dev clusters; air-gapped installs set
+# global.imageRegistry and digests instead (see values.yaml).
+
+# Alloy always watches the namespace this chart is installed into, so
+# installing both charts into the same namespace (the usual laptop
+# setup) needs nothing here. Uncomment only if the app chart went
+# somewhere else:
+# alloy:
+#   appNamespaces: ["nexus-scheduler"]
+
+# Days of metrics/logs a laptop needs, on volumes a laptop can spare.
+mimir:
+  persistence:
+    size: 2Gi
+  retention: 2d
+loki:
+  persistence:
+    size: 2Gi
+  retention: 48h

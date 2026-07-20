@@ -288,6 +288,16 @@ mapping and a worked example.
 helm install nexus-scheduler helm/nexus-scheduler -f my-values.yaml
 ```
 
+For a local/dev cluster (Docker Desktop, kind), each chart ships a
+committed override file so nothing has to be reconstructed from the
+templates: build the images locally (see [Container
+images](#container-images)), create the Secrets `NOTES.txt` lists, then
+
+```bash
+helm install nexus-scheduler helm/nexus-scheduler -f helm/nexus-scheduler/values-local.yaml
+helm install nexus-observability helm/observability -f helm/observability/values-local.yaml
+```
+
 - PostgreSQL and Redis are bundled as first-party subcharts
   (`helm/nexus-scheduler/charts/{postgresql,redis}`) so a default
   install needs no external dependencies or network access to stand

@@ -1,0 +1,49 @@
+# Local/dev cluster overrides (issue #146) — Docker Desktop, kind,
+# minikube-with-local-images. Everything a laptop install had to
+# reconstruct from the templates by hand, in one committed file:
+#
+#   docker build -f packages/api/Dockerfile -t nexus-scheduler-api .   # etc, see README
+#   <create the four required Secrets — NOTES.txt lists their names,
+#    keys, and formats>
+#   helm install nexus-scheduler helm/nexus-scheduler \
+#     -f helm/nexus-scheduler/values-local.yaml
+#
+# NOT for real deployments: single replicas, tiny volumes, and image
+# references that resolve to the local daemon's images.
+
+image:
+  # `docker build -t nexus-scheduler-api .` produces bare local names;
+  # docker.io/library/ is the prefix the container runtime normalizes
+  # those to, so the chart's <registry>/<repository>-<component>:<tag>
+  # composition lands exactly on the image you just built.
+  registry: "docker.io/library"
+  repository: "nexus-scheduler"
+  tag: "latest"
+  # Never reach for a registry — the images only exist locally.
+  # (IfNotPresent + :latest is deliberate here: on a single-daemon local
+  # cluster the kubelet and `docker build` share one image store, so a
+  # rebuild replaces the image in place and restarted pods pick it up —
+  # `kubectl rollout restart deploy` after rebuilding. `Always` would
+  # try a registry pull that has nowhere to go.)
+  pullPolicy: IfNotPresent
+
+# One replica of everything: a laptop doesn't need HA, and the worker's
+# replica count is a concurrency lever (§2.1) a dev install doesn't pull.
+api:
+  replicaCount: 1
+worker:
+  replicaCount: 1
+pdfService:
+  replicaCount: 1
+frontend:
+  replicaCount: 1
+
+# Small volumes on the cluster's default StorageClass (storageClassName
+# stays "" from the defaults — Docker Desktop's `hostpath`, kind's
+# `standard` both qualify).
+postgresql:
+  persistence:
+    size: 1Gi
+redis:
+  persistence:
+    size: 1Gi
