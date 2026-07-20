@@ -92,10 +92,10 @@ spec:
         checksum/dashboards: {{ (.Files.Glob "dashboards/*.json").AsConfig | sha256sum | trunc 32 }}
         checksum/provisioning: {{ printf "%s|%s" (include "observability.fullname" .) .Chart.Version | sha256sum | trunc 16 }}
     spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 472
-        fsGroup: 472
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.grafana.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: grafana
           image: {{ include "observability.image" (dict "root" $ "image" .Values.grafana.image) }}
@@ -131,6 +131,8 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.grafana.resources | nindent 12 }}
+          securityContext:
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: provisioning-datasources
           configMap:
@@ -158,9 +160,7 @@ metadata:
     {{- include "observability.labels" . | nindent 4 }}
 spec:
   accessModes: ["ReadWriteOnce"]
-  {{- with .Values.grafana.persistence.storageClassName }}
-  storageClassName: {{ . }}
-  {{- end }}
+  {{- include "observability.storageClassName" (dict "root" $ "explicit" .Values.grafana.persistence.storageClassName) | nindent 2 }}
   resources:
     requests:
       storage: {{ .Values.grafana.persistence.size }}

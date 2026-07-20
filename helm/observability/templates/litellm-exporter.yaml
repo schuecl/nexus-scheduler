@@ -38,6 +38,13 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9099"
     spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
+      # The upstream image runs as root, which "restricted" rejects. The
+      # exporter is a single mounted script that reads the gateway over
+      # HTTP and writes nothing, so any UID works.
+      securityContext:
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.litellmExporter.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: exporter
           image: {{ include "observability.image" (dict "root" $ "image" .Values.litellmExporter.image) }}
@@ -61,9 +68,7 @@ spec:
             {{- toYaml .Values.litellmExporter.resources | nindent 12 }}
           securityContext:
             readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: script
           configMap:

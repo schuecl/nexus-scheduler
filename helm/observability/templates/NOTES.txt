@@ -6,11 +6,18 @@ Grafana:
   pass: kubectl -n {{ .Release.Namespace }} get secret {{ include "observability.fullname" . }}-grafana-admin -o jsonpath='{.data.password}' | base64 -d
 
 App scraping: any pod annotated prometheus.io/scrape=true is collected
-automatically{{ if .Values.alloy.appNamespace }} in namespace {{ .Values.alloy.appNamespace }}{{ end }}. Annotation support for the app chart's api and
-worker pods is in review under issue #103; until it lands, annotate the
-pods via the app chart's podAnnotations values. If a separate
-Prometheus also scrapes the same pods, expect doubled samples — pick
-one collector per target.
+automatically. The app chart's api and worker pods carry that annotation
+already — nothing to add there.
+
+Alloy only looks in the namespaces you name. Set alloy.appNamespaces to
+the namespaces the app and AI charts are installed into, e.g.
+
+  --set '{alloy.appNamespaces[0]}=nexus,alloy.appNamespaces[1]=nexus-ai'
+
+Watched now:{{ range .Values.alloy.appNamespaces }} {{ . }}{{ end }}{{ with .Values.alloy.appNamespace }} {{ . }}{{ end }} {{ .Release.Namespace }}
+
+If a separate Prometheus also scrapes the same pods, expect doubled
+samples — pick one collector per target.
 
 Scope reminder: single-replica, filesystem-backed. Clusters that
 already run a monitoring stack should keep it and skip this chart.

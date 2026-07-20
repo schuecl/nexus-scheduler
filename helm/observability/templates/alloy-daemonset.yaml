@@ -22,13 +22,13 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/alloy-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "observability.fullname" . }}-alloy
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
       securityContext:
         # The image runs as its own non-root user; fsGroup makes the
         # storage emptyDir writable for it (same class of failure the
         # PVC-backed pods had).
-        runAsNonRoot: true
-        runAsUser: 473
-        fsGroup: 473
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.alloy.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: alloy
           image: {{ include "observability.image" (dict "root" $ "image" .Values.alloy.image) }}
@@ -74,9 +74,7 @@ spec:
             {{- toYaml .Values.alloy.resources | nindent 12 }}
           securityContext:
             readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: config
           configMap:

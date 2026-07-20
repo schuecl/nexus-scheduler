@@ -87,12 +87,12 @@ spec:
         prometheus.io/port: "9009"
         checksum/config: {{ include "observability.mimir.config" . | sha256sum | trunc 32 }}
     spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
       securityContext:
         # The image runs as a non-root user; without fsGroup the PVC's
         # root-owned mount point is unwritable and the pod never comes up.
-        runAsNonRoot: true
-        runAsUser: 10001
-        fsGroup: 10001
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.mimir.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: mimir
           image: {{ include "observability.image" (dict "root" $ "image" .Values.mimir.image) }}
@@ -113,21 +113,31 @@ spec:
               mountPath: /data
           resources:
             {{- toYaml .Values.mimir.resources | nindent 12 }}
+          securityContext:
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: config
           configMap:
             name: {{ include "observability.fullname" . }}-mimir-config
+        {{- if not .Values.mimir.persistence.enabled }}
+        # No PVC: the StatefulSet's volumeClaimTemplate is omitted, so
+        # `data` has to come from somewhere or the pod never schedules.
+        # Data does not survive a restart — that is the trade documented
+        # on mimir.persistence.enabled.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.mimir.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.mimir.persistence.storageClassName }}
-        storageClassName: {{ . }}
-        {{- end }}
+        {{- include "observability.storageClassName" (dict "root" $ "explicit" .Values.mimir.persistence.storageClassName) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.mimir.persistence.size }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

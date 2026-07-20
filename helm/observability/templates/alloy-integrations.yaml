@@ -83,10 +83,10 @@ spec:
       annotations:
         checksum/config: {{ toYaml .Values.integrations | sha256sum | trunc 32 }}
     spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 473
-        fsGroup: 473
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.alloy.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: alloy
           image: {{ include "observability.image" (dict "root" $ "image" .Values.alloy.image) }}
@@ -120,9 +120,7 @@ spec:
             {{- toYaml .Values.integrations.resources | nindent 12 }}
           securityContext:
             readOnlyRootFilesystem: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: config
           configMap:

@@ -67,10 +67,10 @@ spec:
         prometheus.io/port: "3100"
         checksum/config: {{ include "observability.loki.config" . | sha256sum | trunc 32 }}
     spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        fsGroup: 10001
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.loki.securityContext.runAsUser) | nindent 8 }}
       containers:
         - name: loki
           image: {{ include "observability.image" (dict "root" $ "image" .Values.loki.image) }}
@@ -90,21 +90,31 @@ spec:
               mountPath: /loki
           resources:
             {{- toYaml .Values.loki.resources | nindent 12 }}
+          securityContext:
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
       volumes:
         - name: config
           configMap:
             name: {{ include "observability.fullname" . }}-loki-config
+        {{- if not .Values.loki.persistence.enabled }}
+        # No PVC: the StatefulSet's volumeClaimTemplate is omitted, so
+        # `data` has to come from somewhere or the pod never schedules.
+        # Data does not survive a restart — that is the trade documented
+        # on loki.persistence.enabled.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.loki.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- with .Values.loki.persistence.storageClassName }}
-        storageClassName: {{ . }}
-        {{- end }}
+        {{- include "observability.storageClassName" (dict "root" $ "explicit" .Values.loki.persistence.storageClassName) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.loki.persistence.size }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service
