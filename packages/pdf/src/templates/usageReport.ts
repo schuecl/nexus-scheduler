@@ -1,4 +1,5 @@
 import { escapeHtml } from "../escapeHtml.js";
+import { barChart, pieChart, type ChartRow } from "../charts.js";
 import { buildBannerTemplate, type ClassificationBannerInfo } from "./banner.js";
 import { renderHtmlToPdf } from "../renderer.js";
 
@@ -43,6 +44,15 @@ export function buildUsageReportHtml(data: UsageReportData): string {
         `<tr><td style="padding:4px 12px 4px 0;">${escapeHtml(status)}</td><td style="padding:4px 0;font-weight:600;">${count}</td></tr>`,
     )
     .join("");
+  const runChartRows: ChartRow[] = (
+    Object.entries(data.runCounts) as Array<[string, number | undefined]>
+  )
+    .filter(([, count]) => (count ?? 0) > 0)
+    .map(([status, count]) => ({ label: status, value: count ?? 0 }));
+  const tokenChartRows: ChartRow[] = [
+    { label: "Prompt", value: data.totalPromptTokens },
+    { label: "Completion", value: data.totalCompletionTokens },
+  ];
 
   return `<!doctype html>
 <html>
@@ -54,6 +64,12 @@ export function buildUsageReportHtml(data: UsageReportData): string {
       .subtitle { color: #666; margin-bottom: 20px; }
       table { border-collapse: collapse; margin-bottom: 8px; }
       .section-title { font-size: 13px; font-weight: 700; margin: 24px 0 8px 0; }
+      .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; break-inside: avoid; }
+      .chart-card { border: 1px solid #ddd; border-radius: 6px; padding: 8px; break-inside: avoid; }
+      .chart-card svg { display: block; width: 100%; height: auto; }
+      .chart-title { font-size: 10px; font-weight: 700; color: #444; margin: 0 0 4px 2px; }
+      .token-chart { width: calc(50% - 6px); }
+      .report-section { break-inside: avoid; }
     </style>
   </head>
   <body>
@@ -70,7 +86,25 @@ export function buildUsageReportHtml(data: UsageReportData): string {
     </div>
 
     <div class="section-title">Runs by Status</div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title">Run Count</div>
+        ${barChart(runChartRows, data.primaryColor, "Run count by status")}
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Run Share</div>
+        ${pieChart(runChartRows, data.primaryColor, "Share of runs by status")}
+      </div>
+    </div>
     <table>${statusRows || `<tr><td>No runs in this period.</td></tr>`}</table>
+
+    <div class="report-section">
+      <div class="section-title">Token Usage</div>
+      <div class="chart-card token-chart">
+        <div class="chart-title">Prompt vs Completion Tokens</div>
+        ${pieChart(tokenChartRows, data.primaryColor, "Prompt versus completion token share")}
+      </div>
+    </div>
   </body>
 </html>`;
 }

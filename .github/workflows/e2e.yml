@@ -35,7 +35,22 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: |
+          npm exec --workspace=packages/e2e playwright install --with-deps chromium
+          npm exec --workspace=packages/pdf playwright install chromium
+
+      - name: Install PDF inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      # Main unit CI can run without a browser and skips only the render
+      # assertion. This job has Chromium, so require the real PDF check:
+      # inline charts must become vector paths, never image XObjects.
+      - name: Verify usage-report PDF charts render as vectors
+        env:
+          PDF_VECTOR_RENDER_REQUIRED: "true"
+        run: npm test --workspace=packages/pdf
 
       - name: Build the frontend (and its workspace deps)
         run: |
