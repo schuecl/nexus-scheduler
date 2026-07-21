@@ -10,6 +10,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { requireJobAccess } from "../middleware/requireJobAccess.js";
 import { recordAuditEvent } from "../audit.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { encodeRfc5987Filename } from "./runs.js";
 
 // Mounted at /api/jobs/:jobId/attachments (mergeParams) — same access
 // convention as Runs/Schedules: READ to list, EDIT to add/remove
@@ -26,6 +27,47 @@ export function createJobAttachmentsRouter(): Router {
       orderBy: { createdAt: "asc" },
     });
     res.json(attachments);
+  }));
+
+  // Streams the raw uploaded file so the frontend can preview it inline
+  // (img/iframe `src`, issue #229) instead of an owner needing to
+  // reconstruct the file from the API by hand — there was previously no
+  // way at all to read an attachment's bytes back out once uploaded.
+  // `inline`, not `attachment`: the point is rendering in the browser,
+  // not triggering a download prompt (the frontend's Download button
+  // forces one anyway via the anchor's `download` attribute).
+  router.get("/:attachmentId/content", requireAuth, requireJobAccess("READ"), asyncHandler(async (req, res) => {
+    const attachment = await prisma.jobAttachment.findFirst({
+      where: { id: req.params.attachmentId, jobId: req.params.jobId },
+      select: { filename: true, mimeType: true, data: true },
+    });
+    if (!attachment) {
+      res.status(404).json({ error: "attachment not found" });
+      return;
+    }
+    // Same data-access audit trail as run artifact downloads
+    // (runs.ts) — this is the source document content, so who viewed
+    // it must be recorded.
+    const user = req.session.user!;
+    await recordAuditEvent({
+      req,
+      actorType: "USER",
+      actorId: user.id,
+      actorEmail: user.email,
+      action: "job.attachment_view",
+      targetType: "job",
+      targetId: req.params.jobId,
+      targetName: attachment.filename,
+      category: "data_access",
+      result: "SUCCESS",
+      details: { attachmentId: req.params.attachmentId },
+    });
+    res.setHeader("Content-Type", attachment.mimeType);
+    const safeName = attachment.filename.replace(/["\u0000-\u001f\u007f]/g, "");
+    const asciiFallback = safeName.replace(/[^ -~]/g, "_");
+    const encodedName = encodeRfc5987Filename(safeName);
+    res.setHeader("Content-Disposition", `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`);
+    res.send(Buffer.from(attachment.data));
   }));
 
   // The 21mb parser sits AFTER auth/access on purpose: only an

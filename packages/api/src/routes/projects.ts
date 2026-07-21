@@ -35,6 +35,40 @@ async function resolveAclGrantee(acl: {
   return { subjectType: "org", subjectName: "organization" };
 }
 
+// Resolves a batch of ACL rows' grantees to a human-readable label in
+// two queries total (issue #228) — the list view previously rendered
+// the raw granteeType ("USER"/"TEAM"), leaving an owner unable to tell
+// *which* user or team a row actually grants access to without cross-
+// referencing ids by hand. Deliberately not built on resolveAclGrantee
+// above: that helper is one-row-at-a-time (fine for grant/update/revoke,
+// which each resolve exactly one ACL for an audit event) and would be
+// an N+1 query pattern here.
+async function resolveAclGranteeLabels(
+  acls: { id: string; granteeType: "USER" | "TEAM" | "ORG"; granteeUserId: string | null; granteeTeamId: string | null }[],
+): Promise<Map<string, string>> {
+  const userIds = [...new Set(acls.filter((a) => a.granteeUserId).map((a) => a.granteeUserId!))];
+  const teamIds = [...new Set(acls.filter((a) => a.granteeTeamId).map((a) => a.granteeTeamId!))];
+  const [users, teams] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true, displayName: true } })
+      : [],
+    teamIds.length ? prisma.team.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } }) : [],
+  ]);
+  const userLabel = new Map(users.map((u) => [u.id, u.displayName ?? u.email]));
+  const teamLabel = new Map(teams.map((t) => [t.id, t.name]));
+  const labels = new Map<string, string>();
+  for (const acl of acls) {
+    if (acl.granteeType === "USER") {
+      labels.set(acl.id, (acl.granteeUserId && userLabel.get(acl.granteeUserId)) || "Unknown user");
+    } else if (acl.granteeType === "TEAM") {
+      labels.set(acl.id, (acl.granteeTeamId && teamLabel.get(acl.granteeTeamId)) || "Unknown team");
+    } else {
+      labels.set(acl.id, "Everyone in the organization");
+    }
+  }
+  return labels;
+}
+
 // Projects are shared containers for prompts/jobs (REQUIREMENTS.md
 // §2.3). Sharing config (the ACL sub-resource) is deliberately
 // OWNER-only to view/mutate — "a Project owner can share a Project"
@@ -197,7 +231,8 @@ export function createProjectsRouter(): Router {
 
   router.get("/:id/acl", requireAuth, requireProjectAccess("OWNER"), asyncHandler(async (req, res) => {
     const acls = await prisma.projectAcl.findMany({ where: { projectId: req.params.id } });
-    res.json(acls);
+    const labels = await resolveAclGranteeLabels(acls);
+    res.json(acls.map((acl) => ({ ...acl, granteeLabel: labels.get(acl.id) ?? acl.granteeType })));
   }));
 
   router.post("/:id/acl", requireAuth, requireProjectAccess("OWNER"), asyncHandler(async (req, res) => {

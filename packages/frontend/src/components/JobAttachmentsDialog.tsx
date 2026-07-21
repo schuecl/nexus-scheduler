@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  Box,
   Button,
   CircularProgress,
   Dialog,
@@ -17,7 +18,9 @@ import {
 } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import DeleteIcon from "@mui/icons-material/Delete";
+import DownloadIcon from "@mui/icons-material/Download";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { apiFetch } from "../api/client";
 
 interface JobAttachment {
@@ -69,6 +72,63 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Of ALLOWED_MIME above, everything except TIFF renders natively in an
+// <img>/<iframe> — no browser (Chrome, Firefox, or Safari) decodes TIFF
+// inline, regardless of Content-Type, so that one gets a "can't preview"
+// message and a download link instead of a broken image icon (#229).
+const INLINE_PREVIEWABLE_MIME = new Set(["application/pdf", "image/png", "image/jpeg", "image/bmp", "image/webp"]);
+
+function attachmentContentUrl(jobId: string, attachmentId: string): string {
+  return `/api/jobs/${jobId}/attachments/${attachmentId}/content`;
+}
+
+// Preview reads the same authenticated, inline-disposition endpoint an
+// <img>/<iframe> `src` can hit directly (session cookie, same as the
+// run-artifact download links) — no separate blob-fetch plumbing needed.
+function AttachmentPreviewDialog({
+  jobId,
+  attachment,
+  onClose,
+}: {
+  jobId: string;
+  attachment: JobAttachment;
+  onClose: () => void;
+}) {
+  const url = attachmentContentUrl(jobId, attachment.id);
+  const canPreviewInline = INLINE_PREVIEWABLE_MIME.has(attachment.mimeType);
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <VisibilityIcon /> {attachment.filename}
+      </DialogTitle>
+      <DialogContent>
+        {canPreviewInline && attachment.mimeType === "application/pdf" && (
+          <Box component="iframe" src={url} title={attachment.filename} sx={{ width: "100%", height: "70vh", border: "none" }} />
+        )}
+        {canPreviewInline && attachment.mimeType !== "application/pdf" && (
+          <Box
+            component="img"
+            src={url}
+            alt={attachment.filename}
+            sx={{ display: "block", maxWidth: "100%", maxHeight: "70vh", mx: "auto" }}
+          />
+        )}
+        {!canPreviewInline && (
+          <Alert severity="info">
+            Browsers can&apos;t render {attachment.mimeType} inline — download it to view.
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button component="a" href={url} download={attachment.filename} startIcon={<DownloadIcon />} sx={{ mr: "auto" }}>
+          Download
+        </Button>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // Files attached to a Job are OCR'd by the worker before every run
 // (#109): the agent receives the extracted text appended to the prompt,
 // and each run keeps a searchable-PDF artifact per attachment.
@@ -84,6 +144,7 @@ export function JobAttachmentsDialog({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<JobAttachment | null>(null);
 
   const attachmentsQuery = useQuery({
     queryKey: ["jobs", jobId, "attachments"],
@@ -156,16 +217,25 @@ export function JobAttachmentsDialog({
             <ListItem
               key={attachment.id}
               secondaryAction={
-                canEdit ? (
+                <Stack direction="row" spacing={0.5}>
                   <IconButton
-                    edge="end"
-                    aria-label={`delete ${attachment.filename}`}
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate(attachment.id)}
+                    edge={canEdit ? undefined : "end"}
+                    aria-label={`preview ${attachment.filename}`}
+                    onClick={() => setPreviewAttachment(attachment)}
                   >
-                    <DeleteIcon fontSize="small" />
+                    <VisibilityIcon fontSize="small" />
                   </IconButton>
-                ) : undefined
+                  {canEdit && (
+                    <IconButton
+                      edge="end"
+                      aria-label={`delete ${attachment.filename}`}
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(attachment.id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Stack>
               }
             >
               <ListItemText
@@ -221,6 +291,13 @@ export function JobAttachmentsDialog({
         <Stack direction="row" sx={{ flexGrow: 1 }} />
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
+      {previewAttachment && (
+        <AttachmentPreviewDialog
+          jobId={jobId}
+          attachment={previewAttachment}
+          onClose={() => setPreviewAttachment(null)}
+        />
+      )}
     </Dialog>
   );
 }
