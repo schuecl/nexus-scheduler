@@ -478,6 +478,26 @@ model WebhookDestination {
   notifyOnSuccess       Boolean  @default(true)
   notifyOnFailure       Boolean  @default(true)
   notifyOnCancelled     Boolean  @default(true)
+  // Toggleable per-destination (issue #224) — default true preserves
+  // every existing row's current behavior unchanged. Off skips computing
+  // and sending X-Nexus-Signature entirely, for receivers that only
+  // check a baked-in Authorization header (Bearer/Basic, via `headers`
+  // above) and don't verify HMAC signatures.
+  signPayload           Boolean  @default(true)
+  // Off by default: the fixed WebhookPayload shape, unchanged (issue
+  // #224). On, `payloadTemplate` is rendered and sent instead — for
+  // receivers with their own required body shape. Kept as a separate
+  // flag rather than "payloadTemplate set == enabled" so a saved
+  // template survives being toggled off without being discarded.
+  customPayloadEnabled  Boolean  @default(false)
+  // {{placeholder}}-templated JSON body (issue #224), rendered by
+  // packages/shared/src/webhookPayloadTemplate.ts — same two call sites
+  // (API test-send, worker real delivery) as the header-building logic
+  // above, so it lives in the shared package rather than the worker
+  // alone. Validated at write time (must render to well-formed JSON
+  // against a sample context) so a broken template is rejected
+  // immediately, not discovered mid-delivery in the worker's retry loop.
+  payloadTemplate       String?
   active                Boolean  @default(true)
   createdAt             DateTime @default(now())
 

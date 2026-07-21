@@ -9,6 +9,7 @@ import {
   decryptSecret,
   signWebhookPayload,
   buildWebhookDeliveryHeaders,
+  renderWebhookPayloadTemplate,
   type WebhookPayload,
 } from "@nexus-scheduler/shared";
 import { prisma } from "../db.js";
@@ -36,11 +37,24 @@ const LIST_SELECT = {
   notifyOnSuccess: true,
   notifyOnFailure: true,
   notifyOnCancelled: true,
+  signPayload: true,
+  customPayloadEnabled: true,
+  payloadTemplate: true,
   createdAt: true,
 } as const;
 
 function isNotFoundError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025";
+}
+
+// customPayloadEnabled implies a usable template — checked against the
+// EFFECTIVE state (this request merged onto whatever's already saved),
+// which is why it's a route-level check rather than living in the zod
+// schema: PATCH is partial, so only the route handler (which has the
+// existing row) can tell that "enable, with no template in this
+// request" is fine when a template is already on file.
+function effectivePayloadConfigIsValid(customPayloadEnabled: boolean, payloadTemplate: string | null): boolean {
+  return !customPayloadEnabled || payloadTemplate !== null;
 }
 
 // The admin-maintained allow-list itself (REQUIREMENTS §2.2/§10) — a Job
@@ -77,6 +91,12 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
     }
     const user = req.session.user!;
 
+    const customPayloadEnabled = parsed.data.customPayloadEnabled ?? false;
+    if (!effectivePayloadConfigIsValid(customPayloadEnabled, parsed.data.payloadTemplate ?? null)) {
+      res.status(400).json({ error: "customPayloadEnabled requires a payloadTemplate" });
+      return;
+    }
+
     const secret = generateWebhookSecret();
     const encryptedHmacSecret = encryptSecret(secret, config.API_KEY_ENCRYPTION_KEY);
     const destination = await prisma.webhookDestination.create({
@@ -88,6 +108,9 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
         notifyOnSuccess: parsed.data.notifyOnSuccess,
         notifyOnFailure: parsed.data.notifyOnFailure,
         notifyOnCancelled: parsed.data.notifyOnCancelled,
+        signPayload: parsed.data.signPayload,
+        customPayloadEnabled: parsed.data.customPayloadEnabled,
+        payloadTemplate: parsed.data.payloadTemplate,
       },
       select: LIST_SELECT,
     });
@@ -120,6 +143,15 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       res.status(404).json({ error: "webhook destination not found" });
       return;
     }
+
+    const effectiveCustomPayloadEnabled = parsed.data.customPayloadEnabled ?? existing.customPayloadEnabled;
+    const effectivePayloadTemplate =
+      parsed.data.payloadTemplate !== undefined ? parsed.data.payloadTemplate : existing.payloadTemplate;
+    if (!effectivePayloadConfigIsValid(effectiveCustomPayloadEnabled, effectivePayloadTemplate)) {
+      res.status(400).json({ error: "customPayloadEnabled requires a payloadTemplate" });
+      return;
+    }
+
     const { headers, ...rest } = parsed.data;
     let destination;
     try {
@@ -222,9 +254,18 @@ export function createWebhookDestinationsRouter(config: AppConfig): Router {
       output: "This is a test webhook delivery from Nexus Scheduler.",
       errorMessage: null,
     };
-    const rawBody = JSON.stringify(payload);
-    const secret = decryptSecret(destination.encryptedHmacSecret, config.API_KEY_ENCRYPTION_KEY);
-    const signature = signWebhookPayload(rawBody, secret);
+    // Test-send reflects the destination's actual configuration (issue
+    // #224) rather than always sending the fixed sample shape, so
+    // "Test" tells the admin what a real delivery will actually look
+    // like. WebhookPayload and WebhookTemplateContext share the same
+    // field names, so `payload` doubles as the template context as-is.
+    const rawBody =
+      destination.customPayloadEnabled && destination.payloadTemplate
+        ? renderWebhookPayloadTemplate(destination.payloadTemplate, payload)
+        : JSON.stringify(payload);
+    const signature = destination.signPayload
+      ? signWebhookPayload(rawBody, decryptSecret(destination.encryptedHmacSecret, config.API_KEY_ENCRYPTION_KEY))
+      : null;
 
     try {
       const response = await fetch(destination.url, {

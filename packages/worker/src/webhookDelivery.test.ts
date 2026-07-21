@@ -77,6 +77,9 @@ async function makeDestination(
     notifyOnSuccess?: boolean;
     notifyOnFailure?: boolean;
     notifyOnCancelled?: boolean;
+    signPayload?: boolean;
+    customPayloadEnabled?: boolean;
+    payloadTemplate?: string | null;
   } = {},
 ) {
   const secret = "a-real-plaintext-webhook-secret";
@@ -90,6 +93,9 @@ async function makeDestination(
       notifyOnSuccess: options.notifyOnSuccess,
       notifyOnFailure: options.notifyOnFailure,
       notifyOnCancelled: options.notifyOnCancelled,
+      signPayload: options.signPayload,
+      customPayloadEnabled: options.customPayloadEnabled,
+      payloadTemplate: options.payloadTemplate,
     },
   });
   return { destination, secret };
@@ -363,6 +369,87 @@ describe("deliverWebhooksForRun", () => {
     expect(receivedHeaders["x-api-key"]).toBe("shared-secret-123");
     expect(receivedHeaders["content-type"]).toBe("application/json");
     expect(receivedHeaders["x-nexus-signature"]).toMatch(/^sha256=/);
+  });
+
+  // issue #224: optional custom JSON payload + optional signing.
+  it("sends the rendered custom payload template instead of the fixed shape when enabled", async () => {
+    const { job, run } = await makeJobAndRun("SUCCESS");
+    let receivedBody = "";
+    const { server: s, url } = await listen((_req, body) => {
+      receivedBody = body;
+    });
+    server = s;
+    const { destination } = await makeDestination(url, {
+      customPayloadEnabled: true,
+      payloadTemplate: '{"custom_status": "{{status}}", "note": "delivered for {{job_name}}"}',
+    });
+    await prisma.jobWebhookDestination.create({ data: { jobId: job.id, webhookDestinationId: destination.id } });
+
+    await deliverWebhooksForRun(run.id, job.id, config, logger);
+
+    expect(JSON.parse(receivedBody)).toEqual({ custom_status: "SUCCESS", note: `delivered for ${job.name}` });
+  });
+
+  it("omits X-Nexus-Signature entirely when signPayload is false", async () => {
+    const { job, run } = await makeJobAndRun("SUCCESS");
+    let receivedHeaders: Record<string, string | string[] | undefined> = {};
+    const { server: s, url } = await listen((req) => {
+      receivedHeaders = req.headers;
+    });
+    server = s;
+    const { destination } = await makeDestination(url, { signPayload: false });
+    await prisma.jobWebhookDestination.create({ data: { jobId: job.id, webhookDestinationId: destination.id } });
+
+    await deliverWebhooksForRun(run.id, job.id, config, logger);
+
+    expect(receivedHeaders["x-nexus-signature"]).toBeUndefined();
+    expect(receivedHeaders["content-type"]).toBe("application/json");
+  });
+
+  it("falls back to the fixed payload shape if customPayloadEnabled is set with no template", async () => {
+    // Shouldn't be reachable through the API (both POST and PATCH
+    // validate the effective state), but a row can predate that
+    // validation or be edited directly — delivery must not crash or
+    // send an empty body.
+    const { job, run } = await makeJobAndRun("SUCCESS");
+    let receivedBody = "";
+    const { server: s, url } = await listen((_req, body) => {
+      receivedBody = body;
+    });
+    server = s;
+    const { destination } = await makeDestination(url, { customPayloadEnabled: true, payloadTemplate: null });
+    await prisma.jobWebhookDestination.create({ data: { jobId: job.id, webhookDestinationId: destination.id } });
+
+    await deliverWebhooksForRun(run.id, job.id, config, logger);
+
+    expect(JSON.parse(receivedBody)).toMatchObject({ runId: run.id, jobId: job.id, status: "SUCCESS" });
+  });
+
+  it("delivers a different rendered body to each destination for the same run", async () => {
+    const { job, run } = await makeJobAndRun("SUCCESS");
+    const bodies: Record<string, string> = {};
+    const { server: s1, url: url1 } = await listen((_req, body) => {
+      bodies.custom = body;
+    });
+    const { server: s2, url: url2 } = await listen((_req, body) => {
+      bodies.fixed = body;
+    });
+    const { destination: customDest } = await makeDestination(url1, {
+      customPayloadEnabled: true,
+      payloadTemplate: '{"only": "{{status}}"}',
+    });
+    const { destination: fixedDest } = await makeDestination(url2);
+    await prisma.jobWebhookDestination.create({ data: { jobId: job.id, webhookDestinationId: customDest.id } });
+    await prisma.jobWebhookDestination.create({ data: { jobId: job.id, webhookDestinationId: fixedDest.id } });
+
+    await deliverWebhooksForRun(run.id, job.id, config, logger);
+
+    expect(JSON.parse(bodies.custom!)).toEqual({ only: "SUCCESS" });
+    expect(JSON.parse(bodies.fixed!)).toMatchObject({ runId: run.id, jobName: job.name });
+    await Promise.all([
+      new Promise<void>((resolve) => s1.close(() => resolve())),
+      new Promise<void>((resolve) => s2.close(() => resolve())),
+    ]);
   });
 
   it("skips a destination whose event selection excludes the run's terminal status", async () => {

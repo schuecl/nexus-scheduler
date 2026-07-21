@@ -117,9 +117,16 @@ interface WebhookDestination {
   notifyOnSuccess: boolean;
   notifyOnFailure: boolean;
   notifyOnCancelled: boolean;
+  // Issue #224.
+  signPayload: boolean;
+  customPayloadEnabled: boolean;
+  payloadTemplate: string | null;
   active: boolean;
   createdAt: string;
 }
+
+const WEBHOOK_TEMPLATE_PLACEHOLDERS =
+  "{{run_id}}, {{job_id}}, {{job_name}}, {{status}}, {{started_at}}, {{completed_at}}, {{output}}, {{error_message}}";
 
 interface WebhookDestinationWithSecret extends WebhookDestination {
   secret: string;
@@ -141,6 +148,9 @@ function WebhookDestinationsPanel() {
   const [notifyOnSuccess, setNotifyOnSuccess] = useState(true);
   const [notifyOnFailure, setNotifyOnFailure] = useState(true);
   const [notifyOnCancelled, setNotifyOnCancelled] = useState(true);
+  const [signPayload, setSignPayload] = useState(true);
+  const [customPayloadEnabled, setCustomPayloadEnabled] = useState(false);
+  const [payloadTemplate, setPayloadTemplate] = useState("");
 
   const [editingDestination, setEditingDestination] = useState<WebhookDestination | null>(null);
   const [editName, setEditName] = useState("");
@@ -149,6 +159,9 @@ function WebhookDestinationsPanel() {
   const [editNotifyOnSuccess, setEditNotifyOnSuccess] = useState(true);
   const [editNotifyOnFailure, setEditNotifyOnFailure] = useState(true);
   const [editNotifyOnCancelled, setEditNotifyOnCancelled] = useState(true);
+  const [editSignPayload, setEditSignPayload] = useState(true);
+  const [editCustomPayloadEnabled, setEditCustomPayloadEnabled] = useState(false);
+  const [editPayloadTemplate, setEditPayloadTemplate] = useState("");
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [revealedSecret, setRevealedSecret] = useState<{ name: string; secret: string } | null>(null);
@@ -170,6 +183,12 @@ function WebhookDestinationsPanel() {
           notifyOnSuccess,
           notifyOnFailure,
           notifyOnCancelled,
+          signPayload,
+          customPayloadEnabled,
+          // Not gated on customPayloadEnabled: a template stays saved
+          // even while the toggle is off, so re-enabling later doesn't
+          // lose it. An empty field means "no template" either way.
+          payloadTemplate: payloadTemplate.trim() ? payloadTemplate : null,
         }),
       }),
     onSuccess: (data) => {
@@ -181,6 +200,9 @@ function WebhookDestinationsPanel() {
       setNotifyOnSuccess(true);
       setNotifyOnFailure(true);
       setNotifyOnCancelled(true);
+      setSignPayload(true);
+      setCustomPayloadEnabled(false);
+      setPayloadTemplate("");
       setRevealedSecret({ name: data.name, secret: data.secret });
     },
   });
@@ -202,6 +224,9 @@ function WebhookDestinationsPanel() {
           notifyOnSuccess: editNotifyOnSuccess,
           notifyOnFailure: editNotifyOnFailure,
           notifyOnCancelled: editNotifyOnCancelled,
+          signPayload: editSignPayload,
+          customPayloadEnabled: editCustomPayloadEnabled,
+          payloadTemplate: editPayloadTemplate.trim() ? editPayloadTemplate : null,
         }),
       }),
     onSuccess: () => {
@@ -319,6 +344,9 @@ function WebhookDestinationsPanel() {
                     setEditNotifyOnSuccess(destination.notifyOnSuccess);
                     setEditNotifyOnFailure(destination.notifyOnFailure);
                     setEditNotifyOnCancelled(destination.notifyOnCancelled);
+                    setEditSignPayload(destination.signPayload);
+                    setEditCustomPayloadEnabled(destination.customPayloadEnabled);
+                    setEditPayloadTemplate(destination.payloadTemplate ?? "");
                   }}
                 >
                   Edit
@@ -391,6 +419,34 @@ function WebhookDestinationsPanel() {
               }}
             />
             <WebhookHeaderEditor headers={headerDrafts} onChange={setHeaderDrafts} />
+            <FormControlLabel
+              control={<Checkbox checked={signPayload} onChange={(e) => setSignPayload(e.target.checked)} />}
+              label="Sign the payload (X-Nexus-Signature header)"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
+              Turn off for a receiver that only checks a baked-in Authorization header (above) and
+              doesn't verify HMAC signatures.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={customPayloadEnabled}
+                  onChange={(e) => setCustomPayloadEnabled(e.target.checked)}
+                />
+              }
+              label="Use a custom JSON payload"
+            />
+            {customPayloadEnabled && (
+              <TextField
+                label="Payload template"
+                value={payloadTemplate}
+                onChange={(e) => setPayloadTemplate(e.target.value)}
+                helperText={`Must render to valid JSON. Wrap every placeholder in double quotes, e.g. "status": "{{status}}". Available: ${WEBHOOK_TEMPLATE_PLACEHOLDERS}`}
+                multiline
+                minRows={4}
+                fullWidth
+              />
+            )}
             {createDestination.isError && (
               <Alert severity="error">
                 {createDestination.error instanceof Error
@@ -405,7 +461,12 @@ function WebhookDestinationsPanel() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            disabled={!name || !url || createDestination.isPending}
+            disabled={
+              !name ||
+              !url ||
+              (customPayloadEnabled && !payloadTemplate.trim()) ||
+              createDestination.isPending
+            }
             onClick={() => createDestination.mutate()}
           >
             Create
@@ -430,6 +491,36 @@ function WebhookDestinationsPanel() {
               }}
             />
             <WebhookHeaderEditor headers={editHeaderDrafts} onChange={setEditHeaderDrafts} />
+            <FormControlLabel
+              control={
+                <Checkbox checked={editSignPayload} onChange={(e) => setEditSignPayload(e.target.checked)} />
+              }
+              label="Sign the payload (X-Nexus-Signature header)"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
+              Turn off for a receiver that only checks a baked-in Authorization header (above) and
+              doesn't verify HMAC signatures.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={editCustomPayloadEnabled}
+                  onChange={(e) => setEditCustomPayloadEnabled(e.target.checked)}
+                />
+              }
+              label="Use a custom JSON payload"
+            />
+            {editCustomPayloadEnabled && (
+              <TextField
+                label="Payload template"
+                value={editPayloadTemplate}
+                onChange={(e) => setEditPayloadTemplate(e.target.value)}
+                helperText={`Must render to valid JSON. Wrap every placeholder in double quotes, e.g. "status": "{{status}}". Available: ${WEBHOOK_TEMPLATE_PLACEHOLDERS}`}
+                multiline
+                minRows={4}
+                fullWidth
+              />
+            )}
             {updateDestination.isError && (
               <Alert severity="error">
                 {updateDestination.error instanceof Error
@@ -444,7 +535,12 @@ function WebhookDestinationsPanel() {
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
-            disabled={!editName || !editUrl || updateDestination.isPending}
+            disabled={
+              !editName ||
+              !editUrl ||
+              (editCustomPayloadEnabled && !editPayloadTemplate.trim()) ||
+              updateDestination.isPending
+            }
             onClick={() => updateDestination.mutate()}
           >
             Save

@@ -2,6 +2,7 @@ import {
   decryptSecret,
   signWebhookPayload,
   buildWebhookDeliveryHeaders,
+  renderWebhookPayloadTemplate,
   type WebhookPayload,
 } from "@nexus-scheduler/shared";
 import { prisma } from "./db.js";
@@ -99,22 +100,52 @@ export async function deliverWebhooksForRun(
     output: run.output,
     errorMessage: run.errorMessage,
   };
-  const rawBody = JSON.stringify(payload);
 
+  // Body is now per-destination (issue #224: each destination can have
+  // its own custom payload template), so it moved from a single
+  // rawBody computed once to an argument built inside deliverOne.
   await Promise.all(
-    eligibleLinks.map((link) => deliverOne(link.webhookDestination, rawBody, runId, config, logger)),
+    eligibleLinks.map((link) => deliverOne(link.webhookDestination, payload, runId, config, logger)),
   );
 }
 
 async function deliverOne(
-  destination: { id: string; name: string; url: string; encryptedHmacSecret: string; headers: unknown },
-  rawBody: string,
+  destination: {
+    id: string;
+    name: string;
+    url: string;
+    encryptedHmacSecret: string;
+    headers: unknown;
+    signPayload: boolean;
+    customPayloadEnabled: boolean;
+    payloadTemplate: string | null;
+  },
+  payload: WebhookPayload,
   runId: string,
   config: WorkerConfig,
   logger: Logger,
 ): Promise<void> {
-  const secret = decryptSecret(destination.encryptedHmacSecret, config.API_KEY_ENCRYPTION_KEY);
-  const signature = signWebhookPayload(rawBody, secret);
+  // customPayloadEnabled without a usable template shouldn't be
+  // reachable — the API validates the effective state on every
+  // POST/PATCH — but a row can predate that validation or be edited
+  // directly, so fall back to the fixed shape rather than sending an
+  // empty/broken body.
+  let rawBody: string;
+  if (destination.customPayloadEnabled && destination.payloadTemplate) {
+    rawBody = renderWebhookPayloadTemplate(destination.payloadTemplate, payload);
+  } else {
+    if (destination.customPayloadEnabled) {
+      logger.warn(
+        { destinationId: destination.id, runId },
+        "webhook destination has customPayloadEnabled but no payloadTemplate — sending the default payload shape",
+      );
+    }
+    rawBody = JSON.stringify(payload);
+  }
+
+  const signature = destination.signPayload
+    ? signWebhookPayload(rawBody, decryptSecret(destination.encryptedHmacSecret, config.API_KEY_ENCRYPTION_KEY))
+    : null;
 
   let lastError: string | undefined;
   let delivered = false;

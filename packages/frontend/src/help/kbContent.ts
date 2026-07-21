@@ -754,8 +754,10 @@ replacement key, then re-enable the paused schedules. See
     content: `
 When a run reaches a terminal state, Nexus Scheduler can POST the result
 to a URL you control — a ticketing system, a chat bridge, your own
-service. Every delivery is **HMAC-signed**, so the receiver can prove it
-came from here and was not tampered with in transit.
+service. By default every delivery is **HMAC-signed**, so the receiver
+can prove it came from here and was not tampered with in transit — a
+destination can opt out of signing instead, for a receiver that
+authenticates purely via a header (see "Sign the payload" below).
 
 ## 1. An admin adds the destination
 
@@ -771,24 +773,61 @@ owners choose from it rather than typing URLs.
 | Name | What Job owners see in the picker |
 | URL | Where deliveries are POSTed |
 | Extra headers | Optional. Merged into every delivery — e.g. an auth token the receiver expects |
+| Sign the payload | On by default. Off skips \`X-Nexus-Signature\` entirely — for a receiver that only checks a baked-in \`Authorization\` header (Bearer or Basic, set via Extra headers above) and doesn't verify HMAC signatures |
+| Use a custom JSON payload | Off by default (the fixed shape in §3 below). On, send your own JSON instead — see "Custom payloads" below |
 | Notify on Success / Failure / Cancelled | Which run outcomes this destination receives |
 | Active | Inactive destinations deliver nothing and disappear from the Job picker |
 
-Two things to know:
+Three things to know:
 
 - **The outcome toggles live on the destination, not the Job.** A
   "success-only" destination stays success-only for every Job attached to
   it. This is separate from a Job's *email* notification settings, which
   have their own Success/Failure switches.
-- \`Content-Type\` and \`X-Nexus-Signature\` **cannot be overridden** by
-  the extra-headers map — the sender fixes both.
+- \`Content-Type\` **cannot be overridden** by the extra-headers map — the
+  sender always fixes it to \`application/json\`, custom payload or not.
+  \`X-Nexus-Signature\` is the same, except it's simply omitted rather than
+  fixed when signing is off.
+- A saved payload template is **not discarded** when you turn "Use a
+  custom JSON payload" off — it stays on file so turning it back on
+  doesn't lose your work.
 
 Saving returns the **HMAC secret in plaintext exactly once**. Copy it
 then and hand it to whoever operates the receiving endpoint; it is never
 shown again. If it is lost or leaked, use **Rotate secret** — which also
-shows the new value only once.
+shows the new value only once. (The secret is still generated even with
+signing off, in case you turn it back on later.)
 
-Use **Send test** to fire a sample delivery before wiring up a Job.
+Use **Send test** to fire a sample delivery before wiring up a Job — it
+sends exactly what a real delivery would: the custom template if one's
+enabled, signed or not per the destination's current settings.
+
+### Custom payloads
+
+Some receivers need their own JSON shape instead of the fixed one below —
+turn on "Use a custom JSON payload" and write a template using
+\`{{placeholder}}\` substitution:
+
+\`\`\`json
+{
+  "event_type": "nexus_scheduler.run.{{status}}",
+  "summary": "{{job_name}} — {{status}}",
+  "details": "{{output}}"
+}
+\`\`\`
+
+Available placeholders: \`{{run_id}}\`, \`{{job_id}}\`, \`{{job_name}}\`,
+\`{{status}}\`, \`{{started_at}}\`, \`{{completed_at}}\`, \`{{output}}\`,
+\`{{error_message}}\`.
+
+**Wrap every placeholder in double quotes.** The value is JSON-escaped
+before it's inserted — the template supplies the quotes, not the
+substitution — so \`"details": "{{output}}"\` is correct and
+\`"details": {{output}}\` is not (run output can contain quotes and line
+breaks; an unquoted placeholder can't safely hold that). The template is
+checked against a sample run when you save it, and rejected with an error
+if it doesn't render to valid JSON — so a broken template can't be saved
+and silently fail on every real run afterward.
 
 ## 2. A Job owner attaches it
 
@@ -826,9 +865,13 @@ become a side channel for document contents.
 
 ## 4. Verifying the signature
 
-Strip the \`sha256=\` prefix, compute HMAC-SHA256 over the **raw body
-bytes** — not a re-serialized object, or whitespace differences change
-the digest — and compare **in constant time**.
+Skip this section for a destination with signing turned off — no
+\`X-Nexus-Signature\` header is sent, by design, and there's nothing to
+verify.
+
+Otherwise: strip the \`sha256=\` prefix, compute HMAC-SHA256 over the
+**raw body bytes** — not a re-serialized object, or whitespace
+differences change the digest — and compare **in constant time**.
 
 \`\`\`js
 import crypto from "node:crypto";
