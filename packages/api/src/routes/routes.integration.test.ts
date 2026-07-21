@@ -196,6 +196,61 @@ describe("project tenancy", () => {
   });
 });
 
+describe("project ACL grantee labels (issue #228)", () => {
+  it("resolves USER/TEAM/ORG grants to a human-readable label instead of the raw type", async () => {
+    const owner = await makeLocalUser();
+    const grantee = await makeLocalUser();
+    await prisma.user.update({ where: { id: grantee.user.id }, data: { displayName: "Jane Grantee" } });
+    const team = await prisma.team.create({ data: { name: "Platform Team" } });
+
+    const ownerAgent = await agentFor(owner.email, owner.password);
+    const project = await ownerAgent.post("/api/projects").send({ name: "Shared" });
+    expect(project.status).toBe(201);
+    const projectId = project.body.id as string;
+
+    const userGrant = await ownerAgent
+      .post(`/api/projects/${projectId}/acl`)
+      .send({ granteeType: "USER", granteeUserId: grantee.user.id, accessLevel: "READ" });
+    expect(userGrant.status).toBe(201);
+    const teamGrant = await ownerAgent
+      .post(`/api/projects/${projectId}/acl`)
+      .send({ granteeType: "TEAM", granteeTeamId: team.id, accessLevel: "EDIT" });
+    expect(teamGrant.status).toBe(201);
+    const orgGrant = await ownerAgent
+      .post(`/api/projects/${projectId}/acl`)
+      .send({ granteeType: "ORG", accessLevel: "READ" });
+    expect(orgGrant.status).toBe(201);
+
+    const list = await ownerAgent.get(`/api/projects/${projectId}/acl`);
+    expect(list.status).toBe(200);
+    const labels = (list.body as { granteeType: string; granteeLabel: string }[]).map((a) => ({
+      type: a.granteeType,
+      label: a.granteeLabel,
+    }));
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        { type: "USER", label: "Jane Grantee" },
+        { type: "TEAM", label: "Platform Team" },
+        { type: "ORG", label: "Everyone in the organization" },
+      ]),
+    );
+  });
+
+  it("falls back to the grantee's email when no displayName is set", async () => {
+    const owner = await makeLocalUser();
+    const grantee = await makeLocalUser();
+
+    const ownerAgent = await agentFor(owner.email, owner.password);
+    const project = await ownerAgent.post("/api/projects").send({ name: "Shared 2" });
+    await ownerAgent
+      .post(`/api/projects/${project.body.id}/acl`)
+      .send({ granteeType: "USER", granteeUserId: grantee.user.id, accessLevel: "READ" });
+
+    const list = await ownerAgent.get(`/api/projects/${project.body.id}/acl`);
+    expect(list.body[0].granteeLabel).toBe(grantee.email);
+  });
+});
+
 // Regression tests for issue #111: the API's half of run cancellation
 // only ever records a request (a durable Redis Set entry + a best-effort
 // pub/sub nudge) — it never writes the Run's terminal state itself, so
@@ -241,6 +296,69 @@ describe("attachment upload size ceiling (#109)", () => {
       .send(JSON.stringify({ filename: "big.pdf", mimeType: "application/pdf", dataBase64: oversized }));
     expect(res.status).toBe(413);
     expect(res.body.error).toMatch(/too large/);
+  });
+});
+
+describe("job attachment content (#229)", () => {
+  it("streams the raw file inline with an RFC 5987-safe filename, and 404s for a foreign job", async () => {
+    const { agent, job } = await makeRunFixture();
+    const { user: otherUser } = await makeLocalUser();
+    const attachment = await prisma.jobAttachment.create({
+      data: {
+        jobId: job.id,
+        filename: "résumé's (scan)*.png",
+        mimeType: "image/png",
+        sizeBytes: 3,
+        data: Buffer.from([1, 2, 3]),
+        createdById: otherUser.id,
+      },
+    });
+
+    const res = await agent.get(`/api/jobs/${job.id}/attachments/${attachment.id}/content`);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.headers["content-disposition"]).toContain("inline");
+    expect(res.headers["content-disposition"]).toContain(
+      "filename*=UTF-8''r%C3%A9sum%C3%A9%27s%20%28scan%29%2A.png",
+    );
+    expect(Buffer.from(res.body as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+
+    // A real attachment id under the wrong jobId must not leak content.
+    const otherJob = await prisma.job.create({
+      data: {
+        projectId: job.projectId,
+        name: "Other job",
+        promptId: job.promptId,
+        agentId: "agent-1",
+        apiKeyId: job.apiKeyId,
+        createdById: job.createdById,
+      },
+    });
+    const crossJob = await agent.get(`/api/jobs/${otherJob.id}/attachments/${attachment.id}/content`);
+    expect(crossJob.status).toBe(404);
+  });
+
+  it("records a data_access audit event for the view", async () => {
+    const { agent, job } = await makeRunFixture();
+    const attachment = await prisma.jobAttachment.create({
+      data: {
+        jobId: job.id,
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 3,
+        data: Buffer.from("pdf"),
+        createdById: job.createdById,
+      },
+    });
+
+    const res = await agent.get(`/api/jobs/${job.id}/attachments/${attachment.id}/content`);
+    expect(res.status).toBe(200);
+
+    const events = await prisma.auditEvent.findMany({ where: { action: "job.attachment_view" } });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.targetId).toBe(job.id);
+    expect(events[0]!.targetName).toBe("report.pdf");
+    expect(events[0]!.category).toBe("data_access");
   });
 });
 

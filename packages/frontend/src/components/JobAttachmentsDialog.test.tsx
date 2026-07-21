@@ -38,10 +38,11 @@ describe("JobAttachmentsDialog", () => {
     expect(await screen.findByText("invoice-scan.png")).toBeInTheDocument();
     expect(screen.getByText(/image\/png · 37\.6 KB/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "delete invoice-scan.png" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "preview invoice-scan.png" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Upload file/ })).toBeInTheDocument();
   });
 
-  it("hides upload and delete affordances without canEdit", async () => {
+  it("hides upload and delete affordances without canEdit, but keeps preview", async () => {
     apiFetchMock.mockResolvedValue([
       {
         id: "att-1",
@@ -56,6 +57,68 @@ describe("JobAttachmentsDialog", () => {
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Upload file/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "preview report.pdf" })).toBeInTheDocument();
+  });
+
+  it("previews a PDF inline via an iframe pointed at the content endpoint", async () => {
+    apiFetchMock.mockResolvedValue([
+      {
+        id: "att-1",
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        createdAt: "2026-07-17T22:00:00Z",
+      },
+    ]);
+    renderDialog(true);
+    await screen.findByText("report.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: "preview report.pdf" }));
+
+    const iframe = await screen.findByTitle("report.pdf");
+    expect(iframe.tagName).toBe("IFRAME");
+    expect(iframe).toHaveAttribute("src", "/api/jobs/job-1/attachments/att-1/content");
+  });
+
+  it("previews an image inline via an img tag pointed at the content endpoint", async () => {
+    apiFetchMock.mockResolvedValue([
+      {
+        id: "att-2",
+        filename: "scan.png",
+        mimeType: "image/png",
+        sizeBytes: 2048,
+        createdAt: "2026-07-17T22:00:00Z",
+      },
+    ]);
+    renderDialog(true);
+    await screen.findByText("scan.png");
+
+    fireEvent.click(screen.getByRole("button", { name: "preview scan.png" }));
+
+    const img = await screen.findByAltText("scan.png");
+    expect(img).toHaveAttribute("src", "/api/jobs/job-1/attachments/att-2/content");
+  });
+
+  it("falls back to a download prompt for TIFF, which browsers can't render inline", async () => {
+    apiFetchMock.mockResolvedValue([
+      {
+        id: "att-3",
+        filename: "scan.tif",
+        mimeType: "image/tiff",
+        sizeBytes: 4096,
+        createdAt: "2026-07-17T22:00:00Z",
+      },
+    ]);
+    renderDialog(true);
+    await screen.findByText("scan.tif");
+
+    fireEvent.click(screen.getByRole("button", { name: "preview scan.tif" }));
+
+    expect(await screen.findByText(/can't render image\/tiff inline/)).toBeInTheDocument();
+    expect(screen.queryByAltText("scan.tif")).not.toBeInTheDocument();
+    const downloadLink = screen.getByRole("link", { name: /Download/ });
+    expect(downloadLink).toHaveAttribute("href", "/api/jobs/job-1/attachments/att-3/content");
+    expect(downloadLink).toHaveAttribute("download", "scan.tif");
   });
 
   it("rejects an unsupported file type client-side without calling the API", async () => {

@@ -85,6 +85,9 @@ interface ProjectAcl {
   granteeUserId: string | null;
   granteeTeamId: string | null;
   accessLevel: "READ" | "EDIT";
+  // Resolved server-side (issue #228) — the grantee's full name/email
+  // (user) or name (team), or "Everyone in the organization" for ORG.
+  granteeLabel: string;
 }
 
 function ClassificationBadge({ label }: { label: ClassificationLabel | null }) {
@@ -1190,7 +1193,7 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
                     void (async () => {
                       const ok = await confirm({
                         title: "Revoke access?",
-                        message: `Revoke ${acl.accessLevel} access for this ${acl.granteeType.toLowerCase()}${acl.granteeType === "ORG" ? " (everyone)" : ""}?`,
+                        message: `Revoke ${acl.accessLevel} access for ${acl.granteeLabel}?`,
                         confirmLabel: "Revoke",
                         icon: <RemoveCircleOutlineIcon />,
                       });
@@ -1203,7 +1206,10 @@ function ProjectSharingPanel({ projectId }: { projectId: string }) {
               </Stack>
             }
           >
-            <ListItemText primary={`${acl.granteeType}${acl.granteeType === "ORG" ? " (everyone)" : ""}`} />
+            <ListItemText
+              primary={acl.granteeLabel}
+              secondary={acl.granteeType === "TEAM" ? "Team" : acl.granteeType === "USER" ? "User" : "Organization-wide"}
+            />
           </ListItem>
         ))}
         {aclQuery.data?.length === 0 && (

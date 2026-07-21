@@ -1179,7 +1179,13 @@ There are two ways to use it.
      invisible text layer) as a downloadable artifact,
    - the agent's answer, informed by the documents.
 
-Every upload, delete, and artifact download is audit-logged. If the OCR
+Click the eye icon next to any attachment to **preview** it — PDFs and
+PNG/JPEG/BMP/WebP images render inline, right in the dialog, without
+downloading anything first. TIFF is the one exception: no mainstream
+browser renders it inline, so that preview offers a Download button
+instead of a broken image.
+
+Every upload, delete, and preview/download is audit-logged. If the OCR
 service is not deployed, Jobs with attachments still run — without
 extraction, and each run logs a warning saying so.
 
