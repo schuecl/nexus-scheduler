@@ -7,7 +7,7 @@ image:
   # registry the images were relocated to (REQUIREMENTS §3/§9.1).
   registry: "registry.example.internal"
   repository: "nexus-scheduler"
-  tag: "0.1.9"
+  tag: "0.2.0"
   pullPolicy: IfNotPresent
 
 api:
