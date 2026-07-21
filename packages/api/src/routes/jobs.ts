@@ -209,9 +209,27 @@ export function createJobsRouter(): Router {
     res.status(204).send();
   }));
 
+  // Which of the current user's saved mailing lists (issue #219) are
+  // attached to this Job's notifications — the available options in the
+  // picker come from that user's own lists (mailingLists.ts: ownership
+  // is per-user, not a shared catalog like webhook destinations), but
+  // what's actually attached here may include a list owned by whoever
+  // last saved these settings, which is why this returns whatever is
+  // attached rather than filtering by the caller's ownership.
+  router.get("/:id/mailing-lists", requireAuth, requireJobAccess("READ"), asyncHandler(async (req, res) => {
+    const links = await prisma.jobMailingList.findMany({
+      where: { jobId: req.params.id },
+      include: { mailingList: { select: { id: true, name: true } } },
+    });
+    res.json(links.map((l) => l.mailingList));
+  }));
+
   // Per-job email notification preferences (§2.2) — sent to the Job
   // owner (createdBy) on completion/failure, independent of the
-  // admin-allow-listed webhook delivery above.
+  // admin-allow-listed webhook delivery above. mailingListIds (§219)
+  // replaces the full attached set in one call, same convention as
+  // PUT /:id/webhooks, alongside the scalar fields which replace via a
+  // plain column update.
   router.put("/:id/notifications", requireAuth, requireJobAccess("EDIT"), asyncHandler(async (req, res) => {
     const parsed = setJobNotificationsSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -219,9 +237,47 @@ export function createJobsRouter(): Router {
       return;
     }
     const user = req.session.user!;
+    const jobId = req.params.id!;
+    const { mailingListIds, ...notificationFields } = parsed.data;
 
-    const existing = await prisma.job.findUniqueOrThrow({ where: { id: req.params.id } });
-    const job = await prisma.job.update({ where: { id: req.params.id }, data: parsed.data });
+    if (mailingListIds.length > 0) {
+      const count = await prisma.mailingList.count({
+        where: { id: { in: mailingListIds }, ...(user.role === "ADMIN" ? {} : { createdById: user.id }) },
+      });
+      if (count !== mailingListIds.length) {
+        res.status(400).json({ error: "one or more mailingListIds are not a valid mailing list you own" });
+        return;
+      }
+    }
+
+    const [existing, existingLinks] = await Promise.all([
+      prisma.job.findUniqueOrThrow({ where: { id: jobId } }),
+      prisma.jobMailingList.findMany({ where: { jobId }, select: { mailingListId: true } }),
+    ]);
+    const beforeLists = existingLinks.map((l) => l.mailingListId).sort();
+    const afterLists = [...mailingListIds].sort();
+
+    const job = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        ...notificationFields,
+        mailingListLinks: {
+          deleteMany: {},
+          create: mailingListIds.map((mailingListId) => ({ mailingListId })),
+        },
+      },
+    });
+
+    const scalarChanges = diffChangedFields(
+      existing,
+      job,
+      Object.keys(notificationFields) as (keyof typeof existing)[],
+    );
+    const listsChanged = JSON.stringify(beforeLists) !== JSON.stringify(afterLists);
+    const changes =
+      scalarChanges || listsChanged
+        ? { ...scalarChanges, ...(listsChanged ? { mailingListIds: { from: beforeLists, to: afterLists } } : {}) }
+        : undefined;
 
     await recordAuditEvent({
       req,
@@ -233,7 +289,7 @@ export function createJobsRouter(): Router {
       targetId: job.id,
       targetName: job.name,
       category: "lifecycle",
-      changes: diffChangedFields(existing, job, Object.keys(parsed.data) as (keyof typeof existing)[]),
+      changes,
       result: "SUCCESS",
     });
 

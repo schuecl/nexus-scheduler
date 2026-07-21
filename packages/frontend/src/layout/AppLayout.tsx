@@ -8,6 +8,7 @@ import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
+import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import KeyboardOutlinedIcon from "@mui/icons-material/KeyboardOutlined";
@@ -26,6 +27,7 @@ const NAV_LINKS = [
   { to: "/schedules", label: "Approvals", icon: <FactCheckOutlinedIcon fontSize="small" /> },
   { to: "/teams", label: "Teams", icon: <GroupsOutlinedIcon fontSize="small" /> },
   { to: "/api-keys", label: "API Keys", icon: <VpnKeyOutlinedIcon fontSize="small" /> },
+  { to: "/mailing-lists", label: "Mailing Lists", icon: <MailOutlineIcon fontSize="small" /> },
   { to: "/admin", label: "Admin", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" /> },
 ];
 

@@ -46,6 +46,12 @@ export const setJobNotificationsSchema = z.object({
     .nullable()
     .optional(),
   emailBodyTemplate: z.string().trim().min(1).max(5000).nullable().optional(),
+  // Saved mailing lists (issue #219) attached to this Job — expanded to
+  // their raw email addresses at send time, alongside ccRecipients.
+  // Capped well below ccRecipients' 10: a handful of lists is already a
+  // proxy for a lot of recipients, and a Job that needs more than this
+  // probably wants a bigger list, not more list slots.
+  mailingListIds: z.array(z.string().uuid()).max(5).default([]),
 });
 export type SetJobNotificationsInput = z.infer<typeof setJobNotificationsSchema>;
 

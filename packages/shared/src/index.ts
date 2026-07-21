@@ -11,6 +11,7 @@ export * from "./schemas/project.js";
 export * from "./schemas/prompt.js";
 export * from "./schemas/apiKey.js";
 export * from "./schemas/webhook.js";
+export * from "./schemas/mailingList.js";
 export * from "./schemas/settings.js";
 export * from "./schemas/color.js";
 export * from "./schemas/url.js";

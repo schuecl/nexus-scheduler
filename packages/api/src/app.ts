@@ -22,6 +22,7 @@ import { createJobRunsRouter, createRunsRouter } from "./routes/runs.js";
 import { createJobAttachmentsRouter } from "./routes/attachments.js";
 import { createDashboardRouter } from "./routes/dashboard.js";
 import { createWebhookDestinationsRouter } from "./routes/webhookDestinations.js";
+import { createMailingListsRouter } from "./routes/mailingLists.js";
 import { createSettingsRouter } from "./routes/settings.js";
 import { createCostRatesRouter } from "./routes/costRates.js";
 import { createAdminReportsRouter } from "./routes/adminReports.js";
@@ -129,6 +130,7 @@ export function createApp(config: AppConfig, logger: Logger): Express {
   app.use("/api/classification-labels", createClassificationLabelsRouter());
   app.use("/api/api-keys", createApiKeysRouter(config));
   app.use("/api/webhook-destinations", createWebhookDestinationsRouter(config));
+  app.use("/api/mailing-lists", createMailingListsRouter());
   app.use("/api/settings", createSettingsRouter(config));
   app.use("/api/cost-rates", createCostRatesRouter());
   app.use("/api/admin", createAdminReportsRouter(config));

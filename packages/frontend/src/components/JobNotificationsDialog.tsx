@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Button,
@@ -15,7 +15,13 @@ import {
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import NotificationsIcon from "@mui/icons-material/Notifications";
+import { Link as RouterLink } from "react-router-dom";
 import { apiFetch } from "../api/client";
+
+interface MailingListOption {
+  id: string;
+  name: string;
+}
 
 export interface JobNotificationSettings {
   notifyOnSuccess: boolean;
@@ -59,6 +65,48 @@ export function JobNotificationsDialog({
   const [ccRecipientsText, setCcRecipientsText] = useState(initial.ccRecipients.join(", "));
   const [subjectText, setSubjectText] = useState(initial.emailSubjectTemplate ?? "");
   const [bodyText, setBodyText] = useState(initial.emailBodyTemplate ?? "");
+  const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
+
+  // Saved mailing lists (issue #219) — the picker's options are the
+  // current user's own lists; what's currently attached may include a
+  // list owned by whoever last saved these settings (see jobs.ts's
+  // GET /:id/mailing-lists), so the two queries are independent.
+  const myListsQuery = useQuery({
+    queryKey: ["mailing-lists"],
+    queryFn: () => apiFetch<MailingListOption[]>("/api/mailing-lists"),
+  });
+  const attachedListsQuery = useQuery({
+    queryKey: ["jobs", jobId, "mailing-lists"],
+    queryFn: () => apiFetch<MailingListOption[]>(`/api/jobs/${jobId}/mailing-lists`),
+  });
+
+  useEffect(() => {
+    if (attachedListsQuery.data) {
+      setSelectedListIds(new Set(attachedListsQuery.data.map((l) => l.id)));
+    }
+  }, [attachedListsQuery.data]);
+
+  const toggleList = (id: string) => {
+    setSelectedListIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // The picker only offers the caller's own lists, but a previously
+  // attached list owned by someone else must not silently vanish from
+  // the selection just because it isn't in that picker — union both
+  // sets so it still renders (as an unlabeled/foreign entry) and stays
+  // selected unless explicitly unchecked.
+  const listOptions = [
+    ...(myListsQuery.data ?? []),
+    ...(attachedListsQuery.data ?? []).filter((l) => !myListsQuery.data?.some((m) => m.id === l.id)),
+  ];
 
   const ccRecipients = parseCcRecipients(ccRecipientsText);
   const invalidCcRecipients = ccRecipients.filter((r) => !EMAIL_RE.test(r));
@@ -89,10 +137,12 @@ export function JobNotificationsDialog({
           ccRecipients,
           emailSubjectTemplate: subjectText.trim() || null,
           emailBodyTemplate: bodyText.trim() || null,
+          mailingListIds: [...selectedListIds],
         }),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs", jobId, "mailing-lists"] });
       onClose();
     },
   });
@@ -146,6 +196,27 @@ export function JobNotificationsDialog({
             helperText={ccRecipientsError ?? `Up to ${MAX_CC_RECIPIENTS} additional recipients.`}
             fullWidth
           />
+          <Typography variant="subtitle2" sx={{ mt: 1 }}>
+            Mailing lists
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Saved lists of addresses (issue #219), sent alongside the recipients above. Manage
+            your lists on the <RouterLink to="/mailing-lists">Mailing Lists</RouterLink> page.
+          </Typography>
+          <Stack spacing={0}>
+            {listOptions.map((list) => (
+              <FormControlLabel
+                key={list.id}
+                control={<Checkbox checked={selectedListIds.has(list.id)} onChange={() => toggleList(list.id)} />}
+                label={list.name}
+              />
+            ))}
+            {listOptions.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No mailing lists yet.
+              </Typography>
+            )}
+          </Stack>
           <Typography variant="subtitle2" sx={{ mt: 1 }}>
             Custom message (optional)
           </Typography>

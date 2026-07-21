@@ -335,7 +335,12 @@ You need, in order:
 Per Job, you can turn on an email when a run succeeds and/or fails:
 
 - Sent to the **Job owner**, plus up to **10 additional recipients** you
-  list.
+  list, plus anyone in up to **5 saved mailing lists** you attach.
+- **Mailing lists** are your own saved, reusable groups of addresses —
+  create and manage them from the **Mailing Lists** page in the nav, then
+  check the ones you want in a Job's notification settings instead of
+  retyping the same recipients on every Job. Only you can see and manage
+  your own lists.
 - Optionally **attach a PDF report** of the run instead of inline text.
 - Optionally set a **custom subject and body** instead of the default —
   supports \`{{job_name}}\`, \`{{status}}\`, \`{{run_id}}\`,

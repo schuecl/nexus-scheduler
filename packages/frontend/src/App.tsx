@@ -13,6 +13,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { PromptLibraryPage } from "./pages/PromptLibraryPage";
 import { TeamsPage } from "./pages/TeamsPage";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
+import { MailingListsPage } from "./pages/MailingListsPage";
 import { AdminPage } from "./pages/AdminPage";
 import { SystemMapPage } from "./pages/SystemMapPage";
 import { KnowledgeBasePage } from "./pages/KnowledgeBasePage";
@@ -63,6 +64,7 @@ function ThemedApp() {
                 <Route path="/prompts" element={<RequireAuth><PromptLibraryPage /></RequireAuth>} />
                 <Route path="/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
                 <Route path="/api-keys" element={<RequireAuth><ApiKeysPage /></RequireAuth>} />
+                <Route path="/mailing-lists" element={<RequireAuth><MailingListsPage /></RequireAuth>} />
                 <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
                 <Route path="/admin/system-map" element={<RequireAuth><SystemMapPage /></RequireAuth>} />
                 <Route path="/help" element={<RequireAuth><KnowledgeBasePage /></RequireAuth>} />

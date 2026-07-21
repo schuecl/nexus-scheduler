@@ -55,6 +55,7 @@ model User {
   schedulesCreated   Schedule[]
   promptFavorites    PromptFavorite[]
   teamsCreated       Team[]
+  mailingLists       MailingList[]
 
   @@map("users")
   jobAttachments JobAttachment[]
@@ -304,6 +305,7 @@ model Job {
   schedules      Schedule[]
   runs           Run[]
   webhookLinks   JobWebhookDestination[]
+  mailingListLinks JobMailingList[]
   attachments    JobAttachment[]
 
   @@index([projectId])
@@ -492,6 +494,44 @@ model JobWebhookDestination {
 
   @@id([jobId, webhookDestinationId])
   @@map("job_webhook_destinations")
+}
+
+// ---------------------------------------------------------------------------
+// Mailing lists (issue #219) — a saved, reusable set of notification
+// recipients. Unlike WebhookDestination (an admin-maintained allow-list,
+// §2.2/§10), a mailing list is a personal resource: owned by whoever
+// created it, visible only to its owner (or an admin), same ownership
+// shape as a personal ApiKey. Attaching one to a Job expands to its raw
+// email addresses at send time (packages/worker/src/notifications.ts) —
+// alongside, not instead of, the Job's own free-text ccRecipients.
+// ---------------------------------------------------------------------------
+
+model MailingList {
+  id          String   @id @default(uuid())
+  name        String
+  // Raw email strings, same convention as Job.ccRecipients — validated
+  // for shape only (createMailingListSchema), never checked against a
+  // real User row. Capped at 100 per list at the schema layer.
+  emails      String[] @default([])
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  jobLinks JobMailingList[]
+
+  @@index([createdById])
+  @@map("mailing_lists")
+}
+
+model JobMailingList {
+  jobId         String
+  mailingListId String
+  job           Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  mailingList   MailingList @relation(fields: [mailingListId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, mailingListId])
+  @@map("job_mailing_lists")
 }
 
 // ---------------------------------------------------------------------------

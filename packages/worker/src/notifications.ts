@@ -7,6 +7,22 @@ import { renderNotificationTemplate } from "./notificationTemplate.js";
 import type { Logger } from "./logger.js";
 import type { WorkerConfig } from "./config.js";
 
+// Owner + free-text ccRecipients + every attached mailing list's
+// addresses (issue #219), deduplicated — a list and ccRecipients can
+// legitimately overlap (someone typed an address that's also in a
+// saved list), and sending the same person the notification twice
+// reads as a bug, not a feature. A plain function (no I/O) so the
+// recipient-computation logic is testable without a database or SMTP
+// server — see notifications.test.ts.
+export function computeNotificationRecipients(job: {
+  createdBy: { email: string };
+  ccRecipients: string[];
+  mailingListLinks: { mailingList: { emails: string[] } }[];
+}): string[] {
+  const mailingListEmails = job.mailingListLinks.flatMap((link) => link.mailingList.emails);
+  return Array.from(new Set([job.createdBy.email, ...job.ccRecipients, ...mailingListEmails]));
+}
+
 // Sends a completion/failure email to the Job owner (§2.2), optionally
 // with the run's PDF report attached (§2.5's "instead of, or alongside,
 // inline text" — here it replaces the inline output to avoid a large
@@ -21,7 +37,14 @@ export async function sendRunNotificationEmail(
 ): Promise<void> {
   const job = await prisma.job.findUniqueOrThrow({
     where: { id: jobId },
-    include: { createdBy: true, project: { include: { classificationLabel: true } } },
+    include: {
+      createdBy: true,
+      project: { include: { classificationLabel: true } },
+      // Saved mailing lists (issue #219) attached to this Job — expanded
+      // to their raw addresses below, alongside ccRecipients. Only the
+      // addresses are needed here, not the list's name/ownership.
+      mailingListLinks: { include: { mailingList: { select: { emails: true } } } },
+    },
   });
   // Explicit select: the email/PDF uses run metadata + output only —
   // without it, every notification for a run with attachments would
@@ -129,7 +152,7 @@ export async function sendRunNotificationEmail(
       : bodyLines.join("\n");
     const html = job.emailBodyTemplate ? renderMarkdownToSafeHtml(text) : undefined;
 
-    const recipients = [job.createdBy.email, ...job.ccRecipients].join(", ");
+    const recipients = computeNotificationRecipients(job).join(", ");
     await sendEmail(config, recipients, subject, text, { html, attachments });
 
     await recordAuditEvent({
