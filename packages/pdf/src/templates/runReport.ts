@@ -12,7 +12,10 @@ export interface RunReportClassification {
 export interface RunReportData {
   productName: string;
   primaryColor: string;
-  banner: ClassificationBannerInfo;
+  // null when the admin has the classification banner disabled (issue
+  // #228) — the report then carries no header/footer banner at all,
+  // same as the web UI showing none.
+  banner: ClassificationBannerInfo | null;
   classification: RunReportClassification | null;
   jobName: string;
   runId: string;
@@ -115,7 +118,7 @@ export function buildRunReportHtml(data: RunReportData): string {
 // Convenience wrapper: builds the run report HTML and applies the
 // classification banner as the PDF's header/footer in one call.
 export async function renderRunReportPdf(data: RunReportData): Promise<Buffer> {
-  const bannerTemplate = buildBannerTemplate(data.banner);
+  const bannerTemplate = data.banner ? buildBannerTemplate(data.banner) : undefined;
   return renderHtmlToPdf(buildRunReportHtml(data), {
     headerTemplate: bannerTemplate,
     footerTemplate: bannerTemplate,

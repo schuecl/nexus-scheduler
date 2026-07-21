@@ -60,11 +60,13 @@ export function startUsageReportLoop(config: WorkerConfig, logger: Logger): Node
       const pdf = await requestUsageReportPdf(config.PDF_SERVICE_URL, {
         productName: settings.productName,
         primaryColor: settings.primaryColor,
-        banner: {
-          text: settings.classificationBannerText,
-          backgroundColor: settings.classificationBannerBgColor,
-          textColor: settings.classificationBannerTextColor,
-        },
+        banner: settings.classificationBannerEnabled
+          ? {
+              text: settings.classificationBannerText,
+              backgroundColor: settings.classificationBannerBgColor,
+              textColor: settings.classificationBannerTextColor,
+            }
+          : null,
         periodStart: periodStart.toLocaleDateString(),
         periodEnd: now.toLocaleDateString(),
         generatedAt: now.toLocaleString(),

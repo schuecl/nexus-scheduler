@@ -275,11 +275,13 @@ export function createRunsRouter(config: AppConfig, redisClient: Redis): Router 
     const pdf = await requestRunReportPdf(config.PDF_SERVICE_URL, {
       productName: settings.productName,
       primaryColor: settings.primaryColor,
-      banner: {
-        text: settings.classificationBannerText,
-        backgroundColor: settings.classificationBannerBgColor,
-        textColor: settings.classificationBannerTextColor,
-      },
+      banner: settings.classificationBannerEnabled
+        ? {
+            text: settings.classificationBannerText,
+            backgroundColor: settings.classificationBannerBgColor,
+            textColor: settings.classificationBannerTextColor,
+          }
+        : null,
       classification: label
         ? {
             text: label.abbreviation ? `${label.text} (${label.abbreviation})` : label.text,

@@ -14,7 +14,7 @@
 export interface RunReportPdfRequest {
   productName: string;
   primaryColor: string;
-  banner: { text: string; backgroundColor: string; textColor: string };
+  banner: { text: string; backgroundColor: string; textColor: string } | null;
   classification: { text: string; badgeBgColor: string; badgeTextColor: string } | null;
   jobName: string;
   runId: string;
@@ -33,7 +33,7 @@ export interface RunReportPdfRequest {
 export interface UsageReportPdfRequest {
   productName: string;
   primaryColor: string;
-  banner: { text: string; backgroundColor: string; textColor: string };
+  banner: { text: string; backgroundColor: string; textColor: string } | null;
   periodStart: string;
   periodEnd: string;
   generatedAt: string;

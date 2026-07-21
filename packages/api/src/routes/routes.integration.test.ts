@@ -46,6 +46,10 @@ async function resetDb() {
   await prisma.team.deleteMany({});
   await prisma.user.deleteMany({});
   await prisma.auditEvent.deleteMany({});
+  // Singleton row (id 1) — cleared too, so a test that flips a toggle
+  // (e.g. classificationBannerEnabled, issue #231) can't leak into the
+  // next test via the upsert-on-read default.
+  await prisma.appSettings.deleteMany({});
 }
 
 beforeEach(resetDb);
@@ -296,6 +300,40 @@ describe("attachment upload size ceiling (#109)", () => {
       .send(JSON.stringify({ filename: "big.pdf", mimeType: "application/pdf", dataBase64: oversized }));
     expect(res.status).toBe(413);
     expect(res.body.error).toMatch(/too large/);
+  });
+});
+
+describe("classification banner toggle (issue #231)", () => {
+  it("defaults to disabled, and is publicly readable pre-auth", async () => {
+    const res = await request(app).get("/api/settings");
+    expect(res.status).toBe(200);
+    expect(res.body.classificationBannerEnabled).toBe(false);
+  });
+
+  it("lets an admin enable it, and the change is reflected on the public and admin endpoints", async () => {
+    const { email, password } = await makeLocalUser("ADMIN");
+    const agent = await agentFor(email, password);
+
+    const patch = await agent.patch("/api/settings").send({ classificationBannerEnabled: true });
+    expect(patch.status).toBe(200);
+    expect(patch.body.classificationBannerEnabled).toBe(true);
+
+    const publicSettings = await request(app).get("/api/settings");
+    expect(publicSettings.body.classificationBannerEnabled).toBe(true);
+
+    const adminSettings = await agent.get("/api/settings/admin");
+    expect(adminSettings.body.classificationBannerEnabled).toBe(true);
+
+    const events = await prisma.auditEvent.findMany({ where: { action: "system_settings.update" } });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.changes).toMatchObject({ classificationBannerEnabled: { from: false, to: true } });
+  });
+
+  it("rejects a non-admin's attempt to enable it", async () => {
+    const { email, password } = await makeLocalUser("EDITOR");
+    const agent = await agentFor(email, password);
+    const res = await agent.patch("/api/settings").send({ classificationBannerEnabled: true });
+    expect(res.status).toBe(403);
   });
 });
 

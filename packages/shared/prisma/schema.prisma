@@ -595,9 +595,13 @@ model AppSettings {
   productName                    String   @default("Nexus Scheduler")
   logoUrl                        String?
   primaryColor                   String   @default("#1565c0")
-  // Loud, obviously-wrong defaults on purpose — REQUIREMENTS §6 requires
-  // this be explicitly configured; a plausible-looking default (e.g.
-  // "UNCLASSIFIED") would risk masking a deployment that never set it.
+  // Off by default (issue #228) — a deployment that doesn't need the
+  // marking just leaves it disabled, same posture as the consent banner
+  // below. Loud, obviously-wrong text/color defaults remain on purpose
+  // for when an admin *does* flip it on but hasn't set real values yet:
+  // a plausible-looking default (e.g. "UNCLASSIFIED") would risk masking
+  // a deployment that enabled the banner without configuring it.
+  classificationBannerEnabled    Boolean  @default(false)
   classificationBannerText       String   @default("UNCONFIGURED — SET CLASSIFICATION BANNER IN ADMIN SETTINGS")
   classificationBannerBgColor    String   @default("#b71c1c")
   classificationBannerTextColor  String   @default("#ffffff")
@@ -640,11 +644,12 @@ model AppSettings {
   usageReportRecipients          String[]              @default([])
   usageReportFrequency           UsageReportFrequency  @default(WEEKLY)
   usageReportLastSentAt          DateTime?
-  // Login-screen consent/warning banner (§40) — off by default (unlike
-  // the classification banner above, this has no legitimate "unconfigured
-  // but loud about it" state; a deployment that doesn't need one just
-  // leaves it disabled). Publicly readable (GET /api/settings) since the
-  // login page renders it before any authentication happens.
+  // Login-screen consent/warning banner (§40) — off by default, same as
+  // the classification banner above; unlike that one, this has no
+  // "unconfigured but loud about it" placeholder text since an empty
+  // title/body just renders nothing extra. Publicly readable (GET
+  // /api/settings) since the login page renders it before any
+  // authentication happens.
   consentBannerEnabled              Boolean  @default(false)
   consentBannerTitle                String   @default("")
   consentBannerBody                 String   @default("")

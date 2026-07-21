@@ -11,6 +11,9 @@ export const updateAppSettingsSchema = z.object({
   productName: z.string().min(1).max(100).optional(),
   logoUrl: httpUrlSchema.nullable().optional(),
   primaryColor: cssColorSchema.optional(),
+  // Off by default (issue #228) — text/colors below are independent of
+  // whether the banner is actually shown.
+  classificationBannerEnabled: z.boolean().optional(),
   classificationBannerText: z.string().min(1).max(200).optional(),
   classificationBannerBgColor: cssColorSchema.optional(),
   classificationBannerTextColor: cssColorSchema.optional(),
@@ -40,8 +43,8 @@ export const updateAppSettingsSchema = z.object({
   usageReportRecipients: z.array(z.string().email()).optional(),
   usageReportFrequency: z.enum(["WEEKLY", "MONTHLY"]).optional(),
   // Login-screen consent/warning banner (§40) — independent of the
-  // classification banner above (that one is unconditional; this one is
-  // opt-in and only shown pre-login).
+  // classification banner above (both are opt-in; this one only ever
+  // shows pre-login, on every page for that one).
   consentBannerEnabled: z.boolean().optional(),
   consentBannerTitle: z.string().max(200).optional(),
   consentBannerBody: z.string().max(4000).optional(),

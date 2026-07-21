@@ -4,9 +4,9 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 // Gates every route except /login and /reset-password — an
-// unauthenticated visitor should see nothing but the login screen
-// (plus the always-on classification banner, which AppLayout handles
-// independently of auth state per §6).
+// unauthenticated visitor should see nothing but the login screen (plus
+// the classification banner, if an admin has enabled it — AppLayout
+// renders that independently of auth state, per §6).
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 

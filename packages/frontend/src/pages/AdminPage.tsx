@@ -47,6 +47,7 @@ import LockResetIcon from "@mui/icons-material/LockReset";
 import ShuffleIcon from "@mui/icons-material/Shuffle";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import PolicyIcon from "@mui/icons-material/Policy";
+import FlagIcon from "@mui/icons-material/Flag";
 import { useAuth } from "../context/AuthContext";
 import { Link as RouterLink } from "react-router-dom";
 import { SystemStatusSummary } from "../components/SystemStatusGraph";
@@ -640,6 +641,7 @@ interface AdminSettings {
   productName: string;
   logoUrl: string | null;
   primaryColor: string;
+  classificationBannerEnabled: boolean;
   classificationBannerText: string;
   classificationBannerBgColor: string;
   classificationBannerTextColor: string;
@@ -679,6 +681,7 @@ function SystemSettingsPanel() {
   const [productName, setProductName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#1565c0");
+  const [classificationBannerEnabled, setClassificationBannerEnabled] = useState(false);
   const [bannerText, setBannerText] = useState("");
   const [bannerBg, setBannerBg] = useState("");
   const [bannerFg, setBannerFg] = useState("");
@@ -713,6 +716,7 @@ function SystemSettingsPanel() {
     setProductName(s.productName);
     setLogoUrl(s.logoUrl ?? "");
     setPrimaryColor(s.primaryColor);
+    setClassificationBannerEnabled(s.classificationBannerEnabled);
     setBannerText(s.classificationBannerText);
     setBannerBg(s.classificationBannerBgColor);
     setBannerFg(s.classificationBannerTextColor);
@@ -745,6 +749,7 @@ function SystemSettingsPanel() {
           productName,
           logoUrl: logoUrl || null,
           primaryColor,
+          classificationBannerEnabled,
           classificationBannerText: bannerText,
           classificationBannerBgColor: bannerBg,
           classificationBannerTextColor: bannerFg,
@@ -806,11 +811,7 @@ function SystemSettingsPanel() {
   return (
     <Box>
       <Typography variant="h6" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <PaletteIcon /> Branding &amp; Classification Banner
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        The banner below is the single, static banner shown at the top and bottom of every page —
-        independent of the per-Project/Prompt classification labels further down this page.
+        <PaletteIcon /> Branding
       </Typography>
 
       <Stack spacing={2} sx={{ maxWidth: 480 }}>
@@ -822,24 +823,6 @@ function SystemSettingsPanel() {
           value={primaryColor}
           onChange={(e) => setPrimaryColor(e.target.value)}
         />
-        <Divider />
-        <TextField label="Classification banner text" value={bannerText} onChange={(e) => setBannerText(e.target.value)} />
-        <Stack direction="row" spacing={2}>
-          <TextField
-            label="Banner background color"
-            type="color"
-            value={bannerBg}
-            onChange={(e) => setBannerBg(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Banner text color"
-            type="color"
-            value={bannerFg}
-            onChange={(e) => setBannerFg(e.target.value)}
-            fullWidth
-          />
-        </Stack>
 
         <Divider />
         <Typography variant="subtitle1">SMTP</Typography>
@@ -993,11 +976,56 @@ function SystemSettingsPanel() {
 
         <Divider />
         <Typography variant="subtitle1" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <FlagIcon fontSize="small" /> Banners
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Two independent, opt-in banners — each off until enabled below.
+        </Typography>
+
+        <Typography variant="subtitle2">Classification Banner</Typography>
+        <Typography variant="body2" color="text.secondary">
+          A single, static banner fixed at the top and bottom of every page (§6) — independent of
+          the per-Project/Prompt classification labels further down this page.
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={classificationBannerEnabled}
+              onChange={(e) => setClassificationBannerEnabled(e.target.checked)}
+            />
+          }
+          label="Enabled"
+        />
+        {classificationBannerEnabled && (
+          <>
+            <TextField label="Banner text" value={bannerText} onChange={(e) => setBannerText(e.target.value)} />
+            <Stack direction="row" spacing={2}>
+              <TextField
+                label="Banner background color"
+                type="color"
+                value={bannerBg}
+                onChange={(e) => setBannerBg(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Banner text color"
+                type="color"
+                value={bannerFg}
+                onChange={(e) => setBannerFg(e.target.value)}
+                fullWidth
+              />
+            </Stack>
+          </>
+        )}
+
+        <Divider />
+        <Typography variant="subtitle2" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <PolicyIcon fontSize="small" /> Consent Banner
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Shown on the login screen before any authentication (§40) — independent of the
-          classification banner above, which is unconditional and shown on every page instead.
+          classification banner above, which (when enabled) shows on every page instead of just
+          pre-login.
         </Typography>
         <FormControlLabel
           control={

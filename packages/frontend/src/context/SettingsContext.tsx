@@ -6,6 +6,7 @@ export interface AppSettings {
   productName: string;
   logoUrl: string | null;
   primaryColor: string;
+  classificationBannerEnabled: boolean;
   classificationBannerText: string;
   classificationBannerBgColor: string;
   classificationBannerTextColor: string;
@@ -31,6 +32,7 @@ const SettingsContext = createContext<SettingsContextValue | undefined>(undefine
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>({
     ...defaultBranding,
+    classificationBannerEnabled: false,
     classificationBannerText: defaultClassificationBanner.text,
     classificationBannerBgColor: defaultClassificationBanner.backgroundColor,
     classificationBannerTextColor: defaultClassificationBanner.textColor,

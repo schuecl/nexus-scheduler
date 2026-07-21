@@ -27,6 +27,7 @@ const PUBLIC_FIELDS = {
   productName: true,
   logoUrl: true,
   primaryColor: true,
+  classificationBannerEnabled: true,
   classificationBannerText: true,
   classificationBannerBgColor: true,
   classificationBannerTextColor: true,

@@ -80,11 +80,13 @@ export async function sendRunNotificationEmail(
       const pdf = await requestRunReportPdf(config.PDF_SERVICE_URL, {
         productName: settings?.productName ?? "Nexus Scheduler",
         primaryColor: settings?.primaryColor ?? "#1976d2",
-        banner: {
-          text: settings?.classificationBannerText ?? "UNCLASSIFIED // CLASSIFICATION BANNER NOT CONFIGURED",
-          backgroundColor: settings?.classificationBannerBgColor ?? "#800000",
-          textColor: settings?.classificationBannerTextColor ?? "#ffffff",
-        },
+        banner: settings?.classificationBannerEnabled
+          ? {
+              text: settings.classificationBannerText,
+              backgroundColor: settings.classificationBannerBgColor,
+              textColor: settings.classificationBannerTextColor,
+            }
+          : null,
         classification: label
           ? {
               text: label.abbreviation ? `${label.text} (${label.abbreviation})` : label.text,
