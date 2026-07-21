@@ -44,10 +44,11 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   string and inject sibling JSON keys, and a template is validated
   against a sample context at save time so a malformed one is rejected
   immediately rather than discovered mid-delivery. Signing
-  (`X-Nexus-Signature`) is now a per-destination toggle, off by default
-  makes no sense to send alongside a fully custom body the receiver
-  doesn't expect to verify — and a saved template survives being
-  toggled off, so it isn't discarded by unchecking the box.
+  (`X-Nexus-Signature`) is now a per-destination toggle (on by default)
+  instead of always-on, since a receiver expecting a specific custom
+  body often has no way to verify a signature over it — and a saved
+  template survives being toggled off, so it isn't discarded by
+  unchecking the box.
 - A live system map (issue #131): the Dashboard now shows an at-a-glance
   status row, and a new Knowledge Base *Architecture* page draws every
   backend component this deployment depends on (API, Worker, Postgres,
