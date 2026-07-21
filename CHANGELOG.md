@@ -10,6 +10,8 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-21
+
 ### Added
 
 - Self-hosted, airgapped OCR pipeline for job attachments (#158): a new
