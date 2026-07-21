@@ -12,6 +12,40 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ### Added
 
+- Self-hosted, airgapped OCR pipeline for job attachments (#158): a new
+  `docker/ocr` service extracts text from scanned/image PDFs and images
+  (docling + tesseract, with an optional Mistral-shaped `/v1/ocr` vision
+  path for image descriptions) so LibreChat and Job attachments both get
+  usable text instead of a blank page. Ships as a fourth compose/Helm
+  chart (`helm/ocr`) with its own run-budget, file-size, and
+  total-request-size guards, all env/value-driven so an airgapped site
+  never has to rebuild an image to raise a limit. Includes full Compose
+  and Kubernetes wiring documentation, a three-chart integration guide,
+  and a Knowledge Base article covering limits, tuning, and the
+  image-description trap (each caller — LibreChat chat uploads vs.
+  scheduler attachments — has its own on/off switch, since LibreChat's
+  request shape carries no per-request flag) (fixes #129, #130, #142,
+  #148, #149).
+- Saved, per-user mailing lists for Job email notifications (#219): a
+  new *Mailing Lists* page lets any user save up to 100 addresses under
+  a name they own, then attach up to 5 lists to a Job from the existing
+  post-creation Notifications dialog alongside CC recipients. List
+  emails are merged with the Job owner and CC list (deduplicated) when
+  a run notification is sent.
+- Optional custom JSON payload and optional signing for webhook
+  destinations (#224): an admin can now supply a `{{placeholder}}`
+  template (run id, job id/name, status, timestamps, output, error) for
+  outbound delivery instead of the fixed payload shape — chiefly to
+  match receivers that expect credentials baked into a specific body
+  shape rather than a header. Template values are JSON-escaped at
+  substitution time so arbitrary run output can never break out of its
+  string and inject sibling JSON keys, and a template is validated
+  against a sample context at save time so a malformed one is rejected
+  immediately rather than discovered mid-delivery. Signing
+  (`X-Nexus-Signature`) is now a per-destination toggle, off by default
+  makes no sense to send alongside a fully custom body the receiver
+  doesn't expect to verify — and a saved template survives being
+  toggled off, so it isn't discarded by unchecking the box.
 - A live system map (issue #131): the Dashboard now shows an at-a-glance
   status row, and a new Knowledge Base *Architecture* page draws every
   backend component this deployment depends on (API, Worker, Postgres,
@@ -27,9 +61,149 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   actually models today — a model gateway and an OCR pipeline are
   planned but not yet wired in as direct dependencies, so they aren't on
   the map yet.
+- Full-stack observability: Alloy ships metrics and logs from every
+  component to Mimir/Loki, visualized in a provisioned Grafana with
+  dashboards for the app, infrastructure, and the LiteLLM model gateway
+  (including per-key spend and budget metering, since every model call
+  now flows through LiteLLM rather than hitting providers directly).
+  The `helm/observability` chart brings this to Kubernetes: it installs
+  cleanly on a Pod-Security-"restricted" cluster (seccomp + container
+  securityContext on every workload, previously-hardcoded UIDs made
+  overridable), fails at install time naming an available StorageClass
+  when the cluster has no default one instead of leaving every PVC
+  Pending with no explanation, stops double-prefixing registry-qualified
+  images behind `global.imageRegistry`, and gains
+  `imagePullSecrets`/`nodeSelector`/`tolerations`/`affinity` (tolerations
+  matter most for the Alloy DaemonSet, since a tainted control-plane node
+  otherwise contributes no metrics or logs). Ships with a full README
+  covering topology, per-service wiring, every exported metric, and known
+  gaps (fixes #178, #181, #183). Observability images are now pinned to a
+  single current version across both Helm and Compose — previously Helm
+  pinned old versions and Compose floated `:latest`, so the two paths
+  silently ran different dashboards against different servers (fixes
+  #184).
+- The scheduler now exports inventory gauges (jobs, schedules, API keys,
+  projects, prompts) for the Infrastructure dashboard, with collection
+  isolated from Postgres availability so a database blip degrades the
+  gauges rather than the rest of the metrics endpoint.
+- `pdf-service` can now expose `/metrics` on a dedicated,
+  scrape-only port (`PDF_SERVICE_METRICS_PORT`, off by default), so
+  Kubernetes can watch its memory (the component most likely to be
+  OOM-killed under headless Chromium) without granting the monitoring
+  namespace access to the render endpoints — the chart's `NetworkPolicy`
+  can't otherwise distinguish a scrape from a render request on a shared
+  port.
+- `container-stats-exporter` (the Docker Desktop compose profile's
+  cAdvisor stand-in) now also watches the Docker Engine events API and
+  emits `container_oom_events_total`, so the Infrastructure dashboard's
+  OOM panel reports real kills on Docker Desktop instead of always
+  reading "no OOMs" (cAdvisor there can see neither the compose cgroups
+  nor the kernel log it depends on).
+- Charts embedded in the usage report PDF now render as inline SVG
+  instead of a rasterized image, so exported/printed reports stay crisp
+  at any zoom or paper size (fixes #107).
+- Both Helm charts now ship a committed `values-local.yaml` for
+  laptop-cluster installs (Docker Desktop, kind): local image
+  references, single replicas, small volumes — a dev install is two
+  commands instead of hand-reconstructing overrides from the templates
+  every time.
+- Every Compose stack's published host ports are now overridable from
+  `.env`, with unchanged defaults.
+- A `Makefile` at the repo root gives canonical entry points for the
+  compose stacks and test suites, and `scripts/create-dev-secrets.sh`
+  bootstraps the chart's required Kubernetes Secrets with valid formats
+  for a local cluster install.
+- Knowledge Base coverage for four features that previously shipped
+  with little or no documentation: webhooks and syslog forwarding each
+  gain a full article — exact payload/log-line shape, signature
+  verification, retry semantics, and the syslog severity mapping — and
+  the consent banner and CSV/PDF usage export are now documented at all
+  (#174); a dedicated section shows exactly where to create a LibreChat
+  API key.
+- `kbContent.ts`, the Knowledge Base's ~1,200-line content array, now
+  has structural invariant tests (no duplicate slugs/titles, every
+  article's category is one the index actually renders, every internal
+  `/help/` link resolves) after a silent merge duplicated an entire
+  article with zero compiler or lint errors to show for it.
+- The API now warns loudly at startup when OIDC is configured but
+  `OIDC_CLIENT_SECRET` is missing, and Compose passes the variable
+  through so the warning path is reachable there too.
+
+### Changed
+
+- Model calls (including Claude) now route through the LiteLLM gateway
+  rather than hitting providers directly, with LibreChat's own virtual
+  key provisioned and migrated to `llm_api`-only scope (least privilege),
+  and readiness now gates on database availability alone rather than on
+  the gateway as well.
+- Routine dependency bumps: Node base images across `packages/api`,
+  `packages/worker`, and `packages/frontend` (20-slim → 26-slim), the
+  `docker/ocr` Python base image (3.12 → 3.14-slim-bookworm),
+  `pino-http` (10 → 11), and several GitHub Actions
+  (`upload`/`download-artifact`, `docker/login-action`,
+  `docker/setup-buildx-action`, `docker/build-push-action`). Dependabot
+  now also watches the Docker ecosystem across all six Dockerfile
+  directories, which is what let the observability image versions above
+  drift undetected in the first place.
+
+### Fixed
+
+- `helm/nexus-scheduler` had three defaults that block startup on a real
+  (non-Docker-Desktop) cluster, found by a live install: every app
+  container failed `CreateContainerConfigError` because `runAsNonRoot`
+  cannot be proven for a `USER nexus`-by-name image without an explicit
+  numeric `runAsUser`; the bundled Postgres subchart's root-then-`gosu`
+  boot path cannot run under this chart's dropped capabilities; and the
+  OIDC env vars/Secret reference were rendered unconditionally even with
+  SSO disabled, crash-looping every pod on empty-string URL validation
+  (fixes #139).
+- The worker's LibreChat agent calls could fail with an opaque `fetch
+  failed` after almost exactly 300 seconds regardless of the job's own
+  timeout: LibreChat's non-streaming Agents endpoint sends no bytes
+  until generation finishes, and Node's default fetch dispatcher enforced
+  a 300s headers timeout ahead of the job's own `AbortController`. The
+  worker now uses a per-call dispatcher with headers/body timeouts set
+  above the caller's budget, so the job's own timeout is always what
+  fires, classified cleanly (fixes #127).
+- A cancelled run was being counted as a LibreChat error in the metering
+  dashboards instead of being excluded.
+- `values.yaml`'s comment claiming the OIDC Secret "must exist even with
+  SSO disabled" was wrong the moment #141 (above) landed and gated that
+  reference — corrected, since this is the file an operator reads to
+  decide what to provision (fixes #166).
+- Integration test suites now refuse to run against anything that isn't
+  a disposable test database, closing a gap in the existing `DATABASE_URL`
+  naming guard.
+- `helm/test-ai`'s LiteLLM pod was being repeatedly OOMKilled under
+  default memory limits; raised to a stable value.
+- Every pod spec in `helm/nexus-scheduler` can now pass through an
+  optional `dnsConfig`, needed on clusters where the default resolver
+  configuration doesn't work for these workloads.
 
 ### Security
 
+- `GET /api/webhook-destinations` returned the full destination row,
+  including the receiver's own auth token (`headers`), to any
+  authenticated user regardless of role — and the Job webhook picker
+  called this endpoint on every dialog open, so the token was already
+  reaching every EDITOR/VIEW-role browser that opened it. Non-admin
+  callers now get an `id`/`name`/`url`/`active`-only projection; the
+  admin routes that legitimately manage the allow-list keep the full one
+  (fixes #175).
+- Outbound webhook delivery followed redirects, meaning a compromised or
+  merely misconfigured receiver could redirect a signed POST — body,
+  `X-Nexus-Signature`, and the receiver's own auth token, none of which
+  Node strips cross-origin on a 307 — to an arbitrary internal address,
+  defeating the entire point of the destination allow-list. Both the
+  real delivery path and the admin test-send path now set
+  `redirect: "manual"`, so a 3xx is reported as a failed delivery
+  instead of being followed. The same fix also stopped retrying
+  non-retryable responses (a stale-token 401 no longer burns all three
+  attempts on every run, forever) and moved the success audit write
+  outside the retry loop, so a database blip on that write can no longer
+  cause an already-delivered payload to be re-POSTed up to three more
+  times while the audit trail claims it never arrived (fixes #176,
+  #177).
 - `LOCAL_AUTH_ENABLED=false` was silently ignored: the env var used
   `z.coerce.boolean()`, which runs JavaScript's `Boolean()` on the raw
   string, and `Boolean("false") === true` — any non-empty value,
