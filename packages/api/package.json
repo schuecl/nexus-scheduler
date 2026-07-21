@@ -16,7 +16,7 @@
     "@nexus-scheduler/shared": "*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.21.2",
-    "connect-redis": "^7.1.1",
+    "connect-redis": "^9.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
