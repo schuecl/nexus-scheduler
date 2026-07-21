@@ -6,7 +6,8 @@ import { renderHtmlToPdf } from "../renderer.js";
 export interface UsageReportData {
   productName: string;
   primaryColor: string;
-  banner: ClassificationBannerInfo;
+  // null when the admin has the classification banner disabled (issue #228).
+  banner: ClassificationBannerInfo | null;
   periodStart: string;
   periodEnd: string;
   generatedAt: string;
@@ -110,7 +111,7 @@ export function buildUsageReportHtml(data: UsageReportData): string {
 }
 
 export async function renderUsageReportPdf(data: UsageReportData): Promise<Buffer> {
-  const bannerTemplate = buildBannerTemplate(data.banner);
+  const bannerTemplate = data.banner ? buildBannerTemplate(data.banner) : undefined;
   return renderHtmlToPdf(buildUsageReportHtml(data), {
     headerTemplate: bannerTemplate,
     footerTemplate: bannerTemplate,

@@ -31,12 +31,13 @@ const NAV_LINKS = [
   { to: "/admin", label: "Admin", icon: <AdminPanelSettingsOutlinedIcon fontSize="small" /> },
 ];
 
-// Top and bottom classification banner, always visible regardless of
-// auth state — REQUIREMENTS §6, deliberately independent of login.
-// Everything else — nav tabs, product branding bar — is gated on being
-// logged in: an unauthenticated visitor should see nothing but the
-// banner and the login screen (RequireAuth handles bouncing every
-// other route to /login; this hides the chrome around it).
+// Top and bottom classification banner, shown regardless of auth state
+// when an admin has enabled it (issue #228: opt-in, off by default —
+// REQUIREMENTS §6 originally specified this as unconditional, since
+// revised). Everything else — nav tabs, product branding bar — is gated
+// on being logged in: an unauthenticated visitor should see nothing but
+// the banner (if enabled) and the login screen (RequireAuth handles
+// bouncing every other route to /login; this hides the chrome around it).
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { settings } = useSettings();
@@ -50,7 +51,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      <ClassificationBanner config={bannerConfig} />
+      {settings.classificationBannerEnabled && <ClassificationBanner config={bannerConfig} />}
 
       {user && (
         <AppBar position="static" color="default" elevation={1}>
@@ -105,7 +106,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {children}
       </Box>
 
-      <ClassificationBanner config={bannerConfig} />
+      {settings.classificationBannerEnabled && <ClassificationBanner config={bannerConfig} />}
     </Box>
   );
 }

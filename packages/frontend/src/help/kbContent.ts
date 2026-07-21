@@ -451,7 +451,8 @@ same webhook/notification delivery a completed or failed run would.
 Any run can be downloaded as a formatted PDF report (job name, run
 metadata, and the full output), on demand from the run's detail view — the
 same PDF a Job's completion email can optionally attach automatically. PDFs
-carry the same branding and classification banner as the web UI.
+carry the same branding as the web UI, and the classification banner too
+if an admin has it enabled.
 `,
   },
   {
@@ -549,7 +550,7 @@ agent picker while creating a Job, this is almost always why — see
     slug: "admin",
     title: "Admin settings",
     category: "Admin",
-    summary: "Branding, SMTP, syslog, users & roles, cost rates, classification labels, webhooks.",
+    summary: "Branding, banners, SMTP, syslog, users & roles, cost rates, classification labels, webhooks.",
     content: `
 The **Admin** page (visible only to Admin-role users) is a single page of
 independent settings panels.
@@ -557,11 +558,25 @@ independent settings panels.
 ## Branding & appearance
 
 Product name, logo, and primary color — shown throughout the UI and on
-generated PDFs, changeable without a rebuild. Also where the system-wide
-**classification banner** (fixed at the top/bottom of every page, for
-deployments that need one) and its colors are set. This banner is
-independent of, and never affected by, per-object classification labels
-below.
+generated PDFs, changeable without a rebuild.
+
+## Banners
+
+Two independent, opt-in banners, grouped together on the Admin page —
+each is off until an admin enables it:
+
+- **Classification banner** — a single, static banner fixed at the
+  top/bottom of every page (banner text and its colors), for deployments
+  that need one. Independent of, and never affected by, per-object
+  classification labels below. When enabled, it also carries over onto
+  generated run/usage-report PDFs and PDFs attached to notification
+  emails, exactly as shown on screen; when disabled, none of those show
+  a banner either.
+- **Consent banner** — a notice on the login page (a consent-to-monitor
+  statement, acceptable-use notice, or classification warning),
+  optionally requiring explicit acceptance before the sign-in form
+  appears, with acceptance audit-logged. See
+  [Login consent banner](/help/consent-banner).
 
 ## SMTP
 
@@ -605,13 +620,6 @@ to compute each run's cost — a global default, with optional per-agent
 overrides. Rates apply going forward only: changing a rate never rewrites
 the cost already recorded on past runs. See
 [Usage, cost & reporting](/help/usage-cost).
-
-## Consent banner
-
-Show a notice on the login page — a consent-to-monitor statement,
-acceptable-use notice, or classification warning — optionally requiring
-explicit acceptance before the sign-in form appears, with acceptance
-audit-logged. See [Login consent banner](/help/consent-banner).
 
 ## Classification labels
 
@@ -1015,7 +1023,7 @@ See also [Admin settings](/help/admin).
     content: `
 An optional notice shown **before authentication** — a consent-to-monitor
 statement, an acceptable-use notice, a classification warning. Configured
-in **Admin → Consent banner**.
+in **Admin → Banners → Consent Banner**.
 
 ## The two modes
 

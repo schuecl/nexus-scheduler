@@ -16,11 +16,15 @@ import { z } from "zod";
 const SHORT_TEXT_MAX = 200;
 const OUTPUT_MAX = 256 * 1024; // 256KB, matching the issue's suggested ceiling
 
-const bannerSchema = z.object({
-  text: z.string().max(SHORT_TEXT_MAX),
-  backgroundColor: z.string().max(SHORT_TEXT_MAX),
-  textColor: z.string().max(SHORT_TEXT_MAX),
-});
+const bannerSchema = z
+  .object({
+    text: z.string().max(SHORT_TEXT_MAX),
+    backgroundColor: z.string().max(SHORT_TEXT_MAX),
+    textColor: z.string().max(SHORT_TEXT_MAX),
+  })
+  // null when the admin has the classification banner disabled (issue
+  // #228) — the report then carries no header/footer banner at all.
+  .nullable();
 
 export const runReportRequestSchema = z.object({
   productName: z.string().max(SHORT_TEXT_MAX),
