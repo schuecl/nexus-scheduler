@@ -45,34 +45,52 @@ explicitly configured rather than fetched at install time.
 - **Run history & manual runs** — full history per Job with output
   (rendered as markdown, since most agent models format their answers
   that way), status, token usage, and cost, plus an on-demand "Run Now"
-  button alongside the schedule.
+  button and the ability to cancel a run in progress.
 - **Usage & cost reporting** — per-run token/cost tracking with
   configurable rates, an admin usage dashboard, CSV/PDF export, and
   optional recurring report emails.
 - **PDF reports** — on-demand, branded PDF export of any run's output or
   the admin usage dashboard, rendered by an isolated internal service.
+- **Document OCR & attachments** — attach PDFs, scans, or photos to a
+  Job; a self-hosted, air-gapped OCR pipeline (Tesseract, OCRmyPDF,
+  docling, with an optional AI-generated image description) extracts
+  the text and appends it to the prompt before every run, keeping a
+  searchable PDF per attachment. Preview any attachment inline (PDF,
+  PNG, JPEG, BMP, or WebP) without downloading it first.
 - **Notifications & webhooks** — optional email on job completion/
-  failure (with the PDF attached), and outbound webhook delivery to
-  admin-allow-listed destinations, HMAC-signed so receivers can verify
-  authenticity.
+  failure to the Job owner, CC recipients, and/or saved mailing lists
+  (with the PDF attached), and outbound webhook delivery to
+  admin-allow-listed destinations. Signing (HMAC, so receivers can
+  verify authenticity) is on by default but can be turned off per
+  destination, and an optional custom JSON payload template lets a
+  receiver's expected body shape — e.g. credentials baked into specific
+  fields — be matched exactly.
 - **SSO** — OIDC login (tested against Keycloak) with role mapping from
   IdP client roles, plus a local break-glass admin account that always
   works independent of SSO availability, with its own self-service
   "forgot password" email flow.
 - **Branding & classification** — configurable product name, logo
-  (doubles as the favicon), accent color, dark mode, and an optional
-  persistent classification banner with admin-managed labels.
+  (doubles as the favicon), accent color, and dark mode. Separately,
+  a persistent classification banner (off by default, admin-enabled
+  with its own text/colors) and an admin-defined classification-label
+  taxonomy for tagging individual Projects/Prompts are both available,
+  independent of each other.
 - **Login-screen consent banner** — an optional, admin-configurable
-  notice (custom title/body) shown before authentication. It can be
-  purely informational, or require an explicit Accept/Reject before the
-  sign-in form is shown at all — rejecting leads to a dead-end page,
-  and acceptance is audit-logged. Re-shown on every visit to the login
-  page rather than remembered, matching how consent-to-monitor banners
-  are expected to behave.
+  notice (custom title/body) shown before authentication, grouped with
+  the classification banner above under one admin **Banners** section.
+  It can be purely informational, or require an explicit Accept/Reject
+  before the sign-in form is shown at all — rejecting leads to a
+  dead-end page, and acceptance is audit-logged. Re-shown on every visit
+  to the login page rather than remembered, matching how
+  consent-to-monitor banners are expected to behave.
 - **Observability** — Prometheus metrics, a Postgres-backed audit log,
-  and an optional RFC 5424 syslog mirror for SIEM integration.
+  an optional RFC 5424 syslog mirror for SIEM integration, an in-app
+  system status view (Dashboard widget + Knowledge Base architecture
+  diagram) showing live reachability of every backend dependency, and
+  an optional self-hosted Grafana/Mimir/Loki stack for Docker Compose
+  with dashboards for the app, the model gateway, and infrastructure.
 - **Admin console** — user/role management, classification taxonomy,
-  cost rates, and the webhook destination allow-list.
+  banners, cost rates, and the webhook destination allow-list.
 - **Built-in Knowledge Base** — a searchable, offline (bundled, no
   external content service) help center covering every module and
   common troubleshooting, linked contextually from empty states
@@ -328,12 +346,14 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
 To turn it off again, just drop the second `-f` — nothing in
 `docker-compose.yml` depends on it.
 
-Eleven dashboards are provisioned automatically, covering the app
-(overview, API, worker, PDF service), the models (per-model latency,
-tokens, errors, spend, and local-vs-hosted savings), the infrastructure
-(Postgres, Redis, containers, host), the logs, and the collector itself.
-That last one matters more than it sounds: if the collector stops
-shipping, every other dashboard goes flat and looks exactly like a
+Thirteen dashboards are provisioned automatically, covering the app
+(overview, API, worker, PDF service, OCR service), the live system map
+(component reachability, mirroring the in-app Dashboard widget), the
+models (per-model latency, tokens, errors, spend, and local-vs-hosted
+savings), the infrastructure (Postgres, Redis, containers, host), the
+logs, and the collector itself. That last one matters more than it
+sounds: if the collector stops shipping, every other dashboard goes
+flat and looks exactly like a
 healthy, idle system — this is the only place that tells the two apart.
 
 Two small exporters fill gaps the upstream components leave. LiteLLM's
@@ -372,8 +392,8 @@ your shell.
 
 Nexus Scheduler is configured primarily through environment variables
 (deployment-time settings) plus an in-app Admin Settings page
-(branding, classification, SMTP, syslog, cost rates — anything an admin
-might reasonably change without a redeploy).
+(branding, banners, SMTP, syslog, cost rates — anything an admin might
+reasonably change without a redeploy).
 
 Key environment variables (see `packages/api/src/config.ts` and
 `packages/worker/src/config.ts` for the full list and defaults):
