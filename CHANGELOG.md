@@ -10,6 +10,30 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+### Added
+
+- Post-hoc repetition-loop detection on agent responses (#165): after a
+  run's LibreChat Agents API call completes, its final answer is
+  checked for the same line/paragraph repeated verbatim or a high
+  ratio of repeated phrasing in the trailing text. A detected run still
+  succeeds, but gets a diagnostic note prepended to its stored output,
+  a warning log, and a new `nexus_scheduler_repetition_detected_total`
+  Prometheus counter (labelled by serving model) — visibility into an
+  agent getting stuck restating content until it hit its output-token
+  limit, previously indistinguishable from an ordinary successful run.
+  README documents recommended per-task generation-parameter starting
+  points (temperature/top_p) for this stack's actual models, set
+  through each Agent's own LibreChat Agent Builder config — the worker
+  itself never sends sampling parameters, so there's no repo-owned
+  runtime hook to set them from.
+
+### Fixed
+
+- README's "Connecting to LibreChat" walkthrough still described the
+  Ollama default model as `qwen3:0.6b`, replaced by `gemma3:1b` (plus
+  `codegemma:2b` and `phi4-mini-reasoning:3.8b`) back in 0.2.0's own
+  changelog entry — corrected to match `docker/litellm/config.yaml`.
+
 ## [0.2.0] - 2026-07-21
 
 ### Added

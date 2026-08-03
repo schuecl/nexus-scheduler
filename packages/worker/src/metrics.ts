@@ -83,6 +83,20 @@ export function createMetrics(queue: Queue<RunJobData>) {
     registers: [register],
   });
 
+  // Post-hoc degenerate-output detection (issue #165, repetitionDetector.ts)
+  // run against a SUCCESS response's final text. Every call is non-streaming
+  // (librechatClient.ts), so this can never abort generation early — it
+  // exists so a run whose agent got stuck looping the same section until it
+  // hit its output limit is visible here rather than looking like an
+  // ordinary successful run. `model` only: bounded by the models deployed,
+  // same reasoning as librechatCallDuration above.
+  const repetitionDetectedTotal = new Counter({
+    name: "nexus_scheduler_repetition_detected_total",
+    help: "Runs whose final response text looked like a repetition loop, by serving model",
+    labelNames: ["model"] as const,
+    registers: [register],
+  });
+
   // Outcomes are counted but nothing measures how long a run took, so "runs
   // are getting slower" is undetectable until they start timing out. Bucketed
   // against the 600s job budget for the same reason as the call histogram.
@@ -233,6 +247,7 @@ export function createMetrics(queue: Queue<RunJobData>) {
     librechatErrorsTotal,
     runTokensTotal,
     runCostTotal,
+    repetitionDetectedTotal,
     runDuration,
     queueWait,
     schedulerTickDuration,

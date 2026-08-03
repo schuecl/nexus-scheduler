@@ -3,6 +3,7 @@ import { decryptSecret } from "@nexus-scheduler/shared";
 import { prisma } from "./db.js";
 import { RUNS_QUEUE_NAME, type RunJobData } from "./queue.js";
 import { callAgent, describeUnexecutedToolCall, extractTokenUsage, LibreChatError } from "./librechatClient.js";
+import { detectRepetition } from "./repetitionDetector.js";
 import { renderPromptTemplate } from "./promptTemplate.js";
 import { extractAttachment, OcrError } from "./ocrClient.js";
 import { AttachmentPromptBudgetError, buildAttachmentPrompt } from "./attachmentPrompt.js";
@@ -568,6 +569,7 @@ async function processRun(
       }
 
       const responseChoice = response.choices[0];
+      const servingModel = response.model ?? UNKNOWN_MODEL;
       const toolCallNote = describeUnexecutedToolCall(responseChoice?.message, responseChoice?.finish_reason);
       if (toolCallNote) {
         logger.warn(
@@ -575,7 +577,22 @@ async function processRun(
           "LibreChat agent response left a tool call unresolved — the run's stored output is a diagnostic note, not a real answer from the agent",
         );
       }
-      const outputText = [toolCallNote, responseChoice?.message.content].filter(Boolean).join("\n\n");
+      // Post-hoc only (issue #165): the call already ran to completion under
+      // `stream: false`, so this can flag a degenerate answer but can never
+      // abort generation early or save tokens. See repetitionDetector.ts.
+      const repetition = detectRepetition(responseChoice?.message.content ?? "");
+      let repetitionNote: string | null = null;
+      if (repetition.detected) {
+        logger.warn(
+          { runId, agentId: run.job.agentId, model: servingModel, reasons: repetition.reasons },
+          "LibreChat agent response looks like a repetition loop — stored output may be degenerate",
+        );
+        metrics.repetitionDetectedTotal.inc({ model: servingModel });
+        repetitionNote =
+          `[Nexus Scheduler: this response looks like a repetition loop (${repetition.reasons.join("; ")}) — ` +
+          "the agent may have gotten stuck restating earlier content rather than completing the task.]";
+      }
+      const outputText = [toolCallNote, repetitionNote, responseChoice?.message.content].filter(Boolean).join("\n\n");
       const tokenUsage = extractTokenUsage(response.usage);
       if (!tokenUsage) {
         // Three distinct cases collapsed into one null return by design
@@ -610,7 +627,6 @@ async function processRun(
       // LibreChat's Agents API returns all-zero usage for headless API-key
       // calls (#38), and a zero would read as "this run was free" instead of
       // "we were never told".
-      const servingModel = response.model ?? UNKNOWN_MODEL;
       if (tokenUsage) {
         metrics.runTokensTotal.inc({ model: servingModel, type: "prompt" }, tokenUsage.promptTokens);
         metrics.runTokensTotal.inc({ model: servingModel, type: "completion" }, tokenUsage.completionTokens);

@@ -206,6 +206,38 @@ describe("processRun (via createRunProcessor)", () => {
     expect(events[0]?.result).toBe("SUCCESS");
   });
 
+  it("still marks a run SUCCESS but flags a degenerate, looping response (issue #165)", async () => {
+    const loopingParagraph =
+      "Section three covers the remaining implementation concern in detail once again.";
+    const loopingAnswer = [loopingParagraph, loopingParagraph, loopingParagraph].join("\n\n");
+    const { server, baseUrl } = await listenLibreChat(() => ({
+      status: 200,
+      body: {
+        model: "gemma3:1b",
+        choices: [{ message: { content: loopingAnswer }, finish_reason: "length" }],
+        usage: { prompt_tokens: 12, completion_tokens: 500 },
+      },
+    }));
+    libreChatServer = server;
+    const { job } = await makeFixture(baseUrl);
+    const run = await makeRun(job.id);
+
+    worker = createRunProcessor(connection, { ...config, LIBRECHAT_BASE_URL: baseUrl }, logger, metrics);
+    const bullJob = await queue.add("run", { runId: run.id } satisfies RunJobData, { attempts: 1 });
+    const outcome = await waitForJobOutcome(worker, bullJob.id!);
+
+    expect(outcome).toBe("completed");
+    const updated = await prisma.run.findUniqueOrThrow({ where: { id: run.id } });
+    // Detected post-hoc, not a call failure: the run still succeeded and its
+    // real (degenerate) output is preserved, just flagged.
+    expect(updated.status).toBe("SUCCESS");
+    expect(updated.output).toContain(loopingParagraph);
+    expect(updated.output).toContain("repetition loop");
+
+    const repetitionSamples = (await metrics.repetitionDetectedTotal.get()).values;
+    expect(repetitionSamples.find((s) => s.labels.model === "gemma3:1b")?.value).toBe(1);
+  });
+
   it("persists searchable PDFs one attachment at a time instead of retaining the whole batch", async () => {
     const { server, baseUrl } = await listenLibreChat(() => ({
       status: 200,
