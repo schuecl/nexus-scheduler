@@ -39,3 +39,14 @@ datasources:
           datasourceUid: loki
           url: '{service=~".+"} | requestId=`$${__value.raw}`'
           urlDisplayLabel: 'All logs for this request'
+
+  # Profile backend (issue #185 part 2). Always provisioned — same as
+  # Mimir/Loki — but only ever has data when both the `profiling`
+  # Compose profile is up (this service) and PYROSCOPE_ENABLED is set on
+  # the app (issue #185 part 1); otherwise a query here just returns no
+  # series, same as any other datasource pointed at a stopped backend.
+  - name: Pyroscope
+    type: grafana-pyroscope-datasource
+    uid: pyroscope
+    access: proxy
+    url: http://pyroscope:4040

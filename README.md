@@ -409,6 +409,24 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml \
   --profile docker-desktop up -d
 ```
 
+Continuous profiling (issue #185) is opt-in on both sides, deliberately:
+enabling only one half leaves either an app with nowhere to push
+profiles, or a Pyroscope backend that sits permanently empty — this repo
+treats "up, healthy, and receiving nothing" as a bug, not a valid state
+(see `docker-compose.observability.yml`'s header). Turn on both halves
+together —`PYROSCOPE_ENABLED=true` for the api/worker (`.env`) and the
+`profiling` Compose profile for the backend:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+  --profile profiling up -d
+```
+
+A flamegraph for the worker (CPU and heap) is then on its dashboard,
+correlated by the same `service` label the metrics/logs panels use. On
+Kubernetes, the equivalent pair is the app chart's `profiling.enabled`
+and the observability chart's `pyroscope.enabled`.
+
 Everything runs locally — no cloud, no external endpoints. Ports 3000
 and 3001 belong to the api and worker, so Grafana takes 3300.
 

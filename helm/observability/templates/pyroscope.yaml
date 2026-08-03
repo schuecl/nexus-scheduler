@@ -1,0 +1,113 @@
+{{- define "observability.pyroscope.config" -}}
+# Pyroscope in monolithic mode ("all" target, the default) on local
+# filesystem storage — same shape as mimir.yaml/loki.yaml. Everything
+# else is the image's own default; only retention is made explicit.
+limits:
+  compactor_blocks_retention_period: {{ .Values.pyroscope.retention }}
+{{- end }}
+{{- if .Values.pyroscope.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-pyroscope-config
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+{{ include "observability.pyroscope.config" . | trim | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "observability.fullname" . }}-pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "observability.fullname" . }}-pyroscope
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pyroscope
+        {{- include "observability.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4040"
+        checksum/config: {{ include "observability.pyroscope.config" . | sha256sum | trunc 32 }}
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      {{- include "observability.scheduling" . | nindent 6 }}
+      {{- include "observability.dnsConfig" . | nindent 6 }}
+      securityContext:
+        # The image runs as a non-root user; without fsGroup the PVC's
+        # root-owned mount point is unwritable and the pod never comes up.
+        {{- include "observability.podSecurityContext" (dict "root" $ "uid" .Values.pyroscope.securityContext.runAsUser) | nindent 8 }}
+      containers:
+        - name: pyroscope
+          image: {{ include "observability.image" (dict "root" $ "image" .Values.pyroscope.image) }}
+          args: ["-config.file=/etc/pyroscope/config.yaml"]
+          ports:
+            - name: http
+              containerPort: 4040
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            # Cold start chain observed in practice: metastore (~15s),
+            # then the ingester's own 15s post-ready wait, then the
+            # segment writer's 30s post-ready wait — roughly a minute
+            # before /ready first returns 200.
+            initialDelaySeconds: 75
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pyroscope
+              readOnly: true
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.pyroscope.resources | nindent 12 }}
+          securityContext:
+            {{- include "observability.containerSecurityContext" (dict "root" $) | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-pyroscope-config
+        {{- if not .Values.pyroscope.persistence.enabled }}
+        # No PVC: the StatefulSet's volumeClaimTemplate is omitted, so
+        # `data` has to come from somewhere or the pod never schedules.
+        # Data does not survive a restart — that is the trade documented
+        # on pyroscope.persistence.enabled.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.pyroscope.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "observability.storageClassName" (dict "root" $ "explicit" .Values.pyroscope.persistence.storageClassName) | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.pyroscope.persistence.size }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-pyroscope
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 4040
+      targetPort: http
+{{- end }}

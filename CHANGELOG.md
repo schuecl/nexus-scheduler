@@ -21,6 +21,19 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   tagged with the same `service` label metrics/logs already use. No
   Pyroscope backend ships yet — that, plus the Grafana datasource and a
   flamegraph panel, lands in a follow-up PR (part 2).
+- Pyroscope profile backend (issue #185, #103 Phase 2/3, part 2 of 2).
+  `grafana/pyroscope` in monolithic mode, mirroring the Mimir/Loki
+  pattern in both deployment paths: a Compose service behind a new
+  `profiling` profile, and a `pyroscope.enabled` StatefulSet in
+  `helm/observability` (persistence with an `emptyDir` fallback, PSA
+  `restricted` securityContext, no pinned StorageClass — same as
+  Mimir/Loki). A Grafana datasource is always provisioned (like
+  Mimir/Loki), and the worker dashboard gets two `flamegraph` panels
+  (CPU wall-time, heap in-use) filtered by the same `service` label as
+  its other panels. Off by default on both sides, so — per part 1's
+  design and the acceptance criteria in #185 — nothing sits deployed
+  with nothing arriving unless both the app's `PYROSCOPE_ENABLED` and
+  this backend are turned on together.
 
 ### Fixed
 

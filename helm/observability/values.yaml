@@ -115,6 +115,29 @@ loki:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 512Mi}
 
+# Profile backend (issue #185 part 2). Off by default — the other half
+# of the "don't stand up a backend that sits empty" guard the Compose
+# overlay's `profiling` profile also enforces: the app pushes nothing
+# here unless the app chart's `profiling.enabled` (helm/nexus-scheduler's
+# values.yaml) is also on, so leaving both off by default means neither
+# chart ever ships a component with nothing arriving.
+pyroscope:
+  enabled: false
+  image:
+    repository: grafana/pyroscope
+    tag: "2.1.1"
+    digest: ""
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: ""
+  securityContext:
+    runAsUser: 10001
+  retention: 7d
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
 grafana:
   image:
     repository: grafana/grafana

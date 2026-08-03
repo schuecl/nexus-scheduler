@@ -1,0 +1,6 @@
+# Pyroscope in monolithic mode ("all" target, the default) on local
+# filesystem storage — appropriate for Compose/dev, matching mimir.yaml
+# and loki.yaml. Everything else is the image's own default; only
+# retention is made explicit rather than left at the built-in default.
+limits:
+  compactor_blocks_retention_period: 7d
