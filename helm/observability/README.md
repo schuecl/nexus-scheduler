@@ -389,6 +389,13 @@ mimir:
     digest: "sha256:..."     # wins over tag
 ```
 
+Grafana's stock image also ships a "plugin preinstall" feature that reaches
+out to grafana.com's plugin catalog for a fixed list of app plugins on every
+startup, regardless of provisioning — this chart sets
+`GF_PLUGINS_PREINSTALL_DISABLED=true` on the Grafana container to stop it
+(#240). None of the provisioned dashboards/datasources depend on those
+plugins.
+
 ---
 
 ## Dashboards

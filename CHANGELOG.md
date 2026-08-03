@@ -53,6 +53,13 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   both the Compose and Helm copies since it's a no-op with a single
   collector. `host`'s network-interface filter now also excludes
   Antrea/Calico/flannel/generic CNI interfaces, not just Docker's.
+- Grafana 13.1.0's stock image reached out to grafana.com's plugin catalog
+  on every startup for a fixed list of app plugins, even with zero
+  provisioning — contradicting this repo's air-gapped/no-egress deployment
+  target (#240). `GF_PLUGINS_PREINSTALL=""` does not suppress it: the
+  default list is merged in unconditionally unless
+  `GF_PLUGINS_PREINSTALL_DISABLED=true` is set, which both the Compose
+  overlay and `helm/observability` now set.
 
 ### Added
 

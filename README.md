@@ -429,6 +429,9 @@ and the observability chart's `pyroscope.enabled`.
 
 Everything runs locally — no cloud, no external endpoints. Ports 3000
 and 3001 belong to the api and worker, so Grafana takes 3300.
+`GF_PLUGINS_PREINSTALL_DISABLED=true` is set on the Grafana container
+(both here and in `helm/observability`) to stop its stock image from
+reaching out to grafana.com's plugin catalog on every startup (#240).
 
 For Kubernetes, do **not** use this file — see the Helm notes under
 [Deployment](#kubernetes-helm): a real cluster already has a monitoring

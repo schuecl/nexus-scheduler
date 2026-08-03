@@ -164,6 +164,13 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+      # Grafana's built-in "plugin preinstall" feature reaches out to
+      # grafana.com's plugin catalog on every startup for a fixed list of
+      # app plugins (Drilldown UIs), none of which the provisioned
+      # dashboards/datasources depend on (#240). Emptying GF_PLUGINS_PREINSTALL
+      # does NOT stop this — the default list is merged in unconditionally
+      # unless this flag is set; it's the one knob that actually disables it.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
