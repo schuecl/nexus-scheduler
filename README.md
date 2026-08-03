@@ -89,6 +89,10 @@ explicitly configured rather than fetched at install time.
   diagram) showing live reachability of every backend dependency, and
   an optional self-hosted Grafana/Mimir/Loki stack for Docker Compose
   with dashboards for the app, the model gateway, and infrastructure.
+  Runs whose agent response looks like a repetition loop (the same
+  section restated until the output-token limit was hit) are flagged
+  post-hoc — logged, counted, and noted in the stored output — rather
+  than stored as an ordinary-looking success.
 - **Admin console** — user/role management, classification taxonomy,
   banners, cost rates, and the webhook destination allow-list.
 - **Built-in Knowledge Base** — a searchable, offline (bundled, no
@@ -166,25 +170,60 @@ to test SSO login end to end.
 **Connecting to LibreChat** (this part is LibreChat's own UI flow, not
 scriptable):
 
-1. Pick a model provider. Two are wired up already:
-   - **Ollama running `qwen3:0.6b`** — free, local, no API key needed.
-     Pulls automatically on first `docker compose up` (~0.5GB, needs
-     internet the first time only).
+1. Pick a model provider. Wired up already, through the local LiteLLM
+   gateway (`docker/litellm/config.yaml`):
+   - **Ollama**, running `gemma3:1b` (general chat), `codegemma:2b`
+     (coding) and `phi4-mini-reasoning:3.8b` (reasoning) — free, local,
+     no API key needed. Pull automatically on first `docker compose
+     up` (~5.6GB combined, needs internet the first time only).
    - **Claude** — set `ANTHROPIC_API_KEY` in this repo's root `.env` to
-     a real key, then `docker compose restart librechat`.
+     a real key, then `docker compose restart litellm`.
 
    (`OPENAI_API_KEY`/`AZURE_API_KEY` also work if you'd rather test
-   against those — set them in `docker/librechat/.env`.)
+   against those — add a model entry for them directly in
+   `docker/litellm/config.yaml`.)
 2. Visit http://localhost:3080 and register an account — this is
    LibreChat's own local auth, separate from Nexus Scheduler's users.
 3. Create an Agent in LibreChat's UI, backed by whichever provider you
-   set up above.
+   set up above. Its generation parameters (temperature, top_p, etc. —
+   under the Agent Builder's model settings) are worth tuning to the
+   task it will run rather than left at LibreChat's defaults; see
+   below.
 4. Generate a LibreChat API key for that account.
 5. Back in Nexus Scheduler, add that key under **API Keys**, then pick
    the Agent when creating a **Job** — Nexus Scheduler will try to
    auto-discover the available Agents for that key; if discovery isn't
    available for your LibreChat version, paste the Agent ID directly
    instead.
+
+#### Tuning an Agent's generation parameters by task
+
+Nexus Scheduler's worker never sends `temperature`, `top_p`, or any
+other sampling parameter itself (`librechatClient.ts` sends only
+`model`, `messages`, `stream: false`) — an Agent's generation
+parameters are entirely what its LibreChat Agent Builder config says,
+so tuning them per task is a manual, one-time setup step per Agent,
+not something this repo can configure for you.
+
+Starting points for the models this stack actually runs (engineering
+defaults — evaluate against your own prompts before trusting them):
+
+| Task              | Model                     | temperature | top_p | notes                                                              |
+| ----------------- | ------------------------- | ----------- | ----- | ------------------------------------------------------------------- |
+| Coding/config      | `codegemma:2b`            | 0.2         | 0.95  | Low temperature; a high `repeat_penalty` corrupts identifiers/JSON keys. Ollama's default `repeat_penalty` (1.1) is already on the aggressive side for code — consider 1.05. |
+| General chat       | `gemma3:1b`                | 0.6         | 0.9   | Ollama default `repeat_penalty` (1.1) is fine here.                  |
+| Reasoning          | `phi4-mini-reasoning:3.8b` | 0.3–0.6     | 0.9   | Small reasoning models still benefit from some sampling, unlike some larger hosted reasoning models that reject non-default values entirely. |
+| Anything on Claude | `claude-sonnet`            | provider default | — | Leave unset unless you have a specific reason to change it; some Claude models reject non-default `temperature`/`top_p` outright. |
+
+If an Agent's answers repeat the same section verbatim until they hit
+the output-token limit, Nexus Scheduler now detects that after the
+fact (it can't stop the call mid-flight — see above) and flags the
+run: a `[Nexus Scheduler: this response looks like a repetition
+loop...]` note is prepended to the stored output, a warning is logged,
+and `nexus_scheduler_repetition_detected_total{model=...}` increments.
+That is a signal to lower temperature, reduce `repeat_penalty`, or
+shorten the task for that Agent — not something to silence by raising
+`max_tokens`.
 
 <details>
 <summary>Troubleshooting</summary>
