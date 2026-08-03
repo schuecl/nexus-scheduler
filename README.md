@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/schuecl/nexus-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/schuecl/nexus-scheduler/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen.svg)](https://nodejs.org/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/schuecl/nexus-scheduler/pulls)
 
 Nexus Scheduler is a web application for scheduling and managing agentic
@@ -116,7 +116,7 @@ system of record; Redis backs the job queue and concurrency limiting.
 
 ## Getting started
 
-Requires Node 20+, npm 10+, and Docker.
+Requires Node 20.19+, npm 10+, and Docker.
 
 ```bash
 npm install

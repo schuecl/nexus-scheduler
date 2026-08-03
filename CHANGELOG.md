@@ -35,6 +35,32 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   with nothing arriving unless both the app's `PYROSCOPE_ENABLED` and
   this backend are turned on together.
 
+### Security
+
+- Bumped `vite` 5.4.9 → 8.2.0 in `packages/frontend`, clearing a
+  moderate-severity `esbuild` advisory (GHSA-67mh-4wv8-2f99: any website
+  could send requests to the Vite dev server and read the response)
+  that a plain, non-`--force` `npm audit fix` couldn't reach — the fix
+  is 3 majors past the existing `^5.4.9` caret. Dev-server-only; never
+  shipped in the production bundle (#244, follow-up to #241). Pulled
+  `@vitejs/plugin-react` 4.3.3 → 6.0.5 and `vitest`/`@vitest/coverage-v8`
+  3.2.6 → 4.1.10 along with it (both required peers for vite 8), scoped
+  to `packages/frontend` only — the other five workspace packages stay
+  on `vitest` 3.x. `@testing-library/jest-dom` bumped 6.6.2 → 7.0.0 for
+  vitest 4 compatibility; its matcher registration now happens directly
+  in `src/test/setup.ts` (`expect.extend(matchers)`) instead of via its
+  packaged `/vitest` entry point, and a small local `.d.ts` re-declares
+  the same TypeScript augmentation — both were resolving the wrong,
+  root-hoisted `vitest` (still v3.x, needed by the other workspaces)
+  instead of this package's own nested v4.x, since jest-dom itself
+  hoists to the repo root. Coverage thresholds in `vite.config.ts`
+  recalibrated: `@vitest/coverage-v8` 4.x's more accurate AST-based
+  branch mapping finds substantially more branches in the same source,
+  so branch/function coverage percentages dropped with no actual
+  coverage regression (same 50 tests). `engines.node` (root
+  `package.json`) and the README's Node badge/prerequisite tightened to
+  `>=20.19`, vite 8's minimum.
+
 ### Fixed
 
 - Helm's Grafana dashboards queried Compose-only cAdvisor labels for
