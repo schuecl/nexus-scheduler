@@ -55,15 +55,25 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**"],
       reporter: ["text", "json-summary"],
-      // Modest floor a few points under today's numbers (9% lines, 75%
-      // branches, 37% functions — issue #52): the big page components
+      // Modest floor a few points under today's numbers (14% lines, 13%
+      // branches, 12% functions — issue #52): the big page components
       // are still untested, so the line floor is low; ratchet these up
       // as coverage grows, never down.
+      //
+      // Recalibrated for the vite v8 bump (#244): `@vitest/coverage-v8`
+      // 3.x -> 4.x switched to AST-based branch mapping (closer to
+      // istanbul's), which finds substantially more branches in the
+      // same source — optional chaining, default params, JSX
+      // conditionals, etc. that the old heuristic undercounted. Same
+      // 50 tests, same source, but branch/function coverage dropped
+      // ~5x in percentage terms purely from the larger, more accurate
+      // denominator; these floors reflect that, not a real coverage
+      // regression.
       thresholds: {
-        lines: 8,
-        functions: 30,
-        branches: 65,
-        statements: 8,
+        lines: 10,
+        functions: 8,
+        branches: 9,
+        statements: 10,
       },
     },
   },
