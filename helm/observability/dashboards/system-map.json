@@ -115,19 +115,19 @@
         },
         {
           "refId": "librechat",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*librechat-1.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"librechat\"}), 1)",
           "instant": true,
           "legendFormat": "librechat"
         },
         {
           "refId": "mongo",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*librechat-mongo.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"mongo\"}), 1)",
           "instant": true,
           "legendFormat": "mongo"
         },
         {
           "refId": "ollama",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*ollama-1.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"ollama\"}), 1)",
           "instant": true,
           "legendFormat": "ollama"
         }
@@ -833,24 +833,24 @@
         },
         {
           "refId": "H",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*librechat-1.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"librechat\"}), 1)",
           "instant": true,
           "legendFormat": "librechat"
         },
         {
           "refId": "J",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*librechat-mongo.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"mongo\"}), 1)",
           "instant": true,
           "legendFormat": "mongo"
         },
         {
           "refId": "I",
-          "expr": "clamp_max(count(container_memory_working_set_bytes{name=~\".*ollama-1.*\"}), 1)",
+          "expr": "clamp_max(count(container_memory_working_set_bytes{container=\"ollama\"}), 1)",
           "instant": true,
           "legendFormat": "ollama"
         }
       ],
-      "description": "One stat per component — the row an alert rule would key on. UP/DOWN from health metrics; ABSENT means the component exposes no metric here (not deployed, or not scraped). LibreChat/Mongo/Ollama expose no /metrics, so their signal is container presence (docker-desktop profile's container-stats-exporter)."
+      "description": "One stat per component — the row an alert rule would key on. UP/DOWN from health metrics; ABSENT means the component exposes no metric here (not deployed, or not scraped). LibreChat/Mongo/Ollama expose no /metrics, so their signal is container presence from kubelet cAdvisor, matched by container name (the test-ai chart's containers are named librechat/mongo/ollama)."
     }
   ]
 }
