@@ -45,13 +45,16 @@ jobs:
       - name: helm template (render manifests)
         run: |
           helm template release helm/nexus-scheduler > rendered.yaml
+          helm template release helm/nexus-scheduler --set profiling.enabled=true >> rendered.yaml
           helm template release helm/observability >> rendered.yaml
-          # Exercise the optional paths too — the exporter toggle and the
-          # mirrored-registry/digest form both have to render valid YAML.
+          # Exercise the optional paths too — the exporter toggle, the
+          # profiling backend, and the mirrored-registry/digest form all
+          # have to render valid YAML.
           helm template release helm/observability \
             --set litellmExporter.enabled=true \
             --set litellmExporter.existingSecret=ci-placeholder \
             --set global.imageRegistry=registry.example.internal >> rendered.yaml
+          helm template release helm/observability --set pyroscope.enabled=true >> rendered.yaml
           helm template release helm/test-ai >> rendered.yaml
           helm template release helm/ocr >> rendered.yaml
 

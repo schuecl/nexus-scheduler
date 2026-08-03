@@ -46,6 +46,14 @@ data:
         uid: loki
         type: loki
         url: http://{{ include "observability.fullname" . }}-loki:3100
+      # Profile backend (issue #185 part 2). Always provisioned, same as
+      # Mimir/Loki — see values.yaml's pyroscope.enabled comment for why
+      # a query against it returning nothing (rather than the datasource
+      # itself being absent) is the deliberate default state.
+      - name: Pyroscope
+        uid: pyroscope
+        type: grafana-pyroscope-datasource
+        url: http://{{ include "observability.fullname" . }}-pyroscope:4040
   dashboards.yml: |
     apiVersion: 1
     providers:

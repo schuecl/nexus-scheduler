@@ -669,6 +669,62 @@
           "legendFormat": "{{scope}} limit"
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Continuous profiling (flamegraphs, issue #185)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      }
+    },
+    {
+      "type": "flamegraph",
+      "title": "CPU (wall time)",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 74
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "profile",
+          "profileTypeId": "wall:wall:nanoseconds:wall:nanoseconds",
+          "labelSelector": "{service=\"worker\"}"
+        }
+      ],
+      "description": "Continuous profiling (issue #185) is push-based and off by default (PYROSCOPE_ENABLED) \u2014 empty here means it hasn't been turned on, not that the worker is idle. wall:wall matches what's actually populated by default (process_cpu requires collectCpuTime, not enabled here); heap is coarse-grained (512MB default sampling interval) so a quiet worker may show nothing between allocations."
+    },
+    {
+      "type": "flamegraph",
+      "title": "Heap (in-use)",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 74
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "profile",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service=\"worker\"}"
+        }
+      ],
+      "description": "Continuous profiling (issue #185) is push-based and off by default (PYROSCOPE_ENABLED) \u2014 empty here means it hasn't been turned on, not that the worker is idle. wall:wall matches what's actually populated by default (process_cpu requires collectCpuTime, not enabled here); heap is coarse-grained (512MB default sampling interval) so a quiet worker may show nothing between allocations."
     }
   ]
 }

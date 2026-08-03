@@ -1,15 +1,25 @@
 # Observability stack (issue #103), Grafana-suite only:
-#   Alloy   — single collector: scrapes /metrics, tails container logs
-#   Mimir   — metrics backend (Prometheus-compatible), monolithic mode
-#   Loki    — logs backend, single-binary mode
-#   Grafana — dashboards + alerting, provisioned as code
+#   Alloy      — single collector: scrapes /metrics, tails container logs
+#   Mimir      — metrics backend (Prometheus-compatible), monolithic mode
+#   Loki       — logs backend, single-binary mode
+#   Pyroscope  — profile backend, monolithic mode (opt-in, see below)
+#   Grafana    — dashboards + alerting, provisioned as code
 #
 # Bring it up alongside the app so Alloy can reach the services by name:
 #   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
 #
-# Tempo (traces) and Pyroscope (profiles) are intentionally NOT here yet:
-# the app has no OpenTelemetry instrumentation, so those backends would
-# stand up and receive nothing. They land with Phase 2/3 of #103.
+# Tempo (traces) is intentionally NOT here yet: the app has no
+# OpenTelemetry tracing instrumentation, so that backend would stand up
+# and receive nothing — same reasoning that kept Pyroscope out until
+# issue #185's app-side instrumentation (PYROSCOPE_ENABLED) landed.
+#
+# Pyroscope itself is still opt-in even now: PYROSCOPE_ENABLED defaults
+# off on the app side (issue #185 part 1), so by default nothing would
+# ever arrive here either. Bring it up only when you've also turned
+# profiling on:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+#     --profile profiling up -d
+#   # ...with PYROSCOPE_ENABLED=true set for api/worker (see .env.example)
 services:
   # No healthcheck on mimir/loki: both images are distroless — they have no
   # shell and no wget/curl, so a CMD-SHELL probe can never pass and would
@@ -29,6 +39,17 @@ services:
     volumes:
       - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
+
+  # Profile backend (issue #185 part 2). Behind the `profiling` Compose
+  # profile — see the file header. Not scraped by Alloy: profiling is
+  # push-based, the app pushes straight here over PYROSCOPE_SERVER_ADDRESS
+  # (default http://pyroscope:4040, matching this service's name/port).
+  pyroscope:
+    image: grafana/pyroscope:2.1.1
+    profiles: ["profiling"]
+    volumes:
+      - ./observability/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
+      - pyroscope-data:/data
 
   alloy:
     image: grafana/alloy:v1.18.0
@@ -160,6 +181,7 @@ volumes:
   loki-data:
   alloy-data:
   grafana-data:
+  pyroscope-data:
 
 networks:
   # Same definition as the base compose's ocr-net (internal-only, no
