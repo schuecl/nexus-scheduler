@@ -441,6 +441,13 @@ services:
       PDF_SERVICE_URL: http://pdf-service:4100
       PDF_SERVICE_SHARED_SECRET: ${PDF_SERVICE_SHARED_SECRET}
       LOG_LEVEL: debug
+      # Continuous profiling (issue #185). Off by default — push-based,
+      # so it's a no-op with no Pyroscope backend to send to. The
+      # server address matches the pyroscope service name the
+      # observability overlay adds; no effect here unless both that
+      # overlay and this flag are on.
+      PYROSCOPE_ENABLED: ${PYROSCOPE_ENABLED:-false}
+      PYROSCOPE_SAMPLE_RATE_HZ: ${PYROSCOPE_SAMPLE_RATE_HZ:-100}
     depends_on:
       postgres:
         condition: service_healthy
@@ -478,6 +485,12 @@ services:
       OCR_SERVICE_URL: http://ocr:4200
       OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
       OCR_EXTRACTED_TEXT_MAX_CHARS: ${OCR_EXTRACTED_TEXT_MAX_CHARS:-80000}
+      # Continuous profiling (issue #185) — see the api service above
+      # for the full rationale. This is the process actually worth
+      # profiling: it runs the long agent calls where a runaway loop or
+      # a memory climb would show up in a flamegraph.
+      PYROSCOPE_ENABLED: ${PYROSCOPE_ENABLED:-false}
+      PYROSCOPE_SAMPLE_RATE_HZ: ${PYROSCOPE_SAMPLE_RATE_HZ:-100}
     depends_on:
       postgres:
         condition: service_healthy

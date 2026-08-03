@@ -71,6 +71,16 @@ const envSchema = z.object({
   COMPONENT_STATUS_PUBLISH_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
 
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+
+  // Continuous profiling (issue #185, #103 Phase 2/3) — see the API's
+  // config.ts for the full rationale (same flags, both processes can
+  // enable independently; the worker is the one actually worth profiling).
+  PYROSCOPE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  PYROSCOPE_SERVER_ADDRESS: z.string().url().default("http://pyroscope:4040"),
+  PYROSCOPE_SAMPLE_RATE_HZ: z.coerce.number().int().positive().default(100),
 });
 
 export type WorkerConfig = z.infer<typeof envSchema>;

@@ -76,6 +76,21 @@ const envSchema = z.object({
   PDF_SERVICE_SHARED_SECRET: z.string().optional(),
 
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+
+  // Continuous profiling (issue #185, #103 Phase 2/3). Push-based and
+  // off by default: this deployment target is air-gapped clusters with
+  // modest resources, not a profiling lab, and enabling it against a
+  // stack with no Pyroscope backend just adds sampling overhead for
+  // data nobody collects. Not z.coerce.boolean() — see LOCAL_AUTH_ENABLED
+  // above (issue #125) for why that silently inverts "false".
+  PYROSCOPE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  PYROSCOPE_SERVER_ADDRESS: z.string().url().default("http://pyroscope:4040"),
+  // CPU sampling rate in Hz — the library's own default, made explicit
+  // and configurable rather than a magic default buried in profiling.ts.
+  PYROSCOPE_SAMPLE_RATE_HZ: z.coerce.number().int().positive().default(100),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

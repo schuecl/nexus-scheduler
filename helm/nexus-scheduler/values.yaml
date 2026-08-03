@@ -70,6 +70,17 @@ ocr:
   # roughly 20k tokens, leaving headroom in the bundled 32k-context model.
   maxPromptChars: 80000
 
+# Continuous profiling (issue #185, #103 Phase 2/3). Push-based and off
+# by default: enabling it with no Pyroscope backend to send to just adds
+# sampling overhead for data nobody collects. serverAddress defaults to
+# the helm/observability chart's pyroscope Service name/port, installed
+# into the same namespace with `pyroscope.enabled: true` — set it
+# explicitly if that chart lives elsewhere.
+profiling:
+  enabled: false
+  serverAddress: "http://nexus-observability-pyroscope:4040"
+  sampleRateHz: 100
+
 frontend:
   replicaCount: 2
   port: 8080

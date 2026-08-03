@@ -45,3 +45,20 @@ describe("loadConfig / LOCAL_AUTH_ENABLED (issue #125)", () => {
     errorSpy.mockRestore();
   });
 });
+
+describe("loadConfig / PYROSCOPE_ENABLED (issue #185)", () => {
+  it("defaults to false when unset", () => {
+    const config = loadConfig(BASE_ENV);
+    expect(config.PYROSCOPE_ENABLED).toBe(false);
+  });
+
+  it('parses "false" as false, not true (same coercion trap as issue #125)', () => {
+    const config = loadConfig({ ...BASE_ENV, PYROSCOPE_ENABLED: "false" });
+    expect(config.PYROSCOPE_ENABLED).toBe(false);
+  });
+
+  it('parses "true" as true', () => {
+    const config = loadConfig({ ...BASE_ENV, PYROSCOPE_ENABLED: "true" });
+    expect(config.PYROSCOPE_ENABLED).toBe(true);
+  });
+});

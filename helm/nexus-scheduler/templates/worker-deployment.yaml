@@ -71,6 +71,14 @@ spec:
             - name: OCR_EXTRACTED_TEXT_MAX_CHARS
               value: {{ int64 .Values.ocr.maxPromptChars | quote }}
             {{- end }}
+            {{- if .Values.profiling.enabled }}
+            - name: PYROSCOPE_ENABLED
+              value: "true"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: {{ .Values.profiling.serverAddress | quote }}
+            - name: PYROSCOPE_SAMPLE_RATE_HZ
+              value: {{ .Values.profiling.sampleRateHz | quote }}
+            {{- end }}
             {{- if .Values.librechat.tls.caBundle }}
             # Node's fetch() (this app's HTTP client for every LibreChat
             # call) honors this process-wide with no application code
