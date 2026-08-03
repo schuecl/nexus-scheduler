@@ -393,11 +393,24 @@ mimir:
 
 ## Dashboards
 
-13, provisioned as code and byte-identical to the Compose stack's:
+13, provisioned as code. 10 are byte-identical to the Compose stack's copy
+(enforced by `scripts/sync-helm-dashboards.sh --check` in CI):
 
-`nexus-scheduler-overview`, `api-service`, `worker-service`, `ocr-service`,
-`pdf-service`, `infrastructure`, `host`, `logs`, `collector-health`,
-`system-map`, `ai-model-performance`, `ai-consumption-cost`, `ai-savings`.
+`api-service`, `worker-service`, `ocr-service`, `pdf-service`, `host`,
+`logs`, `collector-health`, `ai-model-performance`, `ai-consumption-cost`,
+`ai-savings`.
+
+`system-map`, `infrastructure` and `nexus-scheduler-overview` are
+**Kubernetes forks**, hand-maintained separately in this chart (same sync
+script, but those three filenames are excluded from both the copy and the
+diff — see the script's `FORKED_DASHBOARDS`). Docker's cAdvisor exporter
+(Compose) and each node's kubelet cAdvisor (Kubernetes) label the same
+`container_*` metrics differently — `name` (a Docker container name or
+regex on it) vs `namespace`/`pod`/`container` — so a handful of panels in
+these three dashboards cannot share one query text between the two
+collectors (#179). Everything else in them (layout, non-container panels)
+still tracks the Compose original; only the container-identity queries and
+their descriptions differ.
 
 Which ones need what:
 
@@ -419,13 +432,6 @@ for a broken install.
   scrape-only port that only a ServiceMonitor targets, and Alloy discovers
   by pod annotation. Every `pdf-service` panel is empty and `system-map`
   shows it *down* rather than *no data*.
-- **Some container panels query Compose-only labels.** `system-map` keys
-  three tiles on Docker container names (`.*librechat-1.*` and friends) that
-  cannot exist in Kubernetes, and several `by (name)` panels should be
-  `by (namespace, pod, container)`.
-- **`collector-health`'s remote-write lag uses `max() - max()`**, which was
-  correct for one Alloy and hides a wedged node now that Alloy is a
-  DaemonSet.
 - **No profiling or tracing.** Pyroscope and Tempo are deliberately absent —
   the app has no profiling or OpenTelemetry instrumentation, so those
   backends would stand up and receive nothing.

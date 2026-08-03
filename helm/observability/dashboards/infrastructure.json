@@ -385,7 +385,7 @@
     {
       "type": "timeseries",
       "title": "Memory by container (top 10)",
-      "description": "Per-container working set. No container memory limits are set in this stack, so this is what explains Chromium/PDF and model-load failures. name!=\"\" keeps this to real containers \u2014 cAdvisor also reports host cgroups (/system.slice etc.) which would otherwise dominate the topk. On Docker Desktop (macOS/Windows), cAdvisor cannot see the VM's cgroups \u2014 start the container-stats-exporter fallback instead: docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d. It emits the same metric names from the Docker Engine API, so this panel populates either way.",
+      "description": "Per-container working set, from each node's kubelet cAdvisor. No container memory limits are set in this stack, so this is what explains Chromium/PDF and model-load failures. container!=\"\" excludes the pod-level cgroup aggregate (no single container) and container!=\"POD\" excludes the pause/infra container, leaving one series per real container.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -405,8 +405,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, sum by (name) (container_memory_working_set_bytes{name!=\"\"}))",
-          "legendFormat": "{{name}}"
+          "expr": "topk(10, sum by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\", container!=\"POD\"}))",
+          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
         }
       ]
     },
@@ -432,16 +432,16 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])))",
-          "legendFormat": "{{name}}"
+          "expr": "topk(10, sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[5m])))",
+          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
         }
       ],
-      "description": " On Docker Desktop (macOS/Windows), cAdvisor cannot see the VM's cgroups \u2014 start the container-stats-exporter fallback instead: docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile docker-desktop up -d. It emits the same metric names from the Docker Engine API, so this panel populates either way."
+      "description": "From each node's kubelet cAdvisor. container!=\"\" excludes the pod-level cgroup aggregate and container!=\"POD\" excludes the pause/infra container."
     },
     {
       "type": "timeseries",
       "title": "OOM kills",
-      "description": "Any non-zero value means a container was killed for memory. On Linux hosts the metric comes from cAdvisor reading the kernel log \u2014 see the /dev/kmsg devices: entry in docker-compose.observability.yml. On Docker Desktop the container-stats-exporter (docker-desktop profile) emits the same counter from Docker Engine oom events, so this panel works in both environments.",
+      "description": "Any non-zero value means a container was killed for memory. The metric comes from kubelet cAdvisor reading each node's kernel log, so it depends on the node exposing /dev/kmsg \u2014 not guaranteed on every managed Kubernetes offering.",
       "datasource": {
         "type": "prometheus",
         "uid": "mimir"
@@ -473,8 +473,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (increase(container_oom_events_total{name!=\"\"}[10m]))",
-          "legendFormat": "{{name}}"
+          "expr": "sum by (namespace, pod, container) (increase(container_oom_events_total{container!=\"\", container!=\"POD\"}[10m]))",
+          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
         }
       ]
     }

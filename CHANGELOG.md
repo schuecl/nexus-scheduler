@@ -10,6 +10,25 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+### Fixed
+
+- Helm's Grafana dashboards queried Compose-only cAdvisor labels for
+  container-level panels, so they silently returned zero series (no error)
+  under Kubernetes' kubelet cAdvisor, which labels the same metrics
+  differently (#179). `system-map`, `infrastructure` and
+  `nexus-scheduler-overview` are now Kubernetes-specific forks —
+  hand-maintained separately from the Compose originals and excluded from
+  `scripts/sync-helm-dashboards.sh`'s byte-identical check — with queries
+  rewritten to `namespace`/`pod`/`container` (or, for `system-map`'s
+  LibreChat/Mongo/Ollama tiles, an exact `container` match) instead of
+  Compose's `name` regexes. `collector-health`'s remote-write-lag and
+  healthy-components panels used `max()`/a bare gauge that assumed exactly
+  one collector; fixed to aggregate `by (instance)` so one wedged node in
+  the DaemonSet no longer hides behind a healthy one — this fix applies to
+  both the Compose and Helm copies since it's a no-op with a single
+  collector. `host`'s network-interface filter now also excludes
+  Antrea/Calico/flannel/generic CNI interfaces, not just Docker's.
+
 ### Added
 
 - Post-hoc repetition-loop detection on agent responses (#165): after a

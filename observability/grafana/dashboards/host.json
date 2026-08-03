@@ -198,12 +198,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*|cali.*|antrea.*|genev_sys.*|flannel.*|cni.*\"}[5m]))",
           "legendFormat": "{{device}} rx"
         },
         {
           "refId": "B",
-          "expr": "sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[5m]))",
+          "expr": "sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*|cali.*|antrea.*|genev_sys.*|flannel.*|cni.*\"}[5m]))",
           "legendFormat": "{{device}} tx"
         }
       ],
