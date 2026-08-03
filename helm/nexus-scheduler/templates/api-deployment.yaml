@@ -75,6 +75,14 @@ spec:
               value: {{ .Values.librechat.baseUrl | quote }}
             - name: PDF_SERVICE_URL
               value: "http://{{ include "nexus-scheduler.fullname" . }}-pdf-service:{{ .Values.pdfService.port }}"
+            {{- if .Values.profiling.enabled }}
+            - name: PYROSCOPE_ENABLED
+              value: "true"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: {{ .Values.profiling.serverAddress | quote }}
+            - name: PYROSCOPE_SAMPLE_RATE_HZ
+              value: {{ .Values.profiling.sampleRateHz | quote }}
+            {{- end }}
             {{- if .Values.librechat.tls.caBundle }}
             # Node's fetch() (this app's HTTP client for every LibreChat
             # call) honors this process-wide with no application code

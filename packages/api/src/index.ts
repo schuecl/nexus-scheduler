@@ -4,10 +4,12 @@ import { createLogger } from "./logger.js";
 import { createApp } from "./app.js";
 import { initOidcClient } from "./auth/oidc.js";
 import { syncBootstrapAdmin } from "./bootstrapAdmin.js";
+import { initProfiling } from "./profiling.js";
 
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
+  initProfiling(config, logger);
 
   await syncBootstrapAdmin(config, logger);
   await initOidcClient(config, logger);

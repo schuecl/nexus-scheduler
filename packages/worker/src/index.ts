@@ -11,10 +11,12 @@ import { startUsageReportLoop } from "./usageReportScheduler.js";
 import { startCancellationSubscriber } from "./cancellation.js";
 import { startOrphanReaperLoop } from "./orphanReaper.js";
 import { startComponentStatusPublisherLoop } from "./componentStatusPublisher.js";
+import { initProfiling, stopProfiling } from "./profiling.js";
 
 async function main() {
   const config = loadConfig();
   const logger = createLogger(config);
+  initProfiling(config, logger);
 
   const connection = parseRedisConnectionOptions(config.REDIS_URL);
   const queue = createRunsQueue(connection);
@@ -52,6 +54,7 @@ async function main() {
         await stopCancellationSubscriber();
         await runWorker.close();
         await queue.close();
+        await stopProfiling(config);
         process.exit(0);
       })();
     });

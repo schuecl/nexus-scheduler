@@ -10,6 +10,18 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ## [Unreleased]
 
+### Added
+
+- Continuous profiling instrumentation for the api and worker (issue #185,
+  #103 Phase 2/3, part 1 of 2). `@pyroscope/nodejs` is wired into both
+  entrypoints behind `PYROSCOPE_ENABLED` (default off — push-based
+  profiling with no backend to send to just adds sampling overhead for
+  data nobody collects). `PYROSCOPE_SERVER_ADDRESS` and
+  `PYROSCOPE_SAMPLE_RATE_HZ` round out the config, and profiles are
+  tagged with the same `service` label metrics/logs already use. No
+  Pyroscope backend ships yet — that, plus the Grafana datasource and a
+  flamegraph panel, lands in a follow-up PR (part 2).
+
 ### Fixed
 
 - Helm's Grafana dashboards queried Compose-only cAdvisor labels for

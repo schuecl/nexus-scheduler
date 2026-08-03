@@ -34,6 +34,9 @@ const config: AppConfig = {
   PDF_SERVICE_URL: "http://placeholder.invalid",
   PDF_SERVICE_SHARED_SECRET: undefined,
   LOG_LEVEL: "error",
+  PYROSCOPE_ENABLED: false,
+  PYROSCOPE_SERVER_ADDRESS: "http://pyroscope:4040",
+  PYROSCOPE_SAMPLE_RATE_HZ: 100,
 };
 
 const PASSWORD = "correct horse battery staple";

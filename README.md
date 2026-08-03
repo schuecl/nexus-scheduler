@@ -446,6 +446,7 @@ Key environment variables (see `packages/api/src/config.ts` and
 | `LIBRECHAT_BASE_URL` | Base URL of the LibreChat deployment to call |
 | `PDF_SERVICE_URL` | Internal URL of the PDF rendering service |
 | `GLOBAL_MAX_CONCURRENT_RUNS`, `PER_USER_MAX_CONCURRENT_RUNS` | Worker concurrency limits (defaults: 25 global, 5 per user) |
+| `PYROSCOPE_ENABLED`, `PYROSCOPE_SERVER_ADDRESS`, `PYROSCOPE_SAMPLE_RATE_HZ` | Continuous profiling (issue #185), off by default — see [Observability stack](#observability-stack-optional) |
 
 SSO roles are mapped from OIDC client roles (`resource_access.<client
 id>.roles`), matched against Nexus Scheduler's three roles — `ADMIN`,
