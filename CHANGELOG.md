@@ -85,6 +85,18 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   `codegemma:2b` and `phi4-mini-reasoning:3.8b`) back in 0.2.0's own
   changelog entry — corrected to match `docker/litellm/config.yaml`.
 
+### Security
+
+- Bumped transitive `undici` (root-hoisted via `packages/pdf`'s `jsdom`
+  dependency, 7.28.0 → 7.29.0; the worker's separately pinned copy,
+  6.27.0 → 6.28.0) and `ip-address` (via `express-rate-limit` in
+  `packages/api`, 10.2.0 → 10.4.0), clearing the high-severity
+  advisories a live npm advisory-database update surfaced against
+  main's unchanged `package-lock.json` and had started failing CI's
+  "Dependency audit" job on every PR regardless of what it touched
+  (#241). Lockfile-only; no `package.json` ranges changed, since the
+  existing carets already permitted the patched versions.
+
 ## [0.2.0] - 2026-07-21
 
 ### Added
