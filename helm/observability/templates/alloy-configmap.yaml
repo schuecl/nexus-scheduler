@@ -95,6 +95,78 @@ data:
       scrape_interval = "15s"
     }
 
+    // ------------------------------------------------------------------
+    // App metrics, keyed on a Service instead of a pod (issue #180).
+    // pdf-service carries no pod annotation at all — its NetworkPolicy
+    // admits only api/worker to the render port, and a pod annotation
+    // can't name one port without exposing the pod as "scrape me" to any
+    // annotation-scraping tooling, which would point at that same render
+    // port. Its Service instead gets prometheus.io/scrape when
+    // pdfService.metrics.enabled, on a *second*, scrape-only port named
+    // "metrics" — the render port keeps no annotation and no discovery
+    // path reaches it. discovery.kubernetes role=endpoints resolves a
+    // Service back to its backing pod(s), carrying the pod's own meta
+    // labels too, so the node-local dedup and `service` derivation below
+    // mirror the pod-based scrape above exactly.
+    // ------------------------------------------------------------------
+    discovery.kubernetes "services" {
+      role = "endpoints"
+      namespaces {
+        names = [
+          {{- range .Values.alloy.appNamespaces }}
+          {{ . | quote }},
+          {{- end }}
+          {{- if .Values.alloy.appNamespace }}
+          {{ .Values.alloy.appNamespace | quote }},
+          {{- end }}
+          {{ .Release.Namespace | quote }},
+        ]
+      }
+    }
+
+    discovery.relabel "annotated_services" {
+      targets = discovery.kubernetes.services.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        regex         = sys.env("NODE_NAME")
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_service_annotation_prometheus_io_scrape"]
+        regex         = "true"
+        action        = "keep"
+      }
+      // A Service can expose more than one port (pdf-service also has
+      // "http", which stays render-only and must never be scraped) —
+      // the endpoints role emits one target per port, so keep only the
+      // one actually meant for this: the port named "metrics".
+      rule {
+        source_labels = ["__meta_kubernetes_endpoint_port_name"]
+        regex         = "metrics"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+        regex         = "(.+)"
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+    }
+
+    prometheus.scrape "app_services" {
+      targets         = discovery.relabel.annotated_services.output
+      forward_to      = [prometheus.remote_write.mimir.receiver]
+      scrape_interval = "15s"
+    }
+
     {{- if .Values.alloy.kubeletCadvisor }}
     // ------------------------------------------------------------------
     // Per-container CPU/memory from each node's kubelet cAdvisor —

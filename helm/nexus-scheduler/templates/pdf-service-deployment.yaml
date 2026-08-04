@@ -27,8 +27,10 @@ spec:
         # annotation path would point the scrape at the render port, which
         # remains api/worker-only by design. Scraping this pod goes through
         # the dedicated metrics port (issue #118) — the Service's `metrics`
-        # port, admitted by pdfService.metrics.scrapeFrom and targeted by
-        # the ServiceMonitor.
+        # port, admitted by pdfService.metrics.scrapeFrom, targeted by the
+        # ServiceMonitor for a cluster's own Prometheus Operator, and
+        # discovered by helm/observability's Alloy via a Service-level
+        # prometheus.io/scrape annotation on that same port (issue #180).
     spec:
       serviceAccountName: {{ include "nexus-scheduler.serviceAccountName" . }}
       {{- with .Values.dnsConfig }}

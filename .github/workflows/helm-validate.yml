@@ -46,6 +46,9 @@ jobs:
         run: |
           helm template release helm/nexus-scheduler > rendered.yaml
           helm template release helm/nexus-scheduler --set profiling.enabled=true >> rendered.yaml
+          # pdf-service's metrics Service annotation (issue #180) only
+          # renders when this is on.
+          helm template release helm/nexus-scheduler --set pdfService.metrics.enabled=true >> rendered.yaml
           helm template release helm/observability >> rendered.yaml
           # Exercise the optional paths too — the exporter toggle, the
           # profiling backend, and the mirrored-registry/digest form all

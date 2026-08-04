@@ -5,6 +5,16 @@ metadata:
   labels:
     {{- include "nexus-scheduler.labels" . | nindent 4 }}
     app.kubernetes.io/component: pdf-service
+  {{- if .Values.pdfService.metrics.enabled }}
+  annotations:
+    # Discovered by helm/observability's Alloy via Service-level discovery
+    # (issue #180), not the pod annotation the api/worker Services use: a
+    # pod annotation can't distinguish this Service's two ports, and the
+    # render port (see pdf-service-deployment.yaml) must never be
+    # advertised as a scrape target. Alloy selects the "metrics" port by
+    # name, so no prometheus.io/port is needed here.
+    prometheus.io/scrape: "true"
+  {{- end }}
 spec:
   # No Ingress ever routes to this Service — it's cluster-internal only,
   # reached exclusively by the api/worker Deployments (see the
