@@ -21,7 +21,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0",
+    "@prisma/client": "^7.9.1",
     "luxon": "^3.5.0",
     "zod": "^3.23.8"
   },
