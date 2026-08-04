@@ -23,6 +23,9 @@ namespace names changes the Kubernetes service DNS names.
   cluster's suffix if it differs.
 - NetworkPolicy enforcement requires a compatible CNI. The selectors below
   still render on a cluster without one, but do not enforce isolation there.
+- On a FIPS-enabled node (`/proc/sys/crypto/fips_enabled == 1`), step 1's
+  bundled MongoDB will not start — see [`helm/test-ai`'s
+  README](../helm/test-ai/README.md#fips-enabled-hosts-bundled-mongodb-will-not-start).
 
 Create the namespaces first so their standard
 `kubernetes.io/metadata.name` labels exist before the OCR NetworkPolicy is
