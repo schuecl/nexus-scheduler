@@ -34,6 +34,16 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   design and the acceptance criteria in #185 — nothing sits deployed
   with nothing arriving unless both the app's `PYROSCOPE_ENABLED` and
   this backend are turned on together.
+- Documented that `helm/test-ai`'s bundled MongoDB cannot start on a
+  FIPS-enabled host (issue #194): the stock `mongo:8.0.20` image ships
+  no FIPS module, so Ubuntu's OpenSSL 3 switching into FIPS mode when
+  `/proc/sys/crypto/fips_enabled == 1` takes every digest down with it,
+  including SHA-256, and MongoDB asserts on startup. `helm/test-ai`
+  gains a README covering the mechanism, what is/isn't affected (the
+  app chart is unaffected as of #106), and a dev-only, non-production
+  workaround for local FIPS workstations. No code changes — there is no
+  supported fix yet; a FIPS-capable image or an external-MongoDB value
+  are tracked as follow-up work in #251.
 
 ### Security
 

@@ -502,6 +502,12 @@ application, OCR, and AI-plane charts, see
   install needs no external dependencies or network access to stand
   them up. Set `postgresql.enabled: false` / `redis.enabled: false` to
   bring your own instead.
+- **FIPS-enabled nodes**: the application chart itself is FIPS-clean
+  (#106), but `helm/test-ai`'s bundled MongoDB is not — its stock image
+  ships no FIPS module, so it crash-loops on a host with
+  `/proc/sys/crypto/fips_enabled == 1`. See [`helm/test-ai`'s
+  README](helm/test-ai/README.md#fips-enabled-hosts-bundled-mongodb-will-not-start)
+  before installing the AI plane there.
 - **Clusters with mutating admission webhooks** (Zarf's agent, some
   policy engines, service meshes): these can silently rewrite every
   pod's image reference — e.g. Zarf points them at its internal
