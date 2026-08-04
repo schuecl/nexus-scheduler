@@ -12,6 +12,7 @@ on:
     paths:
       - "packages/*/Dockerfile"
       - "docker/syslog-test/Dockerfile"
+      - "docker/ocr/Dockerfile"
       - ".hadolint.yaml"
       - ".github/workflows/dockerfile-lint.yml"
   push:
@@ -19,6 +20,7 @@ on:
     paths:
       - "packages/*/Dockerfile"
       - "docker/syslog-test/Dockerfile"
+      - "docker/ocr/Dockerfile"
       - ".hadolint.yaml"
 
 permissions:
@@ -37,6 +39,7 @@ jobs:
           - packages/frontend/Dockerfile
           - packages/pdf-service/Dockerfile
           - docker/syslog-test/Dockerfile
+          - docker/ocr/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: hadolint/hadolint-action@v3.1.0

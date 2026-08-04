@@ -1,0 +1,53 @@
+name: OCR Service Test
+
+# Runs docker/ocr/test_service.py (the DEF-02 text-layer-fallback and
+# DEF-04 OCR_DESCRIBE_IMAGES regression checks) inside the built OCR
+# image, matching the file's own header: "Kept dependency-light so it
+# can run in the build image." Before this workflow, nothing ran it —
+# a regression here would have passed CI cleanly (issue #254).
+#
+# test_service.py imports service.py, which imports docling/fastapi/etc,
+# so it can only run where those are installed — the built image, not a
+# bare python3 in this runner. It's mounted in at `docker run` time
+# rather than COPY'd into the Dockerfile, so the shipped image doesn't
+# carry test code.
+#
+# Own workflow, not folded into ci.yml or dockerfile-lint.yml: this is
+# CI's heaviest image (torch + docling, several minutes to build), so
+# it only runs when docker/ocr/** actually changes.
+
+on:
+  pull_request:
+    paths:
+      - "docker/ocr/**"
+      - ".github/workflows/ocr-test.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "docker/ocr/**"
+      - ".github/workflows/ocr-test.yml"
+
+concurrency:
+  group: ocr-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build & run test_service.py
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build OCR image
+        run: docker build -t nexus-scheduler-ocr:test docker/ocr
+
+      - name: Run regression checks inside the built image
+        run: >
+          docker run --rm
+          -v "${{ github.workspace }}/docker/ocr/test_service.py:/app/test_service.py:ro"
+          --entrypoint python3
+          nexus-scheduler-ocr:test
+          test_service.py
