@@ -44,6 +44,15 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   workaround for local FIPS workstations. No code changes — there is no
   supported fix yet; a FIPS-capable image or an external-MongoDB value
   are tracked as follow-up work in #251.
+- `helm/test-ai`: a `mongo.external.existingSecret` value to point
+  LibreChat at a MongoDB you already run — e.g. a FIPS-capable build
+  such as Percona Server for MongoDB — instead of the bundled
+  `mongo:8.0.20` StatefulSet that can't start on a FIPS-enabled host
+  (issue #194's follow-up, #251). The named Secret's `uri` key becomes
+  `MONGO_URI` directly; when set, the chart renders no `mongo`
+  StatefulSet, Service, PVC, or NetworkPolicy at all. Unset (the
+  default) is a no-op — same bundled StatefulSet as before. CI now
+  templates both the default and external-Mongo paths.
 
 ### Security
 

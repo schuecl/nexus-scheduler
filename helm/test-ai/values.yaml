@@ -146,3 +146,15 @@ mongo:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 768Mi}
+  # Bring your own MongoDB instead of the bundled StatefulSet — the fix
+  # for FIPS-enabled hosts (README's "FIPS-enabled hosts" section,
+  # issue #194/#251): the stock mongo:8.0.20 image has no FIPS OpenSSL
+  # provider and crash-loops there. Point this at a Secret with a `uri`
+  # key holding the full connection string (e.g.
+  # mongodb://user:pass@host:27017/LibreChat), such as a FIPS-capable
+  # MongoDB (Percona Server for MongoDB) or any instance you already
+  # run. When set, the chart renders no mongo StatefulSet, Service,
+  # PVC, or NetworkPolicy, and LibreChat's MONGO_URI comes from this
+  # Secret instead.
+  external:
+    existingSecret: ""

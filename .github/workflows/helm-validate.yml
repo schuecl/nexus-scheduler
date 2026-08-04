@@ -56,6 +56,11 @@ jobs:
             --set global.imageRegistry=registry.example.internal >> rendered.yaml
           helm template release helm/observability --set pyroscope.enabled=true >> rendered.yaml
           helm template release helm/test-ai >> rendered.yaml
+          # External MongoDB path (issue #251) — renders no mongo
+          # StatefulSet/Service/NetworkPolicy and wires MONGO_URI from
+          # the named Secret instead.
+          helm template release helm/test-ai \
+            --set mongo.external.existingSecret=ci-placeholder >> rendered.yaml
           helm template release helm/ocr >> rendered.yaml
 
       - name: Install kubeconform

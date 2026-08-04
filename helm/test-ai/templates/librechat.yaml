@@ -45,6 +45,7 @@ endpoints:
 # to models, authenticated with the llm_api-only virtual key.
 {{- $lcSecret := .Values.librechat.existingSecret | default (printf "%s-librechat-keys" (include "test-ai.fullname" .)) }}
 {{- $llSecret := .Values.litellm.existingSecret | default (printf "%s-litellm-keys" (include "test-ai.fullname" .)) }}
+{{- if not .Values.mongo.external.existingSecret }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -113,6 +114,7 @@ spec:
       port: 27017
       targetPort: mongo
 ---
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -174,8 +176,14 @@ spec:
               value: 0.0.0.0
             - name: PORT
               value: "3080"
+            {{- if .Values.mongo.external.existingSecret }}
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.mongo.external.existingSecret }}, key: uri}
+            {{- else }}
             - name: MONGO_URI
               value: mongodb://{{ include "test-ai.fullname" . }}-mongo:27017/LibreChat
+            {{- end }}
             - name: SEARCH
               value: "false"
             - name: DOMAIN_CLIENT
