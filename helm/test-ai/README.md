@@ -39,20 +39,21 @@ fails. `helm/nexus-scheduler` (the application itself) is FIPS-clean as
 of #106. `helm/ocr` has no MongoDB. `helm/observability` (Mimir, Loki,
 Grafana, Alloy) starts normally.
 
-**There is no supported fix in this chart yet.** Options under
-consideration — a FIPS-capable image (e.g. Percona Server for
-MongoDB), or a `mongo.external.uri` value to point at a MongoDB you
-already run — are tracked in #194; neither is implemented. If your
-target nodes are FIPS-enabled, this chart's bundled MongoDB (and so
-LibreChat) cannot be installed there today.
+**There is no supported fix in this chart yet.** A FIPS-capable image
+(e.g. Percona Server for MongoDB) or a `mongo.external.uri` value to
+point at a MongoDB you already run are tracked as follow-up work in
+#251; neither is implemented. If your target nodes are FIPS-enabled,
+this chart's bundled MongoDB (and so LibreChat) cannot be installed
+there today.
 
 **Local test clusters only — never production:** on a personal
 FIPS-enabled workstation, bind-mounting a file containing `0` over
 `/proc/sys/crypto/fips_enabled` inside the `mongo` container makes the
 image's OpenSSL fall back out of FIPS mode and start normally (verified
-in #194 with plain `docker run`, both directions). This is a
-compliance-defeating workaround, not a fix: it disables the exact
-control the host turned on. Only reach for it to unblock local chart
-development on a machine that isn't a FIPS-mandated deployment target;
-never use it to bring MongoDB up on a host where FIPS is actually
-required.
+in #194 with plain `docker run`, both directions; reproduced again in
+review of #250, including the resulting `mongod` fatal assertion when
+the flag is forced the other way). This is a compliance-defeating
+workaround, not a fix: it disables the exact control the host turned
+on. Only reach for it to unblock local chart development on a machine
+that isn't a FIPS-mandated deployment target; never use it to bring
+MongoDB up on a host where FIPS is actually required.

@@ -43,7 +43,7 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   app chart is unaffected as of #106), and a dev-only, non-production
   workaround for local FIPS workstations. No code changes — there is no
   supported fix yet; a FIPS-capable image or an external-MongoDB value
-  are tracked as follow-up work in #194.
+  are tracked as follow-up work in #251.
 
 ### Security
 
