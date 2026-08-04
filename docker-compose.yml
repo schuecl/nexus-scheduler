@@ -374,6 +374,13 @@ services:
       # scheduled-run path passes its own ?describe per call.
       OCR_DESCRIBE_IMAGES: ${OCR_DESCRIBE_IMAGES:-false}
       OCR_DESCRIBE_MIN_BUDGET_S: ${OCR_DESCRIBE_MIN_BUDGET_S:-60}
+      # Continuous profiling (issue #239, the Python path split out of
+      # #185/#237). Same flag/defaults as the api/worker — off by default,
+      # so this is a no-op unless PYROSCOPE_ENABLED is also set for them.
+      # Server address defaults to the observability overlay's pyroscope
+      # service name, reachable over ocr-net (see that overlay's networks).
+      PYROSCOPE_ENABLED: ${PYROSCOPE_ENABLED:-false}
+      PYROSCOPE_SAMPLE_RATE_HZ: ${PYROSCOPE_SAMPLE_RATE_HZ:-100}
     mem_limit: 2g
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/healthz')"]

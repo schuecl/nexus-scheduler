@@ -65,6 +65,9 @@ jobs:
           helm template release helm/test-ai \
             --set mongo.external.existingSecret=ci-placeholder >> rendered.yaml
           helm template release helm/ocr >> rendered.yaml
+          # Continuous profiling (issue #239) — exercises the egress
+          # NetworkPolicy peer added for the Pyroscope backend.
+          helm template release helm/ocr --set profiling.enabled=true >> rendered.yaml
 
       - name: Install kubeconform
         run: |

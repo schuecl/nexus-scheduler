@@ -116,6 +116,7 @@ Non-negotiables enforced at render time:
 | `gateway.url` / `.existingSecret` / `.visionModel` | `GATEWAY_URL` / `GATEWAY_KEY` / `VISION_MODEL` | empty | descriptions (§4) |
 | `gateway.describeImages` | `OCR_DESCRIBE_IMAGES` | false | **LibreChat uploads only** — see §4 |
 | `gateway.minBudgetSeconds` | `OCR_DESCRIBE_MIN_BUDGET_S` | 60 | descriptions — floor below which the describe stage is skipped rather than started and abandoned |
+| `profiling.enabled` / `.serverAddress` / `.sampleRateHz` | `PYROSCOPE_ENABLED` / `PYROSCOPE_SERVER_ADDRESS` / `PYROSCOPE_SAMPLE_RATE_HZ` | off / `http://nexus-observability-pyroscope:4040` / 100 | continuous profiling (issue #239) — see §5 |
 
 Defaults are unchanged from the compiled-in values they replaced, so an
 install that sets none of these behaves exactly as before.
@@ -276,6 +277,31 @@ discovery. Scrapers get their own NetworkPolicy lane:
 metrics:
   scraperNamespaces: [observability]   # NOT networkPolicy.clientNamespaces
 ```
+
+### Continuous profiling (issue #239)
+
+Push-based, off by default — same posture as `helm/nexus-scheduler`'s
+`profiling.*` for the api/worker (issue #185), just the Python path
+(`pyroscope-io`) instead of `@pyroscope/nodejs`. Enabling this chart's
+half with no `helm/observability` release (or `pyroscope.enabled:
+false` there) just adds sampling overhead for data nobody collects —
+turn both on together:
+
+```yaml
+profiling:
+  enabled: true
+  serverAddress: "http://nexus-observability-pyroscope:4040"   # default assumes that release name
+  egress:
+    namespaceMatchLabels:
+      kubernetes.io/metadata.name: observability   # if the two charts live in different namespaces
+```
+
+`profiling.egress` is the same kind of NetworkPolicy peer as
+`gateway.egress` in §4 — this chart denies all egress by default, so
+the policy needs an explicit destination for it, since it can't derive
+one from `serverAddress`. A flamegraph (CPU + heap) then appears on the
+OCR dashboard, correlated by the same `service` label the metrics/logs
+panels use.
 
 ## 6. Verify the wiring
 

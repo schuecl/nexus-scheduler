@@ -41,11 +41,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # resolve identically on every rebuild.
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
       "torch==2.13.0" "torchvision==0.28.0"
+# pyroscope-io: continuous profiling (issue #239, the Python path split
+# out of #185/#237's @pyroscope/nodejs work). service.py gates it behind
+# PYROSCOPE_ENABLED, same as the api/worker — the image always carries
+# it, but it is inert (no configure() call) unless the flag is set.
 RUN pip install --no-cache-dir \
       "docling==2.113.0" "ocrmypdf==17.8.1" "pypdfium2==5.12.1" \
       "Pillow==12.2.0" \
       "fastapi==0.139.2" "uvicorn[standard]==0.51.0" "python-multipart==0.0.32" \
-      "prometheus-client==0.25.0"
+      "prometheus-client==0.25.0" \
+      "pyroscope-io==1.2.1"
 
 # Bake docling's layout/table model weights into the image (they are
 # otherwise downloaded on first use — the same silent-egress trap as

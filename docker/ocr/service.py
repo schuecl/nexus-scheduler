@@ -42,7 +42,7 @@ from starlette.datastructures import Headers
 from fastapi.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from PIL import Image, UnidentifiedImageError
-
+import pyroscope
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -268,6 +268,25 @@ DESCRIBE_MIN_BUDGET_S = float(os.environ.get("OCR_DESCRIBE_MIN_BUDGET_S", "60"))
 
 def _log(msg: str) -> None:
     print(f"[ocr] {msg}", file=sys.stderr, flush=True)
+
+
+# Continuous profiling (issue #239, the Python path split out of #185 —
+# #237/#238 covered the api/worker via @pyroscope/nodejs). No-op when
+# PYROSCOPE_ENABLED is unset, same gate and env var names as the Node
+# processes so one flag turns profiling on everywhere at once. tags.service
+# matches the `service` label Alloy already attaches to this process's
+# metrics/logs, so a flamegraph lines up with the existing OCR dashboard.
+# mem_enabled=True for parity with the Node agent, which reports heap
+# profiles by default; the Python agent does not unless asked.
+if os.environ.get("PYROSCOPE_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"):
+    pyroscope.configure(
+        application_name="nexus-scheduler-ocr",
+        server_address=os.environ.get("PYROSCOPE_SERVER_ADDRESS", "http://pyroscope:4040"),
+        tags={"service": "ocr"},
+        sample_rate=int(os.environ.get("PYROSCOPE_SAMPLE_RATE_HZ", "100")),
+        mem_enabled=True,
+    )
+    _log("continuous profiling enabled")
 
 # Docling runs in a persistent, killable child process (docling_worker.py)
 # rather than in-process: an in-process conversion cannot be interrupted,

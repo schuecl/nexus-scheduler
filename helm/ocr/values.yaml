@@ -95,6 +95,31 @@ metrics:
   scraperPodMatchLabels:
     app.kubernetes.io/name: alloy
 
+# Continuous profiling (issue #239, the Python path split out of #185 —
+# #237/#238 covered the api/worker via @pyroscope/nodejs, this chart's
+# pyroscope-io covers this service). Push-based and off by default,
+# same posture as the app chart's profiling.*: enabling it with no
+# backend to send to just adds sampling overhead for data nobody
+# collects. serverAddress defaults to the helm/observability chart's
+# pyroscope Service name/port under that chart's own "nexus-observability"
+# release naming (matching the app chart's profiling.serverAddress
+# default) — set it explicitly if that chart lives elsewhere.
+profiling:
+  enabled: false
+  serverAddress: "http://nexus-observability-pyroscope:4040"
+  sampleRateHz: 100
+  # Where the NetworkPolicy lets the pod's egress to the Pyroscope
+  # backend go — this chart denies all egress except DNS (and,
+  # optionally, the gateway) by default, so profiling needs its own
+  # peer. Must describe the pods serverAddress actually resolves to;
+  # the policy cannot derive a selector from a URL. Defaults match the
+  # labels/port helm/observability's pyroscope StatefulSet/Service use.
+  egress:
+    podMatchLabels:
+      app.kubernetes.io/name: pyroscope
+    namespaceMatchLabels: {}
+    port: 4040
+
 networkPolicy:
   # The airgap posture: deny all ingress except from pods labelled as
   # allowed clients, deny all egress except (optionally) the gateway.
