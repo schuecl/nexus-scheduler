@@ -12,6 +12,23 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ### Added
 
+- Continuous profiling for the OCR service (issue #239, the Python path
+  split out of #185/#237's Node work — that issue's scope-out explicitly
+  deferred it). `pyroscope-io` is wired into `docker/ocr/service.py`
+  behind `PYROSCOPE_ENABLED`, `PYROSCOPE_SERVER_ADDRESS`, and
+  `PYROSCOPE_SAMPLE_RATE_HZ` — the same flag/env-var names the api and
+  worker already use, so one `.env`/values change turns profiling on
+  everywhere at once. Off by default, matching #185's posture. Wired
+  through Compose (the `pyroscope` backend now also joins the OCR
+  service's internal-only `ocr-net`) and `helm/ocr` (new `profiling.*`
+  values, an env block on the Deployment, and an egress NetworkPolicy
+  peer — this chart denies all egress by default, so profiling needs its
+  own destination alongside DNS and the optional gateway). The OCR
+  dashboard gets CPU and heap flamegraph panels, matching the worker
+  dashboard's pattern; unlike the Node agent, `pyroscope-io` populates
+  `process_cpu` by default (verified against a live Pyroscope backend
+  while the service OCR'd real documents), so the CPU panel isn't a
+  wall-time substitute.
 - Continuous profiling instrumentation for the api and worker (issue #185,
   #103 Phase 2/3, part 1 of 2). `@pyroscope/nodejs` is wired into both
   entrypoints behind `PYROSCOPE_ENABLED` (default off — push-based

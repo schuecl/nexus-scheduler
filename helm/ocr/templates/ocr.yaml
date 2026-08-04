@@ -106,6 +106,14 @@ spec:
             - name: OCR_DESCRIBE_MIN_BUDGET_S
               value: {{ .Values.gateway.minBudgetSeconds | quote }}
             {{- end }}
+            {{- if .Values.profiling.enabled }}
+            - name: PYROSCOPE_ENABLED
+              value: "true"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: {{ .Values.profiling.serverAddress | quote }}
+            - name: PYROSCOPE_SAMPLE_RATE_HZ
+              value: {{ .Values.profiling.sampleRateHz | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 4200
@@ -249,5 +257,29 @@ spec:
               {{- toYaml .Values.gateway.egress.podMatchLabels | nindent 14 }}
       ports:
         - port: {{ .Values.gateway.egress.port }}
+    {{- end }}
+    {{- if .Values.profiling.enabled }}
+    # Destination selector/port come from profiling.egress — the policy
+    # cannot derive them from profiling.serverAddress, so a Pyroscope
+    # backend that isn't this chart's default StatefulSet/Service must
+    # set both alongside the address.
+    - to:
+        {{- if .Values.profiling.egress.namespaceMatchLabels }}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.profiling.egress.namespaceMatchLabels | nindent 14 }}
+          podSelector:
+        {{- else }}
+        # Explicit {} — a null namespaceSelector would silently restrict
+        # the peer to this release's namespace, breaking the documented
+        # default of reaching the observability chart's pyroscope in any
+        # namespace.
+        - namespaceSelector: {}
+          podSelector:
+        {{- end }}
+            matchLabels:
+              {{- toYaml .Values.profiling.egress.podMatchLabels | nindent 14 }}
+      ports:
+        - port: {{ .Values.profiling.egress.port }}
     {{- end }}
 {{- end }}

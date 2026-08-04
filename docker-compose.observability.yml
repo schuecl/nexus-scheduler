@@ -19,7 +19,7 @@
 # profiling on:
 #   docker compose -f docker-compose.yml -f docker-compose.observability.yml \
 #     --profile profiling up -d
-#   # ...with PYROSCOPE_ENABLED=true set for api/worker (see .env.example)
+#   # ...with PYROSCOPE_ENABLED=true set for api/worker/ocr (see .env.example)
 services:
   # No healthcheck on mimir/loki: both images are distroless — they have no
   # shell and no wget/curl, so a CMD-SHELL probe can never pass and would
@@ -47,6 +47,12 @@ services:
   pyroscope:
     image: grafana/pyroscope:2.1.1
     profiles: ["profiling"]
+    # default for api/worker, ocr-net so the OCR service (confined to
+    # that internal-only network, issue #239) can reach it too — same
+    # pattern alloy already uses to scrape ocr's /metrics.
+    networks:
+      - default
+      - ocr-net
     volumes:
       - ./observability/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
       - pyroscope-data:/data

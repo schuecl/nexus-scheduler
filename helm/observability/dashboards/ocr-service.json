@@ -492,6 +492,62 @@
         }
       ],
       "description": "nexus_ocr_descriptions_total{outcome}. 'unavailable' with describe=true means the vision gateway is unset, unreachable, or slow — extraction still succeeds without it."
+    },
+    {
+      "type": "row",
+      "title": "Continuous profiling (flamegraphs, issue #239)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "flamegraph",
+      "title": "CPU",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "profile",
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "labelSelector": "{service=\"ocr\"}"
+        }
+      ],
+      "description": "Continuous profiling (issue #239, the Python path split out of #185/#237's Node work) is push-based and off by default (PYROSCOPE_ENABLED) — empty here means it hasn't been turned on, not that the service is idle. Unlike the worker's Node agent, pyroscope-io populates process_cpu by default — confirmed against a live backend while OCRing real documents."
+    },
+    {
+      "type": "flamegraph",
+      "title": "Heap (in-use)",
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "profile",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service=\"ocr\"}"
+        }
+      ],
+      "description": "Continuous profiling (issue #239) is push-based and off by default (PYROSCOPE_ENABLED) — empty here means it hasn't been turned on, not that the service is idle. Heap sampling is coarse-grained (512KB default sampling interval, matching the worker dashboard's Node agent) so a quiet service may show nothing between allocations."
     }
   ]
 }
