@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import NotificationsIcon from "@mui/icons-material/Notifications";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { apiFetch } from "../api/client";
 
 interface MailingListOption {

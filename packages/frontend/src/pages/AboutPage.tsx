@@ -1,4 +1,4 @@
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { Avatar, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { useSettings } from "../context/SettingsContext";

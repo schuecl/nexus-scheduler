@@ -27,7 +27,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 import type { PromptVariableDraft } from "./VariableEditor";

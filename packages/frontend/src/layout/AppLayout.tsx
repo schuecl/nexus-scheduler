@@ -14,7 +14,7 @@ import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import KeyboardOutlinedIcon from "@mui/icons-material/KeyboardOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { ClassificationBanner } from "../components/ClassificationBanner";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";

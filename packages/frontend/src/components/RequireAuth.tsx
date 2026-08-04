@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Box, CircularProgress } from "@mui/material";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 
 // Gates every route except /login and /reset-password — an
