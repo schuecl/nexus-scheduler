@@ -12,6 +12,17 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ### Added
 
+- CI coverage for `docker/ocr` (issue #254, found while working #239):
+  `docker/ocr/Dockerfile` is now in the hadolint matrix alongside the
+  other service Dockerfiles, and a new `ocr-test.yml` workflow builds
+  the image and runs `docker/ocr/test_service.py` inside it (mounted in
+  at `docker run` time, not baked into the shipped image) — the DEF-02
+  text-layer-fallback and DEF-04 `OCR_DESCRIBE_IMAGES` regression checks
+  the file already had but that no workflow ever invoked. Own workflow
+  rather than folding into `ci.yml` or `dockerfile-lint.yml`: this is
+  CI's heaviest image build (torch + docling, several minutes), so it's
+  gated on `docker/ocr/**` paths like the other Dockerfile-triggered
+  workflows.
 - Continuous profiling for the OCR service (issue #239, the Python path
   split out of #185/#237's Node work — that issue's scope-out explicitly
   deferred it). `pyroscope-io` is wired into `docker/ocr/service.py`
