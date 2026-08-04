@@ -37,6 +37,20 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ### Security
 
+- Bumped `react-router-dom` 6.27.0 → 7.18.2 (`packages/frontend`),
+  clearing a moderate-severity `npm audit` finding covering the entire
+  6.x line — an open redirect via backslash in `<Link>`/`useNavigate`
+  and arbitrary constructor injection via SSR error deserialization
+  (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg), neither reachable by a
+  plain, non-`--force` `npm audit fix` since the patched version is a
+  major bump past the existing `^6.27.0` caret (#243, follow-up to
+  #241). The app only used v6/v7's declarative router API
+  (`BrowserRouter`/`Routes`/`Route`, no data router, loaders, or splat
+  routes), which v7 keeps API-compatible, so no route code changed.
+
+  Also fixed by this bump, but superseded by a newer advisory published
+  after this range was chosen: see #248 (`GHSA-qwww-vcr4-c8h2`, RSC-mode
+  CSRF, needs a react-router v8 + React 19 migration to fully clear).
 - Bumped `vite` 5.4.9 → 8.2.0 in `packages/frontend`, clearing a
   moderate-severity `esbuild` advisory (GHSA-67mh-4wv8-2f99: any website
   could send requests to the Vite dev server and read the response)
