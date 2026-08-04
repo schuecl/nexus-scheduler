@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams, Link as RouterLink } from "react-router-dom";
+import { useSearchParams, Link as RouterLink } from "react-router";
 import { Alert, Box, Button, Link as MuiLink, Paper, Stack, TextField, Typography } from "@mui/material";
 import LockResetIcon from "@mui/icons-material/LockReset";
 import { apiFetch } from "../api/client";

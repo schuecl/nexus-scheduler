@@ -1,4 +1,4 @@
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { Box, Link as MuiLink, Paper, Stack, Typography } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 

@@ -23,7 +23,7 @@ import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { apiFetch } from "../api/client";
 import { RunStatusIcon, RUN_STATUS_COLOR, type RunStatus } from "./RunStatusIcon";
 

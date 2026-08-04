@@ -24,7 +24,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import BlockIcon from "@mui/icons-material/Block";
 import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { apiFetch } from "../api/client";
 import { useConfirm } from "../context/ConfirmContext";
 

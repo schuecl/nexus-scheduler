@@ -1,4 +1,4 @@
-import { Link as RouterLink, useParams } from "react-router-dom";
+import { Link as RouterLink, useParams } from "react-router";
 import { Breadcrumbs, Chip, Stack, Typography } from "@mui/material";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import { findKbArticle } from "../help/kbContent";

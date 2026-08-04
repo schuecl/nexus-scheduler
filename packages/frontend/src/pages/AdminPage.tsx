@@ -49,7 +49,7 @@ import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import PolicyIcon from "@mui/icons-material/Policy";
 import FlagIcon from "@mui/icons-material/Flag";
 import { useAuth } from "../context/AuthContext";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { SystemStatusSummary } from "../components/SystemStatusGraph";
 import { useSettings } from "../context/SettingsContext";
 import { useConfirm } from "../context/ConfirmContext";

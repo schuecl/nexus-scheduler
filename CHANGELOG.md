@@ -37,6 +37,36 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
 
 ### Security
 
+- Bumped React 18.3.1 → 19.2.8 and replaced `react-router-dom` (7.18.2,
+  never released past 7.x) with `react` v8.3.0's own DOM router exports
+  (`packages/frontend`), clearing a high-severity advisory
+  (GHSA-qwww-vcr4-c8h2, RSC-mode CSRF) that surfaced *after* #243 had
+  already bumped to 7.18.2 — its vulnerable range (`react-router` >=
+  7.12.0, < 8.3.0) swallowed that whole fix, and `react-router-dom` has
+  no 8.x release to bump to; the ecosystem's own migration path past v7
+  is depending on `react-router` directly, which re-exports the same
+  `BrowserRouter`/`Routes`/`Route`/etc. — a mechanical import-path
+  rename across the 19 files/~24 call sites that used them, no other
+  code changes, since this app only used the plain declarative router
+  (no RSC, no data router) the advisory doesn't even reach. `react@8.3.0`
+  requires React >=19.2.7 as a peer, hence the React bump; the rest of
+  the dependency graph (MUI, emotion, `@tanstack/react-query`,
+  `react-markdown`) already declared React 19 support, so no other
+  major bumps were needed — just `@testing-library/react` 16.0.1 →
+  16.3.2 for typed React 19 peer support. `npm audit` is fully clean
+  (0 findings) after this (#248, follow-up to #243/#241).
+
+  Along the way, fixed a real duplicate-React-instances bug this
+  surfaced: a stale, orphaned `react-router-dom@7.18.2` (left over,
+  `extraneous`, from before this change) kept a root-hoisted
+  `react@18.3.1` alive that MUI/emotion/react-query/etc. — themselves
+  hoisted to the repo root, since only this workspace uses them — were
+  silently resolving against instead of this package's own React 19,
+  since Node module resolution can't see sideways into a sibling
+  workspace's nested `node_modules`. A scoped `npm install` doesn't
+  prune orphaned packages; only a full reinstall (deleted
+  `node_modules` + lockfile, reinstalled) forced a correct, single
+  resolution.
 - Bumped `react-router-dom` 6.27.0 → 7.18.2 (`packages/frontend`),
   clearing a moderate-severity `npm audit` finding covering the entire
   6.x line — an open redirect via backslash in `<Link>`/`useNavigate`
@@ -47,10 +77,8 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   #241). The app only used v6/v7's declarative router API
   (`BrowserRouter`/`Routes`/`Route`, no data router, loaders, or splat
   routes), which v7 keeps API-compatible, so no route code changed.
-
-  Also fixed by this bump, but superseded by a newer advisory published
-  after this range was chosen: see #248 (`GHSA-qwww-vcr4-c8h2`, RSC-mode
-  CSRF, needs a react-router v8 + React 19 migration to fully clear).
+  (Superseded by a newer advisory that surfaced right after — see the
+  #248 entry above.)
 - Bumped `vite` 5.4.9 → 8.2.0 in `packages/frontend`, clearing a
   moderate-severity `esbuild` advisory (GHSA-67mh-4wv8-2f99: any website
   could send requests to the Vite dev server and read the response)
