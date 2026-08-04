@@ -54,6 +54,26 @@ packages, so there's no per-package versioning here (see `scripts/release.mjs`).
   default) is a no-op — same bundled StatefulSet as before. CI now
   templates both the default and external-Mongo paths.
 
+### Fixed
+
+- pdf-service metrics were unreachable from `helm/observability` (issue
+  #180, follow-up to #118): its pod deliberately carries no
+  `prometheus.io/scrape` annotation (the NetworkPolicy admits only
+  api/worker to the render port, and a pod annotation can't name just the
+  separate metrics port without also advertising the render port to any
+  annotation-scraping tool), so Alloy's pod-only discovery never found it
+  — every `pdf-service.json` panel stayed empty, and `system-map.json`
+  rendered it as **down**. Alloy now also discovers targets via a
+  `discovery.kubernetes` `role=endpoints` rule keyed on a
+  `prometheus.io/scrape` annotation on the **Service**, filtered to the
+  Service's `metrics`-named port; `helm/nexus-scheduler`'s pdf-service
+  Service carries that annotation whenever `pdfService.metrics.enabled`
+  is on, and the render port stays exactly as unannotated and
+  NetworkPolicy-isolated as before. Both `system-map.json` panels also
+  now distinguish *no data* (metrics never enabled — grey) from real
+  *down* (enabled but the scrape is failing — red), instead of collapsing
+  the two.
+
 ### Security
 
 - Bumped React 18.3.1 → 19.2.8 and replaced `react-router-dom` (7.18.2,

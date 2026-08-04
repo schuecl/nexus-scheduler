@@ -54,15 +54,20 @@
             {
               "type": "value",
               "options": {
+                "-1": {
+                  "text": "NO DATA",
+                  "color": "#9e9e9e",
+                  "index": 0
+                },
                 "0": {
                   "text": "DOWN",
                   "color": "#c62828",
-                  "index": 0
+                  "index": 1
                 },
                 "1": {
                   "text": "UP",
                   "color": "#2e7d32",
-                  "index": 1
+                  "index": 2
                 }
               }
             }
@@ -85,7 +90,7 @@
         },
         {
           "refId": "pdf",
-          "expr": "max(up{service=\"pdf-service\"})",
+          "expr": "max(up{service=\"pdf-service\"}) or vector(-1)",
           "instant": true,
           "legendFormat": "pdf"
         },
@@ -763,15 +768,20 @@
             {
               "type": "value",
               "options": {
+                "-1": {
+                  "text": "NO DATA",
+                  "color": "#9e9e9e",
+                  "index": 0
+                },
                 "0": {
                   "text": "DOWN",
                   "color": "#c62828",
-                  "index": 0
+                  "index": 1
                 },
                 "1": {
                   "text": "UP",
                   "color": "#2e7d32",
-                  "index": 1
+                  "index": 2
                 }
               }
             }
@@ -803,7 +813,7 @@
         },
         {
           "refId": "C",
-          "expr": "max(up{service=\"pdf-service\"})",
+          "expr": "max(up{service=\"pdf-service\"}) or vector(-1)",
           "instant": true,
           "legendFormat": "pdf-service"
         },

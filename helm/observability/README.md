@@ -81,7 +81,7 @@ metrics platform and does not try to be.
                         └──────────────────────────────────────────────────────┘
 
    ◄───  pull (Alloy scrapes the target)
-   ◄╌╌╌  pull, but NOT wired today — see "Known gap: pdf-service"
+   ◄╌╌╌  pull, but off by default — see "pdf-service" below
 ```
 
 **Everything is pull-based except the LiteLLM spend log**, which the
@@ -146,6 +146,35 @@ metrics:
   annotations: true
   scraperNamespaces: ["observability"]   # ← without this, ocr shows up=0
 ```
+
+### pdf-service — annotate the Service, not the pod
+
+pdf-service (issue #118) splits its render port from its metrics port on
+purpose: the render port's NetworkPolicy admits only api/worker, and that
+can't tell `GET /metrics` from `POST /render/*` on a shared listener, so
+its pod carries no `prometheus.io/scrape` annotation at all — annotating
+the pod would point every annotation-scraping tool at the render port.
+Alloy discovers it a different way (issue #180): a `discovery.kubernetes`
+`role=endpoints` rule keyed on a `prometheus.io/scrape` annotation on the
+**Service**, filtered to the Service's `metrics`-named port. The app chart
+sets that annotation itself once `pdfService.metrics.enabled` is on; the
+NetworkPolicy still has to admit Alloy to the port:
+
+```yaml
+# values for helm/nexus-scheduler
+pdfService:
+  metrics:
+    enabled: true
+    scrapeFrom:
+      - namespaceSelector:
+          matchLabels: { kubernetes.io/metadata.name: observability }
+        podSelector:
+          matchLabels: { app.kubernetes.io/name: alloy }
+```
+
+Both are off by default, so `pdf-service.json` stays empty and
+`system-map.json` shows pdf-service as **NO DATA** (not *down*) until you
+set them.
 
 ### LibreChat / Ollama
 
@@ -234,11 +263,11 @@ Both also expose the standard `nodejs_*` and `process_*` series.
 `litellm_gateway_tokens_total`, `litellm_gateway_spend_usd_total`,
 `litellm_gateway_mcp_calls_total`.
 
-### pdf-service
+### pdf-service (`service="pdf-service"`)
 
 `nexus_scheduler_pdf_render_duration_seconds`,
-`nexus_scheduler_pdf_renders_total` — **not collected by this chart today**,
-see below.
+`nexus_scheduler_pdf_renders_total` — opt-in, see "pdf-service — annotate
+the Service, not the pod" under "Wiring each component" above.
 
 ### Infrastructure
 
@@ -427,6 +456,7 @@ Which ones need what:
 | `ai-savings`, `ai-consumption-cost` | `litellmExporter.enabled` |
 | `host` | `alloy.hostMetrics: true` |
 | `ocr-service` | the OCR chart's `metrics.scraperNamespaces` |
+| `pdf-service` | the app chart's `pdfService.metrics.enabled` and `.scrapeFrom` |
 
 ---
 
@@ -435,10 +465,6 @@ Which ones need what:
 These are tracked upstream; listed here so an empty panel is not mistaken
 for a broken install.
 
-- **pdf-service is not collected.** Its metrics live on a dedicated
-  scrape-only port that only a ServiceMonitor targets, and Alloy discovers
-  by pod annotation. Every `pdf-service` panel is empty and `system-map`
-  shows it *down* rather than *no data*.
 - **No profiling or tracing.** Pyroscope and Tempo are deliberately absent —
   the app has no profiling or OpenTelemetry instrumentation, so those
   backends would stand up and receive nothing.
@@ -455,6 +481,8 @@ for a broken install.
 | `ImagePullBackOff` on one pod | An authenticated mirror without `global.imagePullSecrets` |
 | A node contributes nothing | Node is tainted and `global.tolerations` is empty |
 | `up{service="ocr"} == 0` | The OCR chart's NetworkPolicy — set its `metrics.scraperNamespaces` |
+| `system-map` shows pdf-service **NO DATA** | Expected while `pdfService.metrics.enabled` is off (the default) — not a failure |
+| `system-map` shows pdf-service **DOWN** | `pdfService.metrics.enabled` is on but `.scrapeFrom` doesn't admit Alloy — its NetworkPolicy refuses the scrape |
 | Series arrive with empty `service` | The pod lacks `app.kubernetes.io/component` / `name` |
 | Doubled samples | Another Prometheus scrapes the same targets. Pick one collector |
 | Remote write / scrape target fails TLS verification against a hostname that looks right | Corporate DNS search domain with a wildcard — see below |
