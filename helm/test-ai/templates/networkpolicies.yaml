@@ -6,6 +6,7 @@
 # Ingress-only policies: egress stays open (model pulls, gateway calls).
 # Requires a CNI that enforces NetworkPolicy — without one this renders
 # but does nothing.
+{{- if not .Values.mongo.external.existingSecret }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -27,6 +28,7 @@ spec:
       ports:
         - port: mongo
 ---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

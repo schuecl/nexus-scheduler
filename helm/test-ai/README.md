@@ -39,12 +39,33 @@ fails. `helm/nexus-scheduler` (the application itself) is FIPS-clean as
 of #106. `helm/ocr` has no MongoDB. `helm/observability` (Mimir, Loki,
 Grafana, Alloy) starts normally.
 
-**There is no supported fix in this chart yet.** A FIPS-capable image
-(e.g. Percona Server for MongoDB) or a `mongo.external.uri` value to
-point at a MongoDB you already run are tracked as follow-up work in
-#251; neither is implemented. If your target nodes are FIPS-enabled,
-this chart's bundled MongoDB (and so LibreChat) cannot be installed
-there today.
+### Fix: point at your own MongoDB
+
+Set `mongo.external.existingSecret` to a Secret name (key `uri`,
+holding a full connection string) and the chart renders **no** `mongo`
+StatefulSet, Service, PVC, or NetworkPolicy — LibreChat's `MONGO_URI`
+comes from that Secret instead. Use this to point at a FIPS-capable
+MongoDB (e.g. [Percona Server for
+MongoDB](https://www.percona.com/mongodb/software/percona-server-for-mongodb),
+which builds against a FIPS-validated OpenSSL module) or any MongoDB
+you already run:
+
+```bash
+kubectl -n <namespace> create secret generic my-mongo \
+  --from-literal=uri='mongodb://user:pass@my-mongo-host:27017/LibreChat'
+```
+
+```yaml
+mongo:
+  external:
+    existingSecret: my-mongo
+```
+
+There is no bundled FIPS-capable image option — this Secret-based
+external URI is the supported fix (#251). A different default image
+(swapping `mongo:8.0.20` for one with a validated FIPS module) was
+also discussed in #194 but needs a licence/compatibility review and
+isn't implemented.
 
 **Local test clusters only — never production:** on a personal
 FIPS-enabled workstation, bind-mounting a file containing `0` over
