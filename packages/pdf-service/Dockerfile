@@ -12,7 +12,7 @@
 # Node image where available, run in FIPS mode, and apply the applicable
 # DISA STIG hardening baseline. This is a placeholder base image.
 
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.base.json ./
@@ -42,7 +42,7 @@ RUN npm run build --workspace=packages/pdf-service
 # per-workspace node_modules).
 RUN npm prune --omit=dev
 
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # Patches whatever current Debian security patches exist at build time
